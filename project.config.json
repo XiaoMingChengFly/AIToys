@@ -1,0 +1,23 @@
+{
+  "description": "微信打牌记账小程序",
+  "packOptions": {
+    "ignore": []
+  },
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "newFeature": true,
+    "coverView": true,
+    "showShadowRootInWxmlPanel": true,
+    "packNpmRelationList": [],
+    "ignoreUploadUnusedFiles": true
+  },
+  "compileType": "miniprogram",
+  "libVersion": "3.6.0",
+  "appid": "touristappid",
+  "projectname": "poker-bookkeeping-miniapp",
+  "condition": {}
+}

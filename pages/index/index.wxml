@@ -1,0 +1,56 @@
+<view class="container">
+  <view class="card">
+    <view class="title">本局信息</view>
+    <input placeholder="局名（可选）" value="{{roundName}}" data-field="roundName" bindinput="onInput" />
+    <picker mode="date" value="{{date}}" bindchange="onDateChange">
+      <view style="margin-top: 12rpx;">日期：{{date}}</view>
+    </picker>
+  </view>
+
+  <view class="card">
+    <view class="title">玩家结算（正数赢，负数输）</view>
+    <block wx:for="{{players}}" wx:key="id" wx:for-item="player" wx:for-index="idx">
+      <view class="player-row">
+        <input
+          class="name-input"
+          placeholder="玩家名"
+          data-id="{{player.id}}"
+          data-field="name"
+          value="{{player.name}}"
+          bindinput="onPlayerInput"
+        />
+        <input
+          class="score-input"
+          type="digit"
+          placeholder="分数"
+          data-id="{{player.id}}"
+          data-field="score"
+          value="{{player.scoreText}}"
+          bindinput="onPlayerInput"
+        />
+        <button
+          wx:if="{{players.length > 2}}"
+          class="mini-danger"
+          size="mini"
+          type="warn"
+          plain
+          data-id="{{player.id}}"
+          bindtap="removePlayer"
+        >删除</button>
+      </view>
+    </block>
+
+    <view class="actions">
+      <button bindtap="addPlayer" plain>+ 增加玩家</button>
+      <button bindtap="autoBalance" plain>一键平账</button>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="title">备注</view>
+    <textarea placeholder="记录牌型、约定玩法等" value="{{note}}" data-field="note" bindinput="onInput" />
+  </view>
+
+  <button class="primary-btn" bindtap="saveRound">保存本局</button>
+  <button class="warn-btn" type="warn" plain bindtap="clearAll">清空所有记录</button>
+</view>
