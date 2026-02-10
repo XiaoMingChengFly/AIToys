@@ -130,6 +130,7 @@ Page({
     this.persistRound(validPlayers, total);
   },
 
+<<<<<<< ours
   persistRound(validPlayers, total) {
     const roundCount = getRounds().length;
     const round = {
@@ -144,16 +145,52 @@ Page({
     addRound(round);
     wx.showToast({ title: '已保存' });
     this.resetForm(true);
+=======
+  async persistRound(validPlayers, total) {
+    try {
+      wx.showLoading({ title: '保存中' });
+      const rounds = await getRounds();
+      const round = {
+        roundName: this.data.roundName.trim() || `第 ${rounds.length + 1} 局`,
+        date: this.data.date,
+        note: this.data.note.trim(),
+        total,
+        players: validPlayers
+      };
+
+      await addRound(round);
+      wx.showToast({ title: '已保存' });
+      this.resetForm(true);
+    } catch (error) {
+      wx.showToast({ title: '保存失败，请检查云环境', icon: 'none' });
+    } finally {
+      wx.hideLoading();
+    }
+>>>>>>> theirs
   },
 
   clearAll() {
     wx.showModal({
       title: '确认清空',
       content: '将删除所有历史局记录，无法恢复。',
+<<<<<<< ours
       success: (res) => {
         if (!res.confirm) return;
         clearRounds();
         wx.showToast({ title: '已清空' });
+=======
+      success: async (res) => {
+        if (!res.confirm) return;
+        try {
+          wx.showLoading({ title: '清空中' });
+          await clearRounds();
+          wx.showToast({ title: '已清空' });
+        } catch (error) {
+          wx.showToast({ title: '清空失败，请检查云环境', icon: 'none' });
+        } finally {
+          wx.hideLoading();
+        }
+>>>>>>> theirs
       }
     });
   }
