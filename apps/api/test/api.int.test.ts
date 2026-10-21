@@ -1052,3 +1052,162 @@ describe("custom relations between work items", () => {
     expect(await linksOf(need)).toEqual([]);
   });
 });
+
+describe("node tasks and completion forms", () => {
+  const spaceId = randomUUID();
+  const typeId = `${spaceId}/req`;
+  let admin: { cookie: string; userId: string };
+  let member: { cookie: string; userId: string };
+  let itemId: string;
+  const run = (name: string, args: unknown, userId = member.userId) => services.zero.run(name, args, userId);
+  const db = () => services.database.db;
+  const tasksOf = () =>
+    db().select().from(schema.nodeTask).where(eq(schema.nodeTask.workItemId, itemId)).orderBy(schema.nodeTask.id);
+  const nodeState = async (nodeKey: string) =>
+    (
+      await db()
+        .select()
+        .from(schema.nodeInstance)
+        .where(eq(schema.nodeInstance.id, `${itemId}/${nodeKey}`))
+    )[0]?.state;
+
+  beforeAll(async () => {
+    admin = await signUp(`task-admin-${spaceId}@example.com`);
+    member = await signUp(`task-member-${spaceId}@example.com`);
+    await run("space.create", { id: spaceId, name: "子任务" }, admin.userId);
+    await db().insert(schema.spaceMember).values({ spaceId, userId: member.userId });
+    await run("workItemType.create", { id: typeId, spaceId, key: "req", name: "需求" }, admin.userId);
+    await run("roleDef.create", { id: `${typeId}/role/dev`, typeId, key: "dev", name: "开发" }, admin.userId);
+    for (const key of ["版本号", "备注"])
+      await run(
+        "fieldDef.create",
+        { id: `${typeId}/field/${key}`, typeId, key, name: key, dataType: "text" },
+        admin.userId,
+      );
+    await run("flowTemplate.create", { id: `${typeId}/default`, typeId, key: "default", name: "默认" }, admin.userId);
+    await run(
+      "flowTemplate.saveDraft",
+      {
+        templateId: `${typeId}/default`,
+        definition: {
+          key: "default",
+          version: 0,
+          nodes: [
+            { key: "start", name: "开始", completion: "auto", ownerRoles: [] },
+            {
+              key: "dev",
+              name: "开发",
+              completion: "singleConfirm",
+              ownerRoles: ["dev"],
+              tasks: ["写代码", "自测"],
+              form: [{ field: "版本号", required: true }, { field: "备注" }],
+            },
+            { key: "done", name: "上线", completion: "singleConfirm", ownerRoles: ["dev"] },
+          ],
+          edges: [
+            { from: "start", to: "dev" },
+            { from: "dev", to: "done" },
+          ],
+        },
+      },
+      admin.userId,
+    );
+    await run("flowTemplate.publish", { versionId: `${typeId}/default/v1` }, admin.userId);
+    itemId = randomUUID();
+    await run("workItem.create", { id: itemId, typeId, name: "导出报表", fields: {}, roles: { dev: [member.userId] } });
+  });
+
+  it("refuses to publish a form that uses a missing field", async () => {
+    const templateId = `${typeId}/broken`;
+    await run("flowTemplate.create", { id: templateId, typeId, key: "broken", name: "坏的" }, admin.userId);
+    await run(
+      "flowTemplate.saveDraft",
+      {
+        templateId,
+        definition: {
+          key: "broken",
+          version: 0,
+          nodes: [{ key: "a", name: "A", completion: "singleConfirm", ownerRoles: [], form: [{ field: "不存在" }] }],
+          edges: [],
+        },
+      },
+      admin.userId,
+    );
+    await expect(run("flowTemplate.publish", { versionId: `${templateId}/v1` }, admin.userId)).rejects.toThrow(
+      "完成表单用到的字段「不存在」不存在",
+    );
+  });
+
+  it("creates the template's preset tasks with the work item", async () => {
+    expect((await tasksOf()).map((t) => [t.nodeKey, t.name, t.done])).toEqual([
+      ["dev", "写代码", false],
+      ["dev", "自测", false],
+    ]);
+  });
+
+  it("adds, assigns and ticks tasks, and tells the assignee", async () => {
+    const outsider = await signUp(`task-outsider-${randomUUID()}@example.com`);
+    const id = randomUUID();
+    await expect(
+      run("task.create", { id, workItemId: itemId, nodeKey: "dev", name: "x", assigneeId: outsider.userId }),
+    ).rejects.toThrow("空间成员");
+    await expect(
+      run("task.create", { id, workItemId: itemId, nodeKey: "dev", name: "x" }, outsider.userId),
+    ).rejects.toThrow("没有权限");
+
+    await run(
+      "task.create",
+      { id, workItemId: itemId, nodeKey: "dev", name: "写文档", assigneeId: member.userId, due: "2026-11-02" },
+      admin.userId,
+    );
+    const created = (await tasksOf()).find((t) => t.id === id);
+    expect(created).toMatchObject({ assigneeId: member.userId, createdBy: admin.userId });
+    expect(created?.dueDate?.toISOString()).toBe("2026-11-02T00:00:00.000Z");
+
+    const [event] = await db()
+      .select()
+      .from(schema.eventLog)
+      .where(and(eq(schema.eventLog.workItemId, itemId), eq(schema.eventLog.kind, "taskCreated")));
+    await notify(services.database, event?.id as number);
+    const inbox = await db().select().from(schema.notification).where(eq(schema.notification.userId, member.userId));
+    expect(inbox.map((n) => [n.kind, n.text])).toContainEqual([
+      "taskAssigned",
+      "task-admin-" + spaceId + " 在「导出报表」给你分配了子任务「写文档」",
+    ]);
+
+    await run("task.update", { id, name: "写使用文档", due: null });
+    expect((await tasksOf()).find((t) => t.id === id)).toMatchObject({ name: "写使用文档", dueDate: null });
+  });
+
+  it("blocks the confirm until every task is done and the form's required fields are filled", async () => {
+    await expect(run("node.confirm", { workItemId: itemId, nodeKey: "dev" })).rejects.toThrow("3 个子任务没完成");
+    for (const t of await tasksOf()) await run("task.setDone", { id: t.id, done: true });
+    expect((await tasksOf()).every((t) => t.done && t.doneBy === member.userId)).toBe(true);
+
+    await expect(run("node.confirm", { workItemId: itemId, nodeKey: "dev" })).rejects.toThrow("必填项");
+    await expect(
+      run("node.confirm", { workItemId: itemId, nodeKey: "dev", values: { 版本号: "1.0", 其它: "x" } }),
+    ).rejects.toThrow("不在节点「开发」的完成表单里");
+    // 被拒绝的确认什么也没写
+    expect(await db().select().from(schema.fieldValue).where(eq(schema.fieldValue.workItemId, itemId))).toEqual([]);
+
+    await run("node.confirm", { workItemId: itemId, nodeKey: "dev", values: { 版本号: "1.0", 备注: "首版" } });
+    expect(await nodeState("dev")).toBe("completed");
+    expect(await nodeState("done")).toBe("inProgress");
+    const values = await db().select().from(schema.fieldValue).where(eq(schema.fieldValue.workItemId, itemId));
+    expect(Object.fromEntries(values.map((v) => [v.fieldKey, v.value]))).toEqual({ 版本号: "1.0", 备注: "首版" });
+    const kinds = (
+      await db().select().from(schema.eventLog).where(eq(schema.eventLog.workItemId, itemId)).orderBy(schema.eventLog.id)
+    ).map((e) => e.kind);
+    expect(kinds.slice(-4)).toEqual(["fieldChanged", "fieldChanged", "nodeCompleted", "nodeStarted"]);
+  });
+
+  it("freezes a completed node's tasks until the node is rolled back", async () => {
+    const [task] = await tasksOf();
+    await expect(run("task.setDone", { id: task?.id, done: false })).rejects.toThrow("已完成");
+    await run("node.rollback", { workItemId: itemId, nodeKey: "dev" });
+    await run("task.setDone", { id: task?.id, done: false });
+    await run("task.delete", { id: task?.id });
+    expect((await tasksOf()).map((t) => t.id)).not.toContain(task?.id);
+  });
+});

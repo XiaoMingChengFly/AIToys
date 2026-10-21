@@ -11,6 +11,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -22,6 +23,17 @@ import {
   uniqueIndex,
   vector,
 } from "drizzle-orm/pg-core";
+
+/**
+ * 存任意 JSON 值的列（字段值可以是字符串、数字、数组……）。
+ * postgres.js 读出 jsonb 时已经解析过一次，drizzle 自带的 jsonb 会对字符串再 JSON.parse 一次，
+ * 把文本 "1.0" 读成数字 1、"true" 读成布尔值。这里读出时原样返回。
+ */
+const jsonValue = customType<{ data: unknown; driverData: unknown }>({
+  dataType: () => "jsonb",
+  toDriver: (value) => JSON.stringify(value),
+  fromDriver: (value) => value,
+});
 
 /*
  * 表结构对应设计文档「核心概念与数据模型」：配置层描述一类工作项长什么样、怎么流转，实例层记录工作项走到哪了。
@@ -313,7 +325,7 @@ export const fieldValue = pgTable(
       .notNull()
       .references(() => workItem.id, { onDelete: "cascade" }),
     fieldKey: text("field_key").notNull(),
-    value: jsonb("value").$type<unknown>(),
+    value: jsonValue("value"),
     /** 公式字段的结果计算时间；普通字段为空。 */
     computedAt: timestamp("computed_at", { withTimezone: true, mode: "date" }),
     updatedAt: updatedAt(),

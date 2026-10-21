@@ -48,6 +48,8 @@ export const flowDefinitionSchema = z.object({
       visibility: condition.optional(),
       gate: condition.optional(),
       stageOnArrival: z.string().min(1).optional(),
+      form: z.array(z.object({ field: z.string(), required: z.boolean().optional() })).optional(),
+      tasks: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
       duration: z.number().int().min(0).max(999).optional(),
       position: z.object({ x: z.number(), y: z.number() }).optional(),
     }),
@@ -176,6 +178,8 @@ export function checkReferences(
     for (const c of [node.visibility, node.gate])
       for (const field of c ? fieldsOf(c) : [])
         if (!fields.has(field)) errors.push(`节点「${node.name}」的条件用到的字段「${field}」不存在。`);
+    for (const { field } of node.form ?? [])
+      if (!fields.has(field)) errors.push(`节点「${node.name}」的完成表单用到的字段「${field}」不存在。`);
   }
   return errors;
 }
