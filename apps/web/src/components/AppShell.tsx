@@ -1,7 +1,7 @@
 import { queries } from "@fp/sync";
 import { useQuery } from "@rocicorp/zero/react";
-import { Link } from "@tanstack/react-router";
-import { ChevronsUpDown, House, Inbox, LayoutList, LogOut, Settings, Zap } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { ChevronsUpDown, House, Inbox, KeyRound, LayoutList, LogOut, Settings, Zap } from "lucide-react";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { SearchDialog } from "@/components/SearchDialog";
@@ -48,6 +48,7 @@ const navItem =
 function Sidebar({ spaceId, user }: { spaceId: string | undefined; user: { id: string; name: string } }) {
   const [spaces] = useQuery(queries.spaces.mine());
   const [space] = useQuery(spaceId ? queries.spaces.byId({ id: spaceId }) : undefined);
+  const navigate = useNavigate();
 
   return (
     <nav aria-label="主导航" className="flex w-56 shrink-0 flex-col border-r border-line-subtle bg-surface">
@@ -154,6 +155,10 @@ function Sidebar({ spaceId, user }: { spaceId: string | undefined; user: { id: s
             <span className="truncate">{user.name}</span>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="right" align="end">
+            <DropdownMenuItem onSelect={() => navigate({ to: "/settings/api" })}>
+              <KeyRound />
+              开放接口
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => authClient.signOut()}>
               <LogOut />
               退出

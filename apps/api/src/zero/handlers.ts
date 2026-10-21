@@ -31,6 +31,9 @@ export function createZeroHandlers(database: Database) {
       });
     },
 
+    /** 在服务端直接执行 ZQL 查询（开放接口用；查询本身带权限过滤，和浏览器里一样）。 */
+    zql: runner.zqlDb,
+
     /** 不经过 HTTP 直接在一个服务端事务里执行 mutator。测试和服务端内部调用用。 */
     run(name: string, args: unknown, userID: string) {
       return runner.run(name, args, { userID });

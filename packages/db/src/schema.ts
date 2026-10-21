@@ -614,6 +614,27 @@ export const outbox = infra.table(
   (t) => [index("outbox_pending").on(t.id).where(sql`${t.dispatchedAt} is null`)],
 );
 
+/**
+ * 开放接口的访问令牌。令牌代表创建它的用户，权限和这个用户在界面上一样。
+ * 只存令牌的 SHA-256；明文只在创建时返回一次。
+ */
+export const apiToken = infra.table(
+  "api_token",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    /** 令牌开头几位，列表里用来认出是哪个令牌。 */
+    prefix: text("prefix").notNull(),
+    createdAt: createdAt(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" }),
+  },
+  (t) => [index("api_token_user").on(t.userId)],
+);
+
 /** 工作项的向量表示，用于 AI 检索。不同步到前端。 */
 export const workItemEmbedding = infra.table(
   "work_item_embedding",

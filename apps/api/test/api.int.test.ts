@@ -1920,3 +1920,144 @@ describe("detail layout", () => {
     expect(await stored()).toBeNull();
   });
 });
+
+describe("open API", () => {
+  const spaceId = randomUUID();
+  const typeId = `${spaceId}/bug`;
+  const templateId = `${typeId}/default`;
+  let admin: { cookie: string; userId: string };
+  let stranger: { cookie: string; userId: string };
+  let token: string;
+  const run = (name: string, args: unknown, userId = admin.userId) => services.zero.run(name, args, userId);
+  const call = (path: string, init: { method?: string; body?: unknown; token?: string } = {}) =>
+    app.request(`/open-api/v1${path}`, {
+      method: init.method ?? "GET",
+      headers: {
+        authorization: `Bearer ${init.token ?? token}`,
+        ...(init.body !== undefined && { "content-type": "application/json" }),
+      },
+      ...(init.body !== undefined && { body: JSON.stringify(init.body) }),
+    });
+
+  beforeAll(async () => {
+    admin = await signUp(`open-admin-${spaceId}@example.com`);
+    stranger = await signUp(`open-stranger-${spaceId}@example.com`);
+    await run("space.create", { id: spaceId, name: "开放接口" });
+    await run("workItemType.create", { id: typeId, spaceId, key: "bug", name: "缺陷", flowMode: "state" });
+    await run("roleDef.create", { id: `${typeId}/role/dev`, typeId, key: "dev", name: "开发" });
+    await run("fieldDef.create", {
+      id: `${typeId}/field/sev`,
+      typeId,
+      key: "严重程度",
+      name: "严重程度",
+      dataType: "text",
+    });
+    await run("flowTemplate.create", { id: templateId, typeId, key: "default", name: "流程" });
+    await run("flowTemplate.publish", { versionId: `${templateId}/v1` });
+  });
+
+  it("manages tokens with the session, and only shows the secret once", async () => {
+    const created = await app.request("/api/tokens", {
+      method: "POST",
+      headers: { cookie: admin.cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "CI 集成" }),
+    });
+    expect(created.status).toBe(201);
+    token = ((await created.json()) as { token: string }).token;
+    expect(token).toMatch(/^fp_/);
+    const listed = (await (await app.request("/api/tokens", { headers: { cookie: admin.cookie } })).json()) as {
+      name: string;
+      prefix: string;
+    }[];
+    expect(listed).toEqual([expect.objectContaining({ name: "CI 集成", prefix: token.slice(0, 10) })]);
+    expect(JSON.stringify(listed)).not.toContain(token);
+    // 令牌本身不能用来管理令牌
+    expect((await app.request("/api/tokens", { headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
+  });
+
+  it("rejects requests without a valid token", async () => {
+    expect((await call("/spaces", { token: "fp_nope" })).status).toBe(401);
+    expect((await app.request("/open-api/v1/spaces")).status).toBe(401);
+  });
+
+  it("reads spaces and creates, updates and moves work items as the token's user", async () => {
+    const spaces = (await (await call("/spaces")).json()) as { id: string }[];
+    expect(spaces.map((s) => s.id)).toContain(spaceId);
+    const space = (await (await call(`/spaces/${spaceId}`)).json()) as {
+      types: { id: string; fields: { key: string }[] }[];
+    };
+    expect(space.types[0]).toMatchObject({ id: typeId, fields: [{ key: "严重程度" }] });
+
+    const res = await call("/work-items", {
+      method: "POST",
+      body: { typeId, name: "导出失败", fields: { 严重程度: "高" }, roles: { dev: [admin.userId] } },
+    });
+    expect(res.status).toBe(201);
+    const item = (await res.json()) as { id: string; flowStatus: string; fields: Record<string, unknown> };
+    expect(item).toMatchObject({ flowStatus: "todo", fields: { 严重程度: "高" } });
+
+    const patched = (await (
+      await call(`/work-items/${item.id}/fields`, { method: "PATCH", body: { fields: { 严重程度: "中" } } })
+    ).json()) as { fields: Record<string, unknown> };
+    expect(patched.fields.严重程度).toBe("中");
+
+    const moved = (await (
+      await call(`/work-items/${item.id}/transition`, { method: "POST", body: { to: "doing" } })
+    ).json()) as { flowStatus: string; stage: string };
+    expect(moved).toMatchObject({ flowStatus: "doing", stage: "处理中" });
+    const bad = await call(`/work-items/${item.id}/transition`, { method: "POST", body: { to: "nowhere" } });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { message: string }).message).toBeTruthy();
+
+    expect((await call(`/work-items/${item.id}/comments`, { method: "POST", body: { body: "已定位" } })).status).toBe(
+      201,
+    );
+    const events = await services.database.db
+      .select()
+      .from(schema.eventLog)
+      .where(eq(schema.eventLog.workItemId, item.id));
+    expect(events.map((e) => e.kind)).toEqual(
+      expect.arrayContaining(["workItemCreated", "fieldChanged", "statusChanged", "commentAdded"]),
+    );
+  });
+
+  it("pages through work items", async () => {
+    for (const name of ["a", "b", "c"]) await call("/work-items", { method: "POST", body: { typeId, name } });
+    const first = (await (
+      await call(`/spaces/${spaceId}/work-items/query`, { method: "POST", body: { limit: 2 } })
+    ).json()) as { items: { name: string }[]; nextCursor: string | null };
+    expect(first.items.map((i) => i.name)).toEqual(["c", "b"]);
+    const second = (await (
+      await call(`/spaces/${spaceId}/work-items/query`, {
+        method: "POST",
+        body: { limit: 2, cursor: first.nextCursor },
+      })
+    ).json()) as { items: { name: string }[]; nextCursor: string | null };
+    expect(second.items.map((i) => i.name)).toEqual(["a", "导出失败"]);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("keeps other users' spaces out of reach", async () => {
+    const created = await app.request("/api/tokens", {
+      method: "POST",
+      headers: { cookie: stranger.cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "x" }),
+    });
+    const strangerToken = ((await created.json()) as { token: string }).token;
+    expect((await call(`/spaces/${spaceId}`, { token: strangerToken })).status).toBe(404);
+    const [item] = await services.database.db
+      .select()
+      .from(schema.workItem)
+      .where(eq(schema.workItem.spaceId, spaceId));
+    expect((await call(`/work-items/${item?.id}`, { token: strangerToken })).status).toBe(404);
+    const create = await call("/work-items", { method: "POST", token: strangerToken, body: { typeId, name: "x" } });
+    expect(create.status).toBe(400);
+  });
+
+  it("serves the OpenAPI description", async () => {
+    const spec = (await (await app.request("/open-api/v1/spec.json")).json()) as { paths: Record<string, unknown> };
+    expect(Object.keys(spec.paths)).toEqual(
+      expect.arrayContaining(["/spaces", "/work-items", "/work-items/{id}", "/work-items/{id}/transition"]),
+    );
+  });
+});

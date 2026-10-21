@@ -8,7 +8,9 @@ import { attachmentRoutes } from "./attachments.ts";
 import { type Auth, createAuth } from "./auth.ts";
 import { type BlobStore, fileBlobStore } from "./blobs.ts";
 import { config } from "./config.ts";
+import { createOpenApiHandler, OPEN_API_PREFIX } from "./open-api.ts";
 import { importOemTemplate } from "./seed/oem.ts";
+import { tokenRoutes } from "./tokens.ts";
 import { createZeroHandlers } from "./zero/handlers.ts";
 
 export interface Services {
@@ -29,8 +31,10 @@ export function createServices(databaseUrl = config.databaseUrl, filesDir = conf
   return { database, auth, zero: createZeroHandlers(database), blobs: fileBlobStore(filesDir) };
 }
 
-/** HTTP 应用：登录、Zero 的查询和写入转发、引擎能力。oRPC 开放接口后续接入。 */
+/** HTTP 应用：登录、Zero 的查询和写入转发、附件、开放接口和它的令牌。 */
 export function createApp({ database, auth, zero, blobs }: Services) {
+  const openApi = createOpenApiHandler();
+
   async function userID(headers: Headers): Promise<string | null> {
     const session = await auth.api.getSession({ headers });
     return session?.user.id ?? null;
@@ -49,6 +53,15 @@ export function createApp({ database, auth, zero, blobs }: Services) {
       .use("/api/*", cors({ origin: config.webOrigins, credentials: true }))
       .get("/api/health", (c) => c.json({ ok: true }))
       .route("/", attachmentRoutes(database, blobs, userID))
+      .route("/", tokenRoutes(database, userID))
+      // 开放接口给服务端调用，用令牌认证，不带 cookie，所以不需要 CORS 白名单
+      .all(`${OPEN_API_PREFIX}/*`, async (c) => {
+        const { matched, response } = await openApi.handle(c.req.raw, {
+          prefix: OPEN_API_PREFIX,
+          context: { headers: c.req.raw.headers, database, zero },
+        });
+        return matched ? c.newResponse(response.body, response) : c.json({ error: "接口不存在。" }, 404);
+      })
       .on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
       .post("/api/zero/query", async (c) => {
         const id = await userID(c.req.raw.headers);
