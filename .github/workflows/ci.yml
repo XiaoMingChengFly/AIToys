@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Start Postgres and Temporal
+        run: |
+          docker compose up -d --wait postgres temporal
+          docker compose run --rm temporal-namespace
+      - run: pnpm test:integration
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose logs --tail 200 postgres temporal

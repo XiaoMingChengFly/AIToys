@@ -12,3 +12,4 @@ dist/
 # OS / IDE
 .DS_Store
 .idea/
+.turbo/

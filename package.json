@@ -10,8 +10,10 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "test": "turbo run test",
+    "test:integration": "turbo run test:integration --concurrency=1",
     "typecheck": "turbo run typecheck",
-    "check": "biome check ."
+    "check": "biome check .",
+    "db:generate": "pnpm --filter @fp/db db:generate && pnpm --filter @fp/sync generate"
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.4",
