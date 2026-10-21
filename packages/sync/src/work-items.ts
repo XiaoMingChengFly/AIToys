@@ -15,6 +15,8 @@ import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { assertSpaceMembers, requireWriter, syncFieldAccess } from "./access.ts";
 import { fieldDefOf, writeFieldValue } from "./field-values.ts";
+import { recomputeFlow } from "./flow.ts";
+import { recomputeFormulas } from "./formulas.ts";
 import { planNodes } from "./planning.ts";
 import { zql } from "./schema.gen.ts";
 
@@ -170,5 +172,9 @@ export async function createWorkItem(
   }
 
   await syncFieldAccess(tx, args.id);
-  return { spaceId: type.spaceId, flowVersionId, events: flow?.events ?? [] };
+  const events: FlowEvent[] = [...(flow?.events ?? [])];
+  // 公式在服务端算；算出的值可能让流程的出现条件、自动节点有变化
+  if ((await recomputeFormulas(tx, args.id)).length > 0 && definition)
+    events.push(...(await recomputeFlow(tx, args.id, userID)));
+  return { spaceId: type.spaceId, flowVersionId, events };
 }

@@ -1,4 +1,4 @@
-import { fieldIndex, normalizeFieldValue } from "@fp/engine";
+import { type FieldDataType, fieldIndex, normalizeFieldValue } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { assertSpaceMembers } from "./access.ts";
 import { zql } from "./schema.gen.ts";
@@ -24,22 +24,35 @@ export async function writeFieldValue(
   const value = normalizeFieldValue(field, input);
   if (field.dataType === "user" && Array.isArray(value))
     await assertSpaceMembers(tx, item.spaceId, value.map(String), `「${field.name}」只能选空间成员。`);
-  const before = await tx.run(zql.fieldValue.where("workItemId", item.id).where("fieldKey", fieldKey).one());
+  return storeFieldValue(tx, item.id, field, value);
+}
+
+/** 写入已经整理好的值，并维护检索列。公式字段的计算结果也走这里，记上计算时间。 */
+export async function storeFieldValue(
+  tx: Transaction,
+  workItemId: string,
+  field: { key: string; name: string; dataType: FieldDataType },
+  value: unknown,
+): Promise<{ from: unknown; to: unknown; created: boolean }> {
+  const fieldKey = field.key;
+  const before = await tx.run(zql.fieldValue.where("workItemId", workItemId).where("fieldKey", fieldKey).one());
   const index = fieldIndex(field, value);
+  const now = Date.now();
   await tx.mutate.fieldValue.upsert({
-    workItemId: item.id,
+    workItemId,
     fieldKey,
     value,
     num: index.num,
     str: index.str,
-    updatedAt: Date.now(),
+    ...(field.dataType === "formula" && { computedAt: now }),
+    updatedAt: now,
   });
-  const existing = await tx.run(zql.fieldValueItem.where("workItemId", item.id).where("fieldKey", fieldKey));
+  const existing = await tx.run(zql.fieldValueItem.where("workItemId", workItemId).where("fieldKey", fieldKey));
   for (const row of existing)
     if (!index.items.includes(row.item))
-      await tx.mutate.fieldValueItem.delete({ workItemId: item.id, fieldKey, item: row.item });
+      await tx.mutate.fieldValueItem.delete({ workItemId, fieldKey, item: row.item });
   for (const v of index.items)
     if (!existing.some((row) => row.item === v))
-      await tx.mutate.fieldValueItem.upsert({ workItemId: item.id, fieldKey, item: v });
+      await tx.mutate.fieldValueItem.upsert({ workItemId, fieldKey, item: v });
   return { from: before?.value ?? null, to: value, created: !before };
 }

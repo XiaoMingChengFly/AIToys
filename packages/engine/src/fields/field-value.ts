@@ -138,6 +138,10 @@ export function formatFieldValue(
       return asList(value).map(label).join("、");
     case "user":
       return asList(value).map(String).map(userName).join("、");
+    case "formula":
+      if (typeof value === "number") return String(Math.round(value * 10_000) / 10_000);
+      if (typeof value === "boolean") return value ? "是" : "否";
+      return String(value);
     default:
       return Array.isArray(value) ? value.join("、") : String(value);
   }
@@ -167,6 +171,12 @@ export function fieldIndex(
     case "multiSelect":
     case "user":
       return { ...empty, items: asList(value).map(String) };
+    case "formula":
+      // 公式的结果类型看值：数字、日期可以按范围筛，文本按包含筛，是否按属于筛
+      if (typeof value === "number") return fieldIndex({ ...field, dataType: "number" }, value);
+      if (typeof value === "boolean") return fieldIndex({ ...field, dataType: "bool" }, value);
+      if (validDate(String(value))) return fieldIndex({ ...field, dataType: "date" }, value);
+      return fieldIndex({ ...field, dataType: "text" }, value);
     default:
       return empty;
   }

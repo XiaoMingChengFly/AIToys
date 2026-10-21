@@ -1,4 +1,4 @@
-import { FIELD_TYPE_LABEL, type FieldDataType } from "@fp/engine";
+import { FIELD_TYPE_LABEL, type FieldDataType, FORMULA_FUNCTIONS } from "@fp/engine";
 import { mutators, queries } from "@fp/sync";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
@@ -11,9 +11,17 @@ import { ErrorBanner, PageBody, PageHeader } from "@/components/ui/page";
 import { newId } from "@/lib/utils";
 
 /** 新建字段时可选的类型，常用的在前。 */
-const DATA_TYPES = (["select", "multiSelect", "text", "number", "date", "user", "link", "bool"] as const).map(
-  (value) => ({ value, label: FIELD_TYPE_LABEL[value] }),
-);
+const DATA_TYPES = (
+  ["select", "multiSelect", "text", "number", "date", "user", "link", "bool", "formula"] as const
+).map((value) => ({ value, label: FIELD_TYPE_LABEL[value] }));
+
+/** 公式里的 {字段键} 换成 {字段名} 显示。 */
+export function displayFormula(source: string, fields: readonly { key: string; name: string }[]) {
+  return source.replace(/\{([^}]*)\}/g, (all, key: string) => {
+    const name = fields.find((f) => f.key === key)?.name;
+    return name ? `{${name}}` : all;
+  });
+}
 
 /** 工作项类型的配置：流程模板、角色、关联、字段。只有空间管理员能改，成员只读。 */
 export function TypePage() {
@@ -21,6 +29,7 @@ export function TypePage() {
   const zero = useZero();
   const [type, result] = useQuery(queries.types.byId({ id: typeId }));
   const [error, setError] = useState<string | null>(null);
+  const [newType, setNewType] = useState<(typeof DATA_TYPES)[number]["value"]>("select");
   useActiveSpace(type?.spaceId);
 
   if (!type)
@@ -200,8 +209,15 @@ export function TypePage() {
                 <FieldRow
                   key={f.id}
                   field={f}
+                  fields={type.fields}
                   roles={type.roles}
                   canManage={isAdmin}
+                  onFormula={async (formula) => {
+                    setError(null);
+                    const outcome = await zero.mutate(mutators.fieldDef.setFormula({ id: f.id, formula })).client;
+                    if (outcome.type === "error") setError(outcome.error.message);
+                    return outcome.type !== "error";
+                  }}
                   onAccess={async (viewRoles, editRoles) => {
                     setError(null);
                     const outcome = await zero.mutate(mutators.fieldDef.setAccess({ id: f.id, viewRoles, editRoles }))
@@ -218,7 +234,7 @@ export function TypePage() {
               onSubmit={submit((data) => {
                 const name = text(data, "name");
                 if (!name) return null;
-                const dataType = text(data, "dataType") as (typeof DATA_TYPES)[number]["value"];
+                const dataType = newType;
                 const options = text(data, "options")
                   .split(/[,，、]/)
                   .map((o) => o.trim())
@@ -231,6 +247,7 @@ export function TypePage() {
                   name,
                   dataType,
                   ...((dataType === "select" || dataType === "multiSelect") && { options }),
+                  ...(dataType === "formula" && { formula: text(data, "formula") }),
                 });
               })}
             >
@@ -240,7 +257,7 @@ export function TypePage() {
               </Label>
               <Label className="flex flex-col gap-1.5">
                 类型
-                <Select name="dataType">
+                <Select name="dataType" value={newType} onChange={(e) => setNewType(e.target.value as typeof newType)}>
                   {DATA_TYPES.map((d) => (
                     <option key={d.value} value={d.value}>
                       {d.label}
@@ -248,13 +265,21 @@ export function TypePage() {
                   ))}
                 </Select>
               </Label>
-              <Label className="flex flex-col gap-1.5">
-                选项（单选、多选用，逗号分隔）
-                <Input name="options" placeholder="是，否" />
-              </Label>
+              {newType === "formula" ? (
+                <Label className="flex flex-col gap-1.5">
+                  公式
+                  <Input name="formula" placeholder="{工时} * {单价}" />
+                </Label>
+              ) : (
+                <Label className="flex flex-col gap-1.5">
+                  选项（单选、多选用，逗号分隔）
+                  <Input name="options" placeholder="是，否" />
+                </Label>
+              )}
               <Button type="submit" variant="outline">
                 添加字段
               </Button>
+              {newType === "formula" && <FormulaHelp />}
             </form>
           )}
         </Section>
@@ -274,10 +299,34 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/** 公式写法说明，列出可用的函数。 */
+function FormulaHelp() {
+  return (
+    <details className="text-xs text-fg-muted sm:col-span-4">
+      <summary className="cursor-pointer select-none hover:text-fg">公式怎么写</summary>
+      <div className="mt-1.5 flex flex-col gap-1">
+        <p>
+          字段写成 {"{字段名}"}，可以用 + - * / 、比较（&gt; &lt; = !=）和 &amp; 拼接文本；文本用双引号。空值在计算里按
+          0 算。子工作项汇总的结果在服务端计算，引用了受限字段时，记得也给公式字段配可见角色。
+        </p>
+        <ul className="grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
+          {Object.values(FORMULA_FUNCTIONS).map((f) => (
+            <li key={f.doc} className="font-mono">
+              {f.doc}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </details>
+  );
+}
+
 type FieldDef = {
   id: string;
+  key: string;
   name: string;
   dataType: string;
+  formula: string | null;
   options: readonly { label: string }[] | null;
   viewRoles: readonly string[] | null;
   editRoles: readonly string[] | null;
@@ -286,16 +335,21 @@ type FieldDef = {
 /** 字段一行：名称、类型、选项、权限。管理员展开后按角色设置谁能看、谁能改。 */
 function FieldRow({
   field,
+  fields,
   roles,
   canManage,
   onAccess,
+  onFormula,
 }: {
   field: FieldDef;
+  fields: readonly { key: string; name: string }[];
   roles: readonly { key: string; name: string }[];
   canManage: boolean;
   onAccess: (viewRoles: string[], editRoles: string[]) => void;
+  onFormula: (formula: string) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
   const view = [...(field.viewRoles ?? [])];
   const edit = [...(field.editRoles ?? [])];
   const names = (keys: string[]) => keys.map((k) => roles.find((r) => r.key === k)?.name ?? k).join("、");
@@ -333,7 +387,45 @@ function FieldRow({
         <td className="py-1.5 pr-4 text-fg-muted">
           {FIELD_TYPE_LABEL[field.dataType as FieldDataType] ?? field.dataType}
         </td>
-        <td className="py-1.5 pr-4 text-fg-muted">{field.options?.map((o) => o.label).join(" / ")}</td>
+        <td className="py-1.5 pr-4 text-fg-muted">
+          {field.formula !== null ? (
+            editing !== null ? (
+              <form
+                className="flex items-center gap-1.5"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (await onFormula(editing)) setEditing(null);
+                }}
+              >
+                <Input
+                  aria-label={`${field.name}的公式`}
+                  value={editing}
+                  onChange={(e) => setEditing(e.target.value)}
+                  className="font-mono"
+                />
+                <Button type="submit" size="sm" variant="outline">
+                  保存
+                </Button>
+              </form>
+            ) : (
+              <span className="flex items-center gap-1.5">
+                <code className="text-xs">{displayFormula(field.formula, fields)}</code>
+                {canManage && (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    aria-label={`编辑${field.name}的公式`}
+                    onClick={() => setEditing(displayFormula(field.formula ?? "", fields))}
+                  >
+                    编辑
+                  </Button>
+                )}
+              </span>
+            )
+          ) : (
+            field.options?.map((o) => o.label).join(" / ")
+          )}
+        </td>
         <td className="py-1.5 text-xs text-fg-muted">
           {summary}
           {canManage && (
