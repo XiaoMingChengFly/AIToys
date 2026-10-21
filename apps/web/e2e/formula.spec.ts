@@ -54,7 +54,7 @@ test("a formula field is computed from other fields and can be edited", async ({
     .click();
   await page.getByRole("button", { name: "编辑总价的公式" }).click();
   await page.getByLabel("总价的公式").fill("ROUND({数量} * {单价} * 1.06, 1)");
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("cell", { name: "ROUND({数量} * {单价} * 1.06, 1)" })).toBeVisible();
   await page.goto(itemUrl);
   await expect(page.getByRole("region", { name: "字段" }).getByLabel("总价")).toHaveValue("39.8");

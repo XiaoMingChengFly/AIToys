@@ -1,3 +1,4 @@
+import { visibleLayoutFields } from "@fp/engine";
 import { mutators, queries, type WorkItemFilterArgs } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
@@ -351,8 +352,10 @@ function CreateWorkItemForm({
   const [assigned, setAssigned] = useState<Record<string, string[]>>(() =>
     Object.fromEntries(type.roles.map((r) => [r.key, [String(zero.userID)]])),
   );
-  // 新建时可以直接填的字段（公式字段由系统计算）
-  const editableFields = type.fields.filter((f) => f.dataType !== "formula" && f.dataType !== "relation");
+  // 新建时可以直接填的字段（公式字段由系统计算），按详情页布局的顺序，布局里隐藏的不显示
+  const editableFields = visibleLayoutFields(type.fields, type.detailLayout).filter(
+    (f) => f.dataType !== "formula" && f.dataType !== "relation",
+  );
 
   async function create(event: FormEvent) {
     event.preventDefault();

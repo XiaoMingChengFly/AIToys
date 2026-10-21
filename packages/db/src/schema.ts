@@ -3,6 +3,7 @@ import type {
   AutomationTrigger,
   CalendarConfig,
   Condition,
+  DetailLayout,
   FieldDataType,
   FlowDefinition,
   NodeState,
@@ -152,6 +153,8 @@ export const workItemType = pgTable(
     key: text("key").notNull(),
     name: text("name").notNull(),
     flowMode: text("flow_mode").$type<FlowMode>().notNull().default("node"),
+    /** 详情页布局：字段怎么分组、哪些不显示；为空时所有字段放在一组。 */
+    detailLayout: jsonb("detail_layout").$type<DetailLayout>(),
     sort: integer("sort").notNull().default(0),
     createdAt: createdAt(),
   },

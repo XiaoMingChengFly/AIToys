@@ -1871,3 +1871,52 @@ describe("global search", () => {
     expect(ast).toContain(String.raw`%100\\%\\_%`);
   });
 });
+
+describe("detail layout", () => {
+  const spaceId = randomUUID();
+  const typeId = `${spaceId}/req`;
+  let admin: { cookie: string; userId: string };
+  let member: { cookie: string; userId: string };
+  const run = (name: string, args: unknown, userId = admin.userId) => services.zero.run(name, args, userId);
+  const stored = async () =>
+    (await services.database.db.select().from(schema.workItemType).where(eq(schema.workItemType.id, typeId)))[0]
+      ?.detailLayout;
+
+  beforeAll(async () => {
+    admin = await signUp(`layout-admin-${spaceId}@example.com`);
+    member = await signUp(`layout-member-${spaceId}@example.com`);
+    await run("space.create", { id: spaceId, name: "布局" });
+    await services.database.db.insert(schema.spaceMember).values({ spaceId, userId: member.userId });
+    await run("workItemType.create", { id: typeId, spaceId, key: "req", name: "需求" });
+    for (const key of ["优先级", "报价", "备注"])
+      await run("fieldDef.create", { id: `${typeId}/field/${key}`, typeId, key, name: key, dataType: "text" });
+  });
+
+  it("saves a checked layout, admins only", async () => {
+    const layout = {
+      groups: [
+        { name: "基本信息", fields: ["优先级"] },
+        { name: "财务", fields: ["报价"], collapsed: true },
+      ],
+      hidden: ["备注"],
+    };
+    await expect(run("workItemType.setLayout", { id: typeId, layout }, member.userId)).rejects.toThrow(
+      "只有空间管理员",
+    );
+    await expect(
+      run("workItemType.setLayout", { id: typeId, layout: { groups: [{ name: "x", fields: ["不存在"] }] } }),
+    ).rejects.toThrow("字段「不存在」不存在");
+    await expect(
+      run("workItemType.setLayout", {
+        id: typeId,
+        layout: { groups: [{ name: "x", fields: ["报价"] }], hidden: ["报价"] },
+      }),
+    ).rejects.toThrow("不止一次");
+    expect(await stored()).toBeNull();
+
+    await run("workItemType.setLayout", { id: typeId, layout });
+    expect(await stored()).toEqual(layout);
+    await run("workItemType.setLayout", { id: typeId, layout: null });
+    expect(await stored()).toBeNull();
+  });
+});

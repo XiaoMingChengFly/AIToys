@@ -1,5 +1,6 @@
 import {
   type Condition,
+  checkLayout,
   compileFormula,
   conditionFields,
   EDITABLE_FIELD_TYPES,
@@ -54,6 +55,24 @@ export const setFieldAccessArgs = z.object({
   id: z.string(),
   viewRoles: z.array(z.string()),
   editRoles: z.array(z.string()),
+});
+/** 详情页布局；`layout` 为空表示恢复默认（所有字段一组）。 */
+export const setLayoutArgs = z.object({
+  id: z.string(),
+  layout: z
+    .object({
+      groups: z
+        .array(
+          z.object({
+            name: z.string().trim().min(1).max(40),
+            fields: z.array(z.string()),
+            collapsed: z.boolean().optional(),
+          }),
+        )
+        .max(30),
+      hidden: z.array(z.string()).optional(),
+    })
+    .nullable(),
 });
 export const createTemplateArgs = z.object({ id: z.string(), typeId: z.string(), key, name: z.string().min(1) });
 
@@ -145,6 +164,18 @@ export async function createType(tx: Transaction, args: z.output<typeof createTy
   await assertAdmin(tx, args.spaceId, userID);
   const existing = await tx.run(zql.workItemType.where("spaceId", args.spaceId));
   await tx.mutate.workItemType.insert({ ...args, sort: existing.length, createdAt: Date.now() });
+}
+
+export async function setLayout(tx: Transaction, args: z.output<typeof setLayoutArgs>, userID: string) {
+  const type = await adminType(tx, args.id, userID);
+  if (args.layout) {
+    const error = checkLayout(
+      args.layout,
+      type.fields.map((f) => f.key),
+    );
+    if (error) throw new Error(error);
+  }
+  await tx.mutate.workItemType.update({ id: args.id, detailLayout: args.layout });
 }
 
 export async function createRole(tx: Transaction, args: z.output<typeof createRoleArgs>, userID: string) {

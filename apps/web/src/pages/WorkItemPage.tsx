@@ -5,6 +5,7 @@ import {
   dayToIso,
   evaluate,
   FlowGraph,
+  layoutFields,
   type NodeState,
   nodeFlowOf,
   type StatusActor,
@@ -617,10 +618,9 @@ function Schedule({
 
 type Item = NonNullable<QueryResultType<ReturnType<typeof queries.workItems.byId>>>;
 
-/** 工作项字段：左边字段名，右边值。选项字段用下拉，其它先用文本框，失焦时保存。 */
 /**
- * 字段面板。配了可见角色、自己又看不到的字段不显示（值也不会同步过来）；
- * 配了可改角色、自己不能改的字段只读。
+ * 字段面板，按类型配置的详情页布局分组显示，默认收起的分组可以展开。
+ * 配了可见角色、自己又看不到的字段不显示（值也不会同步过来）；配了可改角色、自己不能改的字段只读。
  */
 function FieldsPanel({
   item,
@@ -635,35 +635,59 @@ function FieldsPanel({
   members: readonly FieldMember[];
   onSet: (fieldKey: string, value: FieldInputValue) => void;
 }) {
+  const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
   const values = new Map(item.fieldValues.map((f) => [f.fieldKey, f.value]));
   const allowed = (roles: readonly string[]) => isAdmin || hasAnyRole(roles, myRoles);
   const fields = (item.type?.fields ?? []).filter((f) => {
     const roles = fieldViewRoles(f);
     return !roles || allowed(roles);
   });
-  if (fields.length === 0) return null;
-  return (
-    <Panel title="字段" aria-label="字段">
-      <div className="flex flex-col gap-2">
-        {fields.map((field) => {
-          return (
-            <div key={field.key} className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-3">
-              <span className="truncate text-fg-muted" title={field.name}>
-                {field.name}
-              </span>
-              <FieldInput
-                field={field}
-                value={values.get(field.key) ?? null}
-                members={members}
-                readOnly={!allowed(field.editRoles ?? [])}
-                onChange={(value) => onSet(field.key, value)}
-              />
-            </div>
-          );
-        })}
-      </div>
-    </Panel>
-  );
+  return layoutFields(fields, item.type?.detailLayout).map((group) => {
+    // 默认收起的分组点一下展开，其余的点一下收起
+    const open = group.collapsed === toggled.has(group.name);
+    const flip = () => {
+      const next = new Set(toggled);
+      if (!next.delete(group.name)) next.add(group.name);
+      setToggled(next);
+    };
+    return (
+      <Panel
+        key={group.name}
+        title={group.name}
+        aria-label={group.name}
+        actions={
+          <Button
+            variant="link"
+            size="sm"
+            aria-expanded={open}
+            aria-label={`${open ? "收起" : "展开"}${group.name}`}
+            onClick={flip}
+          >
+            {open ? "收起" : `展开 ${group.fields.length} 个字段`}
+          </Button>
+        }
+      >
+        {open && (
+          <div className="flex flex-col gap-2">
+            {group.fields.map((field) => (
+              <div key={field.key} className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-3">
+                <span className="truncate text-fg-muted" title={field.name}>
+                  {field.name}
+                </span>
+                <FieldInput
+                  field={field}
+                  value={values.get(field.key) ?? null}
+                  members={members}
+                  readOnly={!allowed(field.editRoles ?? [])}
+                  onChange={(value) => onSet(field.key, value)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+    );
+  });
 }
 
 /** 节点流程图：从左到右，进行中的节点放在视野左侧。点节点在右侧看详情、回滚。 */
