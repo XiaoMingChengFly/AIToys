@@ -2,6 +2,8 @@ import { appendEvents, type NewEvent, type Tx } from "@fp/db";
 import type { FlowEvent } from "@fp/engine";
 import type { ZeroContext } from "@fp/sync";
 import {
+  addRelation,
+  addRelationArgs,
   completeBySubItems,
   confirmNode,
   createComment,
@@ -12,6 +14,8 @@ import {
   createWorkItemArgs,
   mutators,
   nodeActionArgs,
+  removeRelation,
+  removeRelationArgs,
   rollbackNode,
   setCalendarArgs,
   setFieldArgs,
@@ -64,6 +68,32 @@ export const serverMutators = defineMutators(mutators, {
           workItemId: args.workItemId,
           kind: "commentAdded",
           payload: { commentId: args.id, mentions },
+          actor: ctx.userID,
+        },
+      ]);
+    }),
+  },
+  relation: {
+    add: defineMutator(addRelationArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, replaced } = await addRelation(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        {
+          spaceId,
+          workItemId: args.fromId,
+          kind: "relationAdded",
+          payload: { relationDefId: args.relationDefId, toId: args.toId, replaced },
+          actor: ctx.userID,
+        },
+      ]);
+    }),
+    remove: defineMutator(removeRelationArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, relation } = await removeRelation(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        {
+          spaceId,
+          workItemId: relation.fromId,
+          kind: "relationRemoved",
+          payload: { relationDefId: relation.relationDefId, toId: relation.toId },
           actor: ctx.userID,
         },
       ]);
