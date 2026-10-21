@@ -49,4 +49,13 @@ test("a sub-item-driven node completes once its sub-items are done", async ({ pa
   await page.getByRole("link", { name: "上级工作项：新品 S" }).click();
   await expect(panel.getByRole("region", { name: "产品入库预排期" })).toBeVisible({ timeout: 30_000 });
   await expect(review).toHaveCount(0);
+
+  // 树形视图按子工作项分层：包材打样挂在新品 S 下面
+  await openItems(page);
+  await page.getByRole("tablist", { name: "显示方式" }).getByRole("tab", { name: "树形" }).click();
+  const tree = page.getByRole("table", { name: "工作项树" });
+  await expect(tree.getByRole("link", { name: "新品 S" })).toBeVisible();
+  await expect(tree.getByRole("link", { name: "包材打样" })).toHaveCount(0);
+  await tree.getByRole("button", { name: "展开新品 S" }).click();
+  await expect(tree.getByRole("link", { name: "包材打样" })).toBeVisible();
 });

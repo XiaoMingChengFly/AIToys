@@ -82,6 +82,15 @@ function visibleEvent(userID: string) {
     );
 }
 
+/** 树形视图按哪种关系展开：relationDefId 为空时按子工作项，否则按这个自定义关联。 */
+const hierarchyArgs = z.object({ relationDefId: z.string().nullable() });
+
+/** 只留下构成层级的关系。 */
+function hierarchyEdges({ relationDefId }: z.output<typeof hierarchyArgs>) {
+  return ({ cmp }: ExpressionBuilder<"relation", Schema>) =>
+    relationDefId === null ? cmp("parentNodeKey", "IS NOT", null) : cmp("relationDefId", relationDefId);
+}
+
 export const queries = defineQueries({
   spaces: {
     mine: defineQuery(({ ctx }) =>
@@ -97,6 +106,7 @@ export const queries = defineQueries({
           t
             .related("fields")
             .related("roles")
+            .related("relationDefs")
             // 带上当前版本：前端乐观创建工作项时要用流程定义启动引擎
             .related("flowTemplates", (f) => f.related("currentVersion")),
         )
@@ -200,6 +210,28 @@ export const queries = defineQueries({
         .related("outgoing", (r) => r.related("to").related("def"))
         .related("incoming", (r) => r.related("from").related("def"))
         .one(),
+    ),
+    /**
+     * 树形视图的第一层：符合筛选条件的工作项，带上它们的上级（判断是不是根）和下级数量。
+     * 更深的层级展开时用 workItems.children 按需加载。
+     */
+    treeBySpace: defineQuery(spaceItemsArgs.extend({ hierarchy: hierarchyArgs }), ({ args, ctx }) =>
+      spaceItems(args, ctx.userID)
+        .related("type")
+        .related("incoming", (r) => r.where(hierarchyEdges(args.hierarchy)))
+        .related("outgoing", (r) => r.where(hierarchyEdges(args.hierarchy)))
+        .orderBy("createdAt", "desc"),
+    ),
+    /** 树形视图里展开一个工作项：它的下级，以及每个下级自己的下级数量。 */
+    children: defineQuery(z.object({ id: z.string(), hierarchy: hierarchyArgs }), ({ args, ctx }) =>
+      zql.relation
+        .where("fromId", args.id)
+        .where(hierarchyEdges(args.hierarchy))
+        .whereExists("to", (w) =>
+          w.whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID))),
+        )
+        .related("to", (w) => w.related("type").related("outgoing", (r) => r.where(hierarchyEdges(args.hierarchy))))
+        .orderBy("createdAt", "asc"),
     ),
     /** 工作项动态：最近的事件，新的在前。受限字段的改动只给能看到这个字段的人。 */
     activity: defineQuery(

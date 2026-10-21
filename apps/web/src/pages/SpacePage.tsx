@@ -3,7 +3,7 @@ import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
-import { Columns3, GanttChartSquare, List, Plus } from "lucide-react";
+import { Columns3, GanttChartSquare, List, ListTree, Plus } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
 import { Board } from "@/components/Board";
@@ -11,6 +11,7 @@ import { FieldInput, type FieldInputValue } from "@/components/FieldInput";
 import { FilterBar } from "@/components/FilterBar";
 import { type PickerMember, RolePicker, toggled } from "@/components/RolePicker";
 import { SpaceGantt } from "@/components/SpaceGantt";
+import { TreeView } from "@/components/TreeView";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/input";
@@ -144,7 +145,7 @@ function WorkItems({
 }) {
   const [filter, setFilter] = useState<WorkItemFilterArgs>(typeId ? { typeIds: [typeId] } : {});
   const [items, result] = useQuery(queries.workItems.bySpace({ spaceId: space.id, filter }));
-  const [view, setView] = useState<"table" | "board" | "gantt">("table");
+  const [view, setView] = useState<"table" | "tree" | "board" | "gantt">("table");
   const types = space.workItemTypes.map((t) => ({
     id: t.id,
     name: t.name,
@@ -191,6 +192,13 @@ function WorkItems({
                   </>,
                 ],
                 [
+                  "tree",
+                  <>
+                    <ListTree />
+                    树形
+                  </>,
+                ],
+                [
                   "board",
                   <>
                     <Columns3 />
@@ -209,7 +217,20 @@ function WorkItems({
           }
         />
       </div>
-      {view === "board" ? (
+      {view === "tree" ? (
+        <TreeView
+          spaceId={space.id}
+          filter={filter}
+          relationDefs={space.workItemTypes.flatMap((t) =>
+            t.relationDefs.map((d) => ({
+              id: d.id,
+              name: d.name,
+              fromType: t.name,
+              toType: space.workItemTypes.find((x) => x.id === d.toTypeId)?.name ?? "?",
+            })),
+          )}
+        />
+      ) : view === "board" ? (
         <Board spaceId={space.id} filter={filter} types={types} />
       ) : view === "gantt" ? (
         <div className="p-4">
