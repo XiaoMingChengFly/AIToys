@@ -1,10 +1,12 @@
-import { mutators, queries } from "@fp/sync";
+import type { FlowDefinition } from "@fp/engine";
+import { mutators, queries, type WorkItemFilterArgs } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { type FormEvent, useMemo, useState } from "react";
 import { CalendarCard } from "@/components/CalendarCard";
+import { FilterBar } from "@/components/FilterBar";
 import { type PickerMember, RolePicker, toggled } from "@/components/RolePicker";
 import { SpaceGantt } from "@/components/SpaceGantt";
 import { Button } from "@/components/ui/button";
@@ -46,7 +48,8 @@ export function SpacePage() {
   const { spaceId } = useParams({ from: "/app/spaces/$spaceId" });
   const zero = useZero();
   const [space, spaceResult] = useQuery(queries.spaces.byId({ id: spaceId }));
-  const [items] = useQuery(queries.workItems.bySpace({ spaceId }));
+  const [filter, setFilter] = useState<WorkItemFilterArgs>({});
+  const [items] = useQuery(queries.workItems.bySpace({ spaceId, filter }));
   const [view, setView] = useState<"table" | "gantt">("table");
 
   const rows = useMemo<Row[]>(
@@ -116,9 +119,29 @@ export function SpacePage() {
             ))}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-4">
+          <FilterBar
+            spaceId={spaceId}
+            filter={filter}
+            onChange={setFilter}
+            types={space.workItemTypes.map((t) => ({
+              id: t.id,
+              name: t.name,
+              definitions: t.flowTemplates.flatMap((f) =>
+                f.currentVersion ? [f.currentVersion.definition as FlowDefinition] : [],
+              ),
+            }))}
+            members={members.map((m) => ({ id: m.userId, name: m.name }))}
+            views={space.views.map((v) => ({ ...v, filter: v.filter ?? {} }))}
+            isAdmin={isAdmin}
+          />
           {view === "gantt" ? (
-            <SpaceGantt spaceId={spaceId} timeZone={space.timezone ?? "Asia/Shanghai"} calendar={calendar} />
+            <SpaceGantt
+              spaceId={spaceId}
+              timeZone={space.timezone ?? "Asia/Shanghai"}
+              calendar={calendar}
+              filter={filter}
+            />
           ) : (
             <>
               <table className="w-full text-sm">
@@ -145,7 +168,11 @@ export function SpacePage() {
                   ))}
                 </tbody>
               </table>
-              {rows.length === 0 && <p className="py-4 text-sm text-slate-500">还没有工作项。</p>}
+              {rows.length === 0 && (
+                <p className="py-4 text-sm text-slate-500">
+                  {Object.values(filter).some((v) => v?.length) ? "没有符合条件的工作项。" : "还没有工作项。"}
+                </p>
+              )}
             </>
           )}
         </CardContent>

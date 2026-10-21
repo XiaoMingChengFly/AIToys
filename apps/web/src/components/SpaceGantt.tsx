@@ -7,7 +7,7 @@ import {
   FlowGraph,
   WorkCalendar,
 } from "@fp/engine";
-import { mutators, queries } from "@fp/sync";
+import { mutators, queries, type WorkItemFilterArgs } from "@fp/sync";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { useMemo, useState } from "react";
 import { GanttChart, type GanttRow } from "@/components/GanttChart";
@@ -23,13 +23,15 @@ export function SpaceGantt({
   spaceId,
   timeZone,
   calendar: config,
+  filter,
 }: {
   spaceId: string;
   timeZone: string;
   calendar: CalendarConfig;
+  filter: WorkItemFilterArgs;
 }) {
   const zero = useZero();
-  const [items] = useQuery(queries.workItems.plansBySpace({ spaceId }));
+  const [items] = useQuery(queries.workItems.plansBySpace({ spaceId, filter }));
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const calendar = useMemo(() => WorkCalendar.fromConfig(config), [config]);
