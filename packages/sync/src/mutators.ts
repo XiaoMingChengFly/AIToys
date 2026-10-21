@@ -2,6 +2,20 @@ import { defineMutator, defineMutators, type Transaction } from "@rocicorp/zero"
 import { z } from "zod";
 import { confirmNode, nodeActionArgs, recomputeFlow, rollbackNode, setRoleArgs, setRoleMembers } from "./flow.ts";
 import { zql } from "./schema.gen.ts";
+import {
+  createField,
+  createFieldArgs,
+  createRole,
+  createRoleArgs,
+  createTemplate,
+  createTemplateArgs,
+  createType,
+  createTypeArgs,
+  publishArgs,
+  publishVersion,
+  saveDraft,
+  saveDraftArgs,
+} from "./templates.ts";
 import { createWorkItem, createWorkItemArgs } from "./work-items.ts";
 
 /*
@@ -55,6 +69,22 @@ export const mutators = defineMutators({
       await tx.mutate.space.insert({ id: args.id, name: args.name, timezone: "Asia/Shanghai", createdAt: now });
       await tx.mutate.spaceMember.insert({ spaceId: args.id, userId: ctx.userID, isAdmin: true });
     }),
+  },
+  workItemType: {
+    create: defineMutator(createTypeArgs, ({ tx, args, ctx }) => createType(tx, args, ctx.userID)),
+  },
+  roleDef: {
+    create: defineMutator(createRoleArgs, ({ tx, args, ctx }) => createRole(tx, args, ctx.userID)),
+  },
+  fieldDef: {
+    create: defineMutator(createFieldArgs, ({ tx, args, ctx }) => createField(tx, args, ctx.userID)),
+  },
+  flowTemplate: {
+    create: defineMutator(createTemplateArgs, ({ tx, args, ctx }) => createTemplate(tx, args, ctx.userID)),
+    saveDraft: defineMutator(saveDraftArgs, async ({ tx, args, ctx }) => {
+      await saveDraft(tx, args, ctx.userID);
+    }),
+    publish: defineMutator(publishArgs, ({ tx, args, ctx }) => publishVersion(tx, args, ctx.userID)),
   },
   workItem: {
     create: defineMutator(createWorkItemArgs, async ({ tx, args, ctx }) => {

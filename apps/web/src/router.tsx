@@ -6,6 +6,8 @@ import { ZeroRoot } from "@/lib/zero";
 import { LoginPage } from "@/pages/LoginPage";
 import { SpacePage } from "@/pages/SpacePage";
 import { SpacesPage } from "@/pages/SpacesPage";
+import { TemplateEditorPage } from "@/pages/TemplateEditorPage";
+import { TypePage } from "@/pages/TypePage";
 import { WorkItemPage } from "@/pages/WorkItemPage";
 
 const rootRoute = createRootRoute({ component: Outlet });
@@ -47,11 +49,17 @@ function AppLayout() {
 const spacesRoute = createRoute({ getParentRoute: () => appRoute, path: "/", component: SpacesPage });
 const spaceRoute = createRoute({ getParentRoute: () => appRoute, path: "/spaces/$spaceId", component: SpacePage });
 const itemRoute = createRoute({ getParentRoute: () => appRoute, path: "/items/$itemId", component: WorkItemPage });
+const typeRoute = createRoute({ getParentRoute: () => appRoute, path: "/types/$typeId", component: TypePage });
+const templateRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/templates/$templateId",
+  component: TemplateEditorPage,
+});
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
   demoRoute,
-  appRoute.addChildren([spacesRoute, spaceRoute, itemRoute]),
+  appRoute.addChildren([spacesRoute, spaceRoute, itemRoute, typeRoute, templateRoute]),
 ]);
 
 export const router = createRouter({ routeTree });

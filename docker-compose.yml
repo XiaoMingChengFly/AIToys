@@ -17,6 +17,8 @@ x-app: &app
     BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-only-secret-change-me-in-production}
     BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
     WEB_ORIGINS: ${WEB_ORIGINS:-http://localhost:5173}
+    # 只有端到端测试设成 off
+    AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-on}
 
 services:
   postgres:

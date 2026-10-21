@@ -20,6 +20,7 @@ export function createServices(databaseUrl = config.databaseUrl): Services {
     baseUrl: config.baseUrl,
     secret: config.authSecret,
     trustedOrigins: config.webOrigins,
+    rateLimit: config.authRateLimit,
   });
   return { database, auth, zero: createZeroHandlers(database) };
 }

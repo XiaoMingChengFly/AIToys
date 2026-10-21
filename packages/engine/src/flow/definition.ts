@@ -21,6 +21,8 @@ export interface NodeDefinition {
   gate?: Condition;
   /** 节点到达时把工作项阶段改成这个值。 */
   stageOnArrival?: string;
+  /** 编辑器里的画布坐标。引擎不使用；没有时按层级自动布局。 */
+  position?: { x: number; y: number };
 }
 
 export interface EdgeDefinition {

@@ -32,6 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ZERO_API_ORIGIN: http://api:3000
+      AUTH_RATE_LIMIT: "off"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

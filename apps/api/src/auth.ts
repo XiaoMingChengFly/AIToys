@@ -6,6 +6,8 @@ export interface AuthOptions {
   baseUrl: string;
   secret: string;
   trustedOrigins: string[];
+  /** 默认按 Better Auth 的生产配置限流。 */
+  rateLimit?: boolean;
 }
 
 /**
@@ -28,6 +30,7 @@ export function createAuth(database: Database, options: AuthOptions) {
       },
     }),
     emailAndPassword: { enabled: true },
+    ...(options.rateLimit === false && { rateLimit: { enabled: false } }),
   });
 }
 
