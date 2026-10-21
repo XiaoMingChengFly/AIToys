@@ -1,9 +1,11 @@
 import { mutators } from "@fp/sync";
 import { useZero } from "@rocicorp/zero/react";
 import { type FormEvent, useState } from "react";
+import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { newId } from "@/lib/utils";
+import { Textarea } from "@/components/ui/input";
+import { Panel } from "@/components/ui/page";
+import { cn, newId } from "@/lib/utils";
 
 interface CommentRow {
   id: string;
@@ -39,35 +41,36 @@ export function CommentsCard({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>评论</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {comments.length === 0 && <p className="text-sm text-slate-500">还没有评论。</p>}
-        <ol aria-label="评论列表" className="flex flex-col gap-3">
-          {comments.map((c) => (
-            <li key={c.id} className="text-sm">
-              <div className="flex gap-2 text-xs text-slate-500">
-                <span className="font-medium text-slate-700">{c.author?.name ?? "—"}</span>
-                <span>{c.createdAt ? new Date(c.createdAt).toLocaleString("zh-CN") : ""}</span>
+    <Panel title={`评论${comments.length ? ` ${comments.length}` : ""}`}>
+      {comments.length === 0 && <p className="text-fg-subtle">还没有评论。</p>}
+      <ol aria-label="评论列表" className="flex flex-col gap-4">
+        {comments.map((c) => (
+          <li key={c.id} className="flex gap-2.5">
+            <Avatar name={c.author?.name ?? "?"} size={28} />
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <div className="flex items-baseline gap-2">
+                <span className="font-medium">{c.author?.name ?? "—"}</span>
+                <span className="text-xs text-fg-subtle">
+                  {c.createdAt ? new Date(c.createdAt).toLocaleString("zh-CN") : ""}
+                </span>
               </div>
-              <p className="whitespace-pre-wrap">{c.body}</p>
-            </li>
-          ))}
-        </ol>
-        <form className="flex flex-col gap-2" onSubmit={submit}>
-          <textarea
-            aria-label="评论内容"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            rows={3}
-            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-            placeholder="写评论…"
-          />
+              <p className="break-words whitespace-pre-wrap">{c.body}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <form className="flex flex-col gap-2" onSubmit={submit}>
+        <Textarea
+          aria-label="评论内容"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          rows={3}
+          placeholder="写评论…"
+        />
+        <div className="flex items-start gap-2">
           {others.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <span className="text-slate-500">提及：</span>
+            <div className="flex flex-1 flex-wrap items-center gap-1">
+              <span className="text-xs text-fg-subtle">提及</span>
               {others.map((m) => {
                 const on = mentions.includes(m.userId);
                 return (
@@ -78,7 +81,10 @@ export function CommentsCard({
                     onClick={() =>
                       setMentions((prev) => (on ? prev.filter((u) => u !== m.userId) : [...prev, m.userId]))
                     }
-                    className={`rounded-full px-2 py-0.5 ${on ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600"}`}
+                    className={cn(
+                      "h-6 cursor-pointer rounded-md px-1.5 text-xs transition-colors",
+                      on ? "bg-brand-100 text-brand-600" : "text-fg-muted hover:bg-hover",
+                    )}
                   >
                     @{m.name}
                   </button>
@@ -86,12 +92,12 @@ export function CommentsCard({
               })}
             </div>
           )}
-          <Button type="submit" className="self-end" disabled={!body.trim()}>
+          <Button type="submit" size="sm" className="ml-auto" disabled={!body.trim()}>
             发表评论
           </Button>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-        </form>
-      </CardContent>
-    </Card>
+        </div>
+        {error && <p className="text-sm text-danger-600">{error}</p>}
+      </form>
+    </Panel>
   );
 }

@@ -1,10 +1,11 @@
 import type { CalendarConfig } from "@fp/engine";
 import { mutators } from "@fp/sync";
 import { useZero } from "@rocicorp/zero/react";
+import { X } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input, Label } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, Input, Select } from "@/components/ui/input";
 
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
@@ -50,22 +51,22 @@ export function CalendarCard({
 
   const list = (kind: keyof CalendarConfig, title: string, empty: string) => (
     <div className="flex flex-col gap-1.5">
-      <h4 className="text-xs font-medium text-slate-500">{title}</h4>
+      <h4 className="text-xs text-fg-muted">{title}</h4>
       {calendar[kind].length === 0 ? (
-        <p className="text-sm text-slate-400">{empty}</p>
+        <p className="text-sm text-fg-subtle">{empty}</p>
       ) : (
         <ul aria-label={title} className="flex flex-wrap gap-2 text-sm">
           {calendar[kind].map((day) => (
-            <li key={day} className="flex items-center gap-1 rounded-full bg-slate-100 py-0.5 pr-1 pl-2.5">
+            <li key={day} className="flex h-6 items-center gap-1 rounded-md bg-canvas pr-1 pl-2">
               {describe(day)}
               {canManage && (
                 <button
                   type="button"
                   aria-label={`移除 ${day}`}
-                  className="rounded-full px-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                  className="cursor-pointer rounded p-0.5 text-fg-subtle hover:bg-pressed hover:text-fg"
                   onClick={() => save({ ...calendar, [kind]: calendar[kind].filter((d) => d !== day) })}
                 >
-                  ×
+                  <X className="size-3" />
                 </button>
               )}
             </li>
@@ -79,32 +80,30 @@ export function CalendarCard({
     <Card>
       <CardHeader>
         <CardTitle>工作日历</CardTitle>
+        <CardDescription>
+          默认周一到周五上班。排期按工作日计算，修改后空间里的工作项会自动重排，手动定过的日期不变。
+        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <p className="text-sm text-slate-500">
-          默认周一到周五上班。排期按工作日计算，修改后空间里的工作项会自动重排，手动定过的日期不变。
-        </p>
         {list("holidays", "节假日", "没有设置节假日")}
         {list("extraWorkdays", "调休上班", "没有调休上班的日子")}
         {canManage && (
           <form className="flex flex-wrap items-end gap-2" onSubmit={add}>
-            <Label className="flex flex-col gap-1.5">
-              日历日期
+            <Field label="日历日期">
               <Input name="date" type="date" required className="w-44" />
-            </Label>
-            <Label className="flex flex-col gap-1.5">
-              这天
-              <select name="kind" className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm">
+            </Field>
+            <Field label="这天">
+              <Select name="kind" className="w-32">
                 <option value="holiday">放假</option>
                 <option value="workday">调休上班</option>
-              </select>
-            </Label>
+              </Select>
+            </Field>
             <Button type="submit" variant="outline">
               加入日历
             </Button>
           </form>
         )}
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-danger-600">{error}</p>}
       </CardContent>
     </Card>
   );

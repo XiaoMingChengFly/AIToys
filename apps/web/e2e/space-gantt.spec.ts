@@ -1,23 +1,12 @@
 import { expect, test } from "@playwright/test";
+import { createItem, oemSpace, openItems } from "./helpers";
 
 test("the space gantt shows one bar per work item and expands into its nodes", async ({ page }) => {
   const suffix = `${Date.now()}`;
-  await page.goto("/login");
-  await page.getByRole("button", { name: "没有账号？注册" }).click();
-  await page.getByLabel("姓名").fill("Pascal");
-  await page.getByLabel("邮箱").fill(`space-gantt-${suffix}@example.com`);
-  await page.getByLabel("密码").fill("correct-horse-battery");
-  await page.getByRole("button", { name: "注册并登录" }).click();
-  await page.getByLabel("空间名称").fill(`排期总览 ${suffix}`);
-  await page.getByRole("button", { name: "创建" }).click();
-  await page.getByText(`排期总览 ${suffix}`).click();
-  await expect(page.getByRole("listitem").filter({ hasText: "Pascal" })).toBeVisible();
-  await page.getByRole("button", { name: "导入 OEM 模板" }).click();
+  await oemSpace(page, "Pascal", `space-gantt-${suffix}@example.com`, `排期总览 ${suffix}`);
   for (const name of ["新品 E", "新品 F"]) {
-    await page.getByLabel("项目名称").fill(name);
-    await page.getByRole("button", { name: "创建" }).click();
-    await expect(page.getByRole("heading", { name })).toBeVisible();
-    await page.getByRole("link", { name: "返回空间" }).click();
+    await createItem(page, name);
+    await openItems(page);
   }
 
   await page.getByRole("tab", { name: "甘特图" }).click();

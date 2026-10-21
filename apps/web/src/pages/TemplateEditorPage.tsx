@@ -22,10 +22,13 @@ import {
   useEdgesState,
   useNodesState,
 } from "@xyflow/react";
+import { ChevronRight, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useActiveSpace } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input, Label } from "@/components/ui/input";
+import { Input, Label, Select } from "@/components/ui/input";
+import { Tag } from "@/components/ui/tag";
 import { layoutByDepth } from "@/flow-demo/layout";
 import { cn, newId } from "@/lib/utils";
 
@@ -47,10 +50,11 @@ export function TemplateEditorPage() {
   const { templateId } = useParams({ from: "/app/templates/$templateId" });
   const [template, result] = useQuery(queries.templates.byId({ id: templateId }));
   const latest = template?.versions[0];
+  useActiveSpace(template?.type?.spaceId);
 
   if (!template || !latest || !template.type)
     return (
-      <p className="p-6 text-sm text-slate-500">{result.type === "complete" ? "模板不存在或没有权限。" : "加载中…"}</p>
+      <p className="p-6 text-sm text-fg-muted">{result.type === "complete" ? "模板不存在或没有权限。" : "加载中…"}</p>
     );
   // 换了版本（比如在已发布版本上保存出新草稿）时重新载入编辑器
   return <Editor key={latest.id} template={template} type={template.type} />;
@@ -71,7 +75,14 @@ function toCanvas(definition: FlowDefinition): { nodes: EditorNode[]; edges: Edg
 }
 
 function toEdge({ from, to }: { from: string; to: string }): Edge {
-  return { id: `${from}->${to}`, source: from, target: to, markerEnd: { type: MarkerType.ArrowClosed } };
+  return {
+    id: `${from}->${to}`,
+    source: from,
+    target: to,
+    type: "smoothstep",
+    style: { stroke: "#bbbfc4", strokeWidth: 1.5 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: "#bbbfc4" },
+  };
 }
 
 function toDefinition(base: FlowDefinition, nodes: EditorNode[], edges: Edge[]): FlowDefinition {
@@ -173,27 +184,35 @@ function Editor({ template, type }: { template: Template; type: TypeConfig }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-6 py-3">
-        <Link to="/types/$typeId" params={{ typeId: type.id }} className="text-sm text-slate-500 hover:underline">
-          返回{type.name}
-        </Link>
-        <h1 className="text-lg font-semibold">{template.name}</h1>
-        <span className="rounded bg-slate-100 px-2 py-0.5 text-sm">{status}</span>
-        {dirty && <span className="text-sm text-amber-600">有未保存的修改</span>}
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={addNode} disabled={!isAdmin}>
-            添加节点
-          </Button>
-          <Button variant="outline" size="sm" onClick={save} disabled={!isAdmin || !dirty}>
-            保存草稿
-          </Button>
-          <Button
-            size="sm"
-            onClick={publish}
-            disabled={!isAdmin || errors.length > 0 || (!dirty && latest.publishedAt !== null)}
-          >
-            发布
-          </Button>
+      <header className="flex flex-col gap-1 border-b border-line-subtle bg-surface px-6 py-3">
+        <nav aria-label="位置" className="flex items-center gap-1 text-xs text-fg-subtle">
+          <Link to="/spaces/$spaceId/settings" params={{ spaceId: type.spaceId }} className="hover:text-brand-500">
+            空间设置
+          </Link>
+          <ChevronRight className="size-3" />
+          <Link to="/types/$typeId" params={{ typeId: type.id }} className="hover:text-brand-500">
+            {type.name}
+          </Link>
+        </nav>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h1 className="text-xl font-semibold">{template.name}</h1>
+          <Tag tone={latest.publishedAt ? "success" : "warning"}>{status}</Tag>
+          {dirty && <span className="text-xs text-warning-600">有未保存的修改</span>}
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="outline" onClick={addNode} disabled={!isAdmin}>
+              <Plus />
+              添加节点
+            </Button>
+            <Button variant="outline" onClick={save} disabled={!isAdmin || !dirty}>
+              保存草稿
+            </Button>
+            <Button
+              onClick={publish}
+              disabled={!isAdmin || errors.length > 0 || (!dirty && latest.publishedAt !== null)}
+            >
+              发布
+            </Button>
+          </div>
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
@@ -203,8 +222,9 @@ function Editor({ template, type }: { template: Template; type: TypeConfig }) {
               ...n,
               data: { ...n.data, label: <NodeLabel data={n.data} type={type} /> },
               className: cn(
-                "!w-[180px] !rounded-md !border !px-2 !py-1.5 !text-left",
+                "!w-[200px] !rounded-lg !border !border-line !bg-surface !px-3 !py-2 !text-left !shadow-card",
                 n.data.completion === "auto" ? "!border-dashed" : "",
+                n.selected && "!border-brand-500 !ring-3 !ring-brand-100",
               ),
             }))}
             edges={edges}
@@ -227,26 +247,28 @@ function Editor({ template, type }: { template: Template; type: TypeConfig }) {
             nodesConnectable={isAdmin}
             elementsSelectable
             deleteKeyCode={isAdmin ? ["Backspace", "Delete"] : null}
-            defaultViewport={{ x: 40, y: 80, zoom: 0.8 }}
+            defaultViewport={{ x: 40, y: 80, zoom: 1 }}
             minZoom={0.1}
+            proOptions={{ hideAttribution: true }}
+            className="bg-canvas"
           >
-            <Background />
+            <Background color="#dee0e3" gap={20} />
             <Controls showInteractive={false} />
           </ReactFlow>
         </div>
-        <aside className="flex w-96 flex-col gap-4 overflow-y-auto border-l border-slate-200 bg-slate-50 p-4">
+        <aside className="flex w-96 shrink-0 flex-col gap-4 overflow-y-auto border-l border-line-subtle bg-canvas p-4">
           {message && (
             <p
               role={message.kind === "error" ? "alert" : "status"}
               className={cn(
                 "rounded-md px-3 py-2 text-sm",
-                message.kind === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800",
+                message.kind === "error" ? "bg-danger-50 text-danger-600" : "bg-success-50 text-success-600",
               )}
             >
               {message.text}
             </p>
           )}
-          {!isAdmin && <p className="text-sm text-slate-500">只有空间管理员可以编辑模板。</p>}
+          {!isAdmin && <p className="text-sm text-fg-muted">只有空间管理员可以编辑模板。</p>}
 
           {selectedNode && (
             <NodePanel
@@ -278,7 +300,7 @@ function Editor({ template, type }: { template: Template; type: TypeConfig }) {
             </Card>
           )}
           {!selectedNode && !selectedEdge && (
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-fg-muted">
               点选节点编辑属性；从节点右侧的圆点拖到另一个节点左侧连线；选中后按 Delete 删除。
             </p>
           )}
@@ -289,14 +311,14 @@ function Editor({ template, type }: { template: Template; type: TypeConfig }) {
             </CardHeader>
             <CardContent className="flex flex-col gap-1 text-sm">
               {errors.length === 0 && validation.warnings.length === 0 && (
-                <p className="text-emerald-700">没有发现问题，可以发布。</p>
+                <p className="text-success-600">没有发现问题，可以发布。</p>
               )}
-              <ul aria-label="错误" className="flex flex-col gap-1 text-red-700">
+              <ul aria-label="错误" className="flex flex-col gap-1 text-danger-600">
                 {errors.map((e) => (
                   <li key={e}>{e}</li>
                 ))}
               </ul>
-              <ul aria-label="提醒" className="flex flex-col gap-1 text-amber-700">
+              <ul aria-label="提醒" className="flex flex-col gap-1 text-warning-600">
                 {validation.warnings.map((w) => (
                   <li key={w}>{w}</li>
                 ))}
@@ -312,13 +334,13 @@ function Editor({ template, type }: { template: Template; type: TypeConfig }) {
 function NodeLabel({ data, type }: { data: NodeData; type: TypeConfig }) {
   const roleName = (key: string) => type.roles.find((r) => r.key === key)?.name ?? key;
   return (
-    <div>
-      <div className="text-xs font-medium">{data.name}</div>
-      <div className="text-[10px] text-slate-500">
+    <div className="flex flex-col gap-0.5">
+      <div className="truncate text-[13px] font-medium">{data.name}</div>
+      <div className="truncate text-xs text-fg-muted">
         {data.ownerRoles.map(roleName).join("、") || COMPLETION.find((c) => c.value === data.completion)?.label}
       </div>
       {(data.visibility || data.gate || data.stageOnArrival) && (
-        <div className="text-[10px] text-sky-700">
+        <div className="truncate text-xs text-brand-500">
           {[
             data.visibility && "有出现条件",
             data.gate && "有卡点",
@@ -358,8 +380,7 @@ function NodePanel({
           </Label>
           <Label className="flex flex-col gap-1.5">
             完成方式
-            <select
-              className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm"
+            <Select
               value={data.completion}
               onChange={(e) => onChange({ completion: e.target.value as CompletionMode })}
             >
@@ -368,10 +389,10 @@ function NodePanel({
                   {c.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </Label>
           <fieldset className="flex flex-col gap-1.5">
-            <legend className="text-sm font-medium text-slate-700">负责角色</legend>
+            <legend className="text-sm font-medium text-fg">负责角色</legend>
             <div className="flex flex-wrap gap-x-3 gap-y-1">
               {type.roles.map((r) => (
                 <Label key={r.key} className="flex items-center gap-1.5 font-normal">
@@ -389,7 +410,7 @@ function NodePanel({
                   {r.name}
                 </Label>
               ))}
-              {type.roles.length === 0 && <span className="text-sm text-slate-500">类型里还没有角色。</span>}
+              {type.roles.length === 0 && <span className="text-sm text-fg-muted">类型里还没有角色。</span>}
             </div>
           </fieldset>
           <Label className="flex flex-col gap-1.5">
@@ -423,8 +444,8 @@ function NodePanel({
             onChange={(gate) => onChange({ gate })}
           />
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-400">键：{data.key}</span>
-            <Button variant="ghost" size="sm" className="text-red-600" onClick={onDelete}>
+            <span className="text-xs text-fg-subtle">键：{data.key}</span>
+            <Button variant="ghost" size="sm" className="text-danger-600" onClick={onDelete}>
               删除节点
             </Button>
           </div>
@@ -463,12 +484,11 @@ function ConditionEditor({
   onChange: (condition: Condition | undefined) => void;
 }) {
   const flat = flatten(value);
-  const select = "h-8 rounded-md border border-slate-300 bg-white px-1.5 text-sm";
   if (!flat)
     return (
       <div className="flex flex-col gap-1.5 text-sm">
-        <span className="font-medium text-slate-700">{label}</span>
-        <code className="rounded bg-slate-100 p-2 text-xs">{JSON.stringify(value)}</code>
+        <span className="font-medium text-fg">{label}</span>
+        <code className="rounded bg-canvas p-2 text-xs">{JSON.stringify(value)}</code>
         <Button variant="outline" size="sm" onClick={() => onChange(undefined)}>
           清除复杂条件
         </Button>
@@ -480,17 +500,16 @@ function ConditionEditor({
 
   return (
     <fieldset className="flex flex-col gap-1.5">
-      <legend className="text-sm font-medium text-slate-700">{label}</legend>
+      <legend className="text-sm font-medium text-fg">{label}</legend>
       {items.length > 1 && (
-        <select
+        <Select
           aria-label={`${label}的组合方式`}
-          className={select}
           value={mode}
           onChange={(e) => set(items, e.target.value as "all" | "any")}
         >
           <option value="all">全部满足</option>
           <option value="any">任一满足</option>
-        </select>
+        </Select>
       )}
       {items.map((item, i) => {
         const field = fields.find((f) => f.key === item.field);
@@ -498,22 +517,16 @@ function ConditionEditor({
         return (
           // biome-ignore lint/suspicious/noArrayIndexKey: 条件没有自己的 id，按位置编辑
           <div key={i} className="flex flex-wrap items-center gap-1.5">
-            <select
-              aria-label="字段"
-              className={select}
-              value={item.field}
-              onChange={(e) => update({ ...item, field: e.target.value })}
-            >
+            <Select aria-label="字段" value={item.field} onChange={(e) => update({ ...item, field: e.target.value })}>
               {!field && <option value={item.field}>{item.field}（不存在）</option>}
               {fields.map((f) => (
                 <option key={f.key} value={f.key}>
                   {f.name}
                 </option>
               ))}
-            </select>
-            <select
+            </Select>
+            <Select
               aria-label="判断"
-              className={select}
               value={item.kind}
               onChange={(e) =>
                 update(
@@ -525,12 +538,11 @@ function ConditionEditor({
             >
               <option value="equal">等于</option>
               <option value="notEmpty">不为空</option>
-            </select>
+            </Select>
             {item.kind === "equal" &&
               (field?.options ? (
-                <select
+                <Select
                   aria-label="值"
-                  className={select}
                   value={String(item.value)}
                   onChange={(e) => update({ ...item, value: e.target.value })}
                 >
@@ -539,7 +551,7 @@ function ConditionEditor({
                       {o.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               ) : (
                 <Input
                   aria-label="值"
@@ -551,7 +563,7 @@ function ConditionEditor({
             <button
               type="button"
               aria-label="删除条件"
-              className="px-1 text-slate-400 hover:text-red-600"
+              className="px-1 text-fg-subtle hover:text-danger-600"
               onClick={() => set(items.filter((_, j) => j !== i))}
             >
               ×

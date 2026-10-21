@@ -2,22 +2,24 @@ import type { FlowDefinition } from "@fp/engine";
 import { mutators, queries, type WorkItemFilterArgs } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
+import { GanttChartSquare, List, Plus } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
-import { CalendarCard } from "@/components/CalendarCard";
+import { useActiveSpace } from "@/components/AppShell";
 import { FilterBar } from "@/components/FilterBar";
 import { type PickerMember, RolePicker, toggled } from "@/components/RolePicker";
 import { SpaceGantt } from "@/components/SpaceGantt";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input, Label } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+import { Field, Input, Select } from "@/components/ui/input";
+import { EmptyState, PageBody, PageHeader } from "@/components/ui/page";
+import { Segmented } from "@/components/ui/tabs";
+import { StageTag, StatusTag } from "@/components/ui/tag";
 import { env } from "@/lib/env";
 import { newId } from "@/lib/utils";
 
 const NO_CALENDAR = { holidays: [], extraWorkdays: [] };
-
-const STATUS_LABEL: Record<string, string> = { inProgress: "进行中", completed: "已完成", terminated: "已终止" };
 
 interface Row {
   id: string;
@@ -28,28 +30,117 @@ interface Row {
   createdAt: number;
 }
 
+function formatTime(ms: number) {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 const column = createColumnHelper<Row>();
 const columns = [
   column.accessor("name", {
     header: "名称",
     cell: (c) => (
-      <Link className="text-sky-700 hover:underline" to="/items/$itemId" params={{ itemId: c.row.original.id }}>
+      <Link
+        className="font-medium text-fg hover:text-brand-500"
+        to="/items/$itemId"
+        params={{ itemId: c.row.original.id }}
+      >
         {c.getValue()}
       </Link>
     ),
   }),
-  column.accessor("type", { header: "类型" }),
-  column.accessor("stage", { header: "阶段", cell: (c) => c.getValue() ?? "—" }),
-  column.accessor("status", { header: "状态", cell: (c) => STATUS_LABEL[c.getValue()] ?? c.getValue() }),
-  column.accessor("createdAt", { header: "创建时间", cell: (c) => new Date(c.getValue()).toLocaleString("zh-CN") }),
+  column.accessor("type", { header: "类型", cell: (c) => <span className="text-fg-muted">{c.getValue()}</span> }),
+  column.accessor("stage", { header: "阶段", cell: (c) => <StageTag stage={c.getValue()} /> }),
+  column.accessor("status", { header: "状态", cell: (c) => <StatusTag status={c.getValue()} /> }),
+  column.accessor("createdAt", {
+    header: "创建时间",
+    cell: (c) => <span className="text-fg-muted tabular-nums">{formatTime(c.getValue())}</span>,
+  }),
 ];
 
+type Space = NonNullable<QueryResultType<ReturnType<typeof queries.spaces.byId>>>;
+type ItemType = Space["workItemTypes"][number];
+
+/** 空间的工作项：左侧导航选了类型时只看这种类型。 */
 export function SpacePage() {
   const { spaceId } = useParams({ from: "/app/spaces/$spaceId" });
+  const { type: typeId } = useSearch({ from: "/app/spaces/$spaceId" });
   const zero = useZero();
   const [space, spaceResult] = useQuery(queries.spaces.byId({ id: spaceId }));
-  const [filter, setFilter] = useState<WorkItemFilterArgs>({});
-  const [items] = useQuery(queries.workItems.bySpace({ spaceId, filter }));
+  useActiveSpace(spaceId);
+
+  if (!space)
+    return (
+      <p className="p-6 text-sm text-fg-subtle">
+        {spaceResult.type === "complete" ? "空间不存在或没有权限。" : "加载中…"}
+      </p>
+    );
+  const isAdmin = space.members.some((m) => m.userId === zero.userID && m.isAdmin);
+  const members: PickerMember[] = space.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId }));
+  const current = typeId ? space.workItemTypes.find((t) => t.id === typeId) : undefined;
+  const ready = space.workItemTypes.filter((t) => t.flowTemplates.some((f) => f.currentVersionId));
+
+  return (
+    <>
+      <PageHeader
+        title={current?.name ?? "全部工作项"}
+        breadcrumb={space.name}
+        actions={
+          ready.length > 0 && (
+            <CreateWorkItem
+              types={current ? ready.filter((t) => t.id === current.id) : ready}
+              members={members}
+              label={current ? `新建${current.name}` : "新建工作项"}
+            />
+          )
+        }
+      />
+      <PageBody className="max-w-none">
+        {space.workItemTypes.length === 0 ? (
+          <div className="rounded-lg border border-line-subtle bg-surface shadow-card">
+            <EmptyState
+              title="还没有工作项类型"
+              description={
+                isAdmin
+                  ? "可以导入 OEM v289 作为演示，也可以在空间设置里新建类型，自己配置角色、字段和流程。"
+                  : "请空间管理员先在空间设置里配置工作项类型。"
+              }
+              action={
+                isAdmin && (
+                  <div className="flex gap-2">
+                    <ImportOem spaceId={spaceId} />
+                    <Button variant="outline" asChild>
+                      <Link to="/spaces/$spaceId/settings" params={{ spaceId }}>
+                        空间设置
+                      </Link>
+                    </Button>
+                  </div>
+                )
+              }
+            />
+          </div>
+        ) : (
+          <WorkItems key={typeId ?? "all"} space={space} typeId={current?.id} members={members} isAdmin={isAdmin} />
+        )}
+      </PageBody>
+    </>
+  );
+}
+
+function WorkItems({
+  space,
+  typeId,
+  members,
+  isAdmin,
+}: {
+  space: Space;
+  typeId: string | undefined;
+  members: PickerMember[];
+  isAdmin: boolean;
+}) {
+  const [filter, setFilter] = useState<WorkItemFilterArgs>(typeId ? { typeIds: [typeId] } : {});
+  const [items, result] = useQuery(queries.workItems.bySpace({ spaceId: space.id, filter }));
   const [view, setView] = useState<"table" | "gantt">("table");
 
   const rows = useMemo<Row[]>(
@@ -66,121 +157,95 @@ export function SpacePage() {
   );
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
 
-  if (!space)
-    return (
-      <p className="p-6 text-sm text-slate-500">
-        {spaceResult.type === "complete" ? "空间不存在或没有权限。" : "加载中…"}
-      </p>
-    );
-  const isAdmin = space.members.some((m) => m.userId === zero.userID && m.isAdmin);
-  const calendar = space.calendar ?? NO_CALENDAR;
-  const members: PickerMember[] = space.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId }));
-
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
-      <div className="flex items-center gap-3">
-        <Link to="/" className="text-sm text-slate-500 hover:underline">
-          我的空间
-        </Link>
-        <span className="text-slate-300">/</span>
-        <h1 className="text-xl font-semibold">{space.name}</h1>
-        <Link
-          to="/spaces/$spaceId/automations"
-          params={{ spaceId }}
-          className="ml-auto text-sm text-sky-700 hover:underline"
-        >
-          自动化
-        </Link>
-      </div>
-
-      {space.workItemTypes.length === 0 && isAdmin && <ImportOem spaceId={spaceId} />}
-      <CreateWorkItem types={[...space.workItemTypes]} members={members} />
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>工作项</CardTitle>
-          <div role="tablist" className="flex gap-1 text-sm">
-            {(
-              [
-                ["table", "列表"],
-                ["gantt", "甘特图"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={view === key}
-                onClick={() => setView(key)}
-                className={`rounded-md px-2.5 py-1 ${view === key ? "bg-slate-100 font-medium text-slate-900" : "text-slate-500 hover:bg-slate-50"}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <FilterBar
-            spaceId={spaceId}
-            filter={filter}
-            onChange={setFilter}
-            types={space.workItemTypes.map((t) => ({
-              id: t.id,
-              name: t.name,
-              definitions: t.flowTemplates.flatMap((f) =>
-                f.currentVersion ? [f.currentVersion.definition as FlowDefinition] : [],
-              ),
-            }))}
-            members={members.map((m) => ({ id: m.userId, name: m.name }))}
-            views={space.views.map((v) => ({ ...v, filter: v.filter ?? {} }))}
-            isAdmin={isAdmin}
-          />
-          {view === "gantt" ? (
-            <SpaceGantt
-              spaceId={spaceId}
-              timeZone={space.timezone ?? "Asia/Shanghai"}
-              calendar={calendar}
-              filter={filter}
+    <div className="flex min-h-0 flex-col rounded-lg border border-line-subtle bg-surface shadow-card">
+      <div className="border-b border-line-subtle px-4 py-3">
+        <FilterBar
+          spaceId={space.id}
+          filter={filter}
+          onChange={setFilter}
+          types={space.workItemTypes.map((t) => ({
+            id: t.id,
+            name: t.name,
+            definitions: t.flowTemplates.flatMap((f) =>
+              f.currentVersion ? [f.currentVersion.definition as FlowDefinition] : [],
+            ),
+          }))}
+          members={members.map((m) => ({ id: m.userId, name: m.name }))}
+          views={space.views.map((v) => ({ ...v, filter: v.filter ?? {} }))}
+          isAdmin={isAdmin}
+          actions={
+            <Segmented
+              label="显示方式"
+              value={view}
+              onChange={setView}
+              items={[
+                [
+                  "table",
+                  <>
+                    <List />
+                    列表
+                  </>,
+                ],
+                [
+                  "gantt",
+                  <>
+                    <GanttChartSquare />
+                    甘特图
+                  </>,
+                ],
+              ]}
             />
-          ) : (
-            <>
-              <table className="w-full text-sm">
-                <thead>
-                  {table.getHeaderGroups().map((group) => (
-                    <tr key={group.id} className="border-b border-slate-200 text-left text-slate-500">
-                      {group.headers.map((header) => (
-                        <th key={header.id} className="py-2 pr-4 font-medium">
-                          {flexRender(header.column.columnDef.header, header.getContext())}
-                        </th>
-                      ))}
-                    </tr>
+          }
+        />
+      </div>
+      {view === "gantt" ? (
+        <div className="p-4">
+          <SpaceGantt
+            spaceId={space.id}
+            timeZone={space.timezone ?? "Asia/Shanghai"}
+            calendar={space.calendar ?? NO_CALENDAR}
+            filter={filter}
+          />
+        </div>
+      ) : (
+        <>
+          <table className="w-full text-sm">
+            <thead>
+              {table.getHeaderGroups().map((group) => (
+                <tr key={group.id} className="border-b border-line-subtle bg-canvas/60 text-left">
+                  {group.headers.map((header) => (
+                    <th key={header.id} className="h-9 px-4 text-xs font-normal text-fg-muted">
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                    </th>
                   ))}
-                </thead>
-                <tbody>
-                  {table.getRowModel().rows.map((row) => (
-                    <tr key={row.id} className="border-b border-slate-100">
-                      {row.getVisibleCells().map((cell) => (
-                        <td key={cell.id} className="py-2 pr-4">
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
-                      ))}
-                    </tr>
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row) => (
+                <tr key={row.id} className="border-b border-line-subtle last:border-b-0 hover:bg-hover/50">
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className="h-11 px-4">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
                   ))}
-                </tbody>
-              </table>
-              {rows.length === 0 && (
-                <p className="py-4 text-sm text-slate-500">
-                  {Object.values(filter).some((v) => v?.length) ? "没有符合条件的工作项。" : "还没有工作项。"}
-                </p>
-              )}
-            </>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rows.length === 0 && result.type === "complete" && (
+            <EmptyState
+              title={Object.values(filter).some((v) => v?.length) ? "没有符合条件的工作项" : "还没有工作项"}
+              description={
+                Object.values(filter).some((v) => v?.length)
+                  ? "换个筛选条件试试。"
+                  : "点右上角的“新建”创建第一个工作项。"
+              }
+            />
           )}
-        </CardContent>
-      </Card>
-
-      <MembersCard spaceId={spaceId} members={members} canManage={isAdmin} />
-      <TypesCard spaceId={spaceId} types={[...space.workItemTypes]} canManage={isAdmin} />
-      <CalendarCard spaceId={spaceId} calendar={calendar} canManage={isAdmin} />
+        </>
+      )}
     </div>
   );
 }
@@ -195,59 +260,56 @@ function ImportOem({ spaceId }: { spaceId: string }) {
     if (!res.ok) setError(((await res.json()) as { error: string }).error);
   }
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>还没有工作项类型</CardTitle>
-        <p className="text-sm text-slate-500">
-          可以导入 OEM v289 作为演示，也可以在下面新建类型，自己配置角色、字段和流程。
-        </p>
-      </CardHeader>
-      <CardContent className="flex items-center gap-3">
-        <Button onClick={run}>导入 OEM 模板</Button>
-        {error && <span className="text-sm text-red-600">{error}</span>}
-      </CardContent>
-    </Card>
+    <>
+      <Button onClick={run}>导入 OEM 模板</Button>
+      {error && <span className="text-sm text-danger-600">{error}</span>}
+    </>
   );
 }
-
-type Space = NonNullable<QueryResultType<ReturnType<typeof queries.spaces.byId>>>;
-type ItemType = Space["workItemTypes"][number];
 
 /** 新建工作项：选类型（有已发布流程的才可选）、填名称和选项字段、按角色选人。 */
-function CreateWorkItem({ types, members }: { types: ItemType[]; members: PickerMember[] }) {
-  const ready = types.filter((t) => t.flowTemplates.some((f) => f.currentVersionId));
-  const [typeId, setTypeId] = useState(ready[0]?.id ?? "");
-  const type = ready.find((t) => t.id === typeId) ?? ready[0];
+function CreateWorkItem({ types, members, label }: { types: ItemType[]; members: PickerMember[]; label: string }) {
+  const [open, setOpen] = useState(false);
+  const [typeId, setTypeId] = useState(types[0]?.id ?? "");
+  const type = types.find((t) => t.id === typeId) ?? types[0];
   if (!type) return null;
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>新建工作项</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {ready.length > 1 && (
-          <Label className="flex flex-col gap-1.5">
-            类型
-            <select
-              className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm"
-              value={type.id}
-              onChange={(e) => setTypeId(e.target.value)}
-            >
-              {ready.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </Label>
-        )}
-        <CreateWorkItemForm key={type.id} type={type} members={members} />
-      </CardContent>
-    </Card>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button>
+          <Plus />
+          {label}
+        </Button>
+      </DialogTrigger>
+      <DialogContent title={label} className="max-w-2xl">
+        <div className="flex flex-col gap-4">
+          {types.length > 1 && (
+            <Field label="类型">
+              <Select value={type.id} onChange={(e) => setTypeId(e.target.value)}>
+                {types.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+          <CreateWorkItemForm key={type.id} type={type} members={members} onCancel={() => setOpen(false)} />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function CreateWorkItemForm({ type, members }: { type: ItemType; members: PickerMember[] }) {
+function CreateWorkItemForm({
+  type,
+  members,
+  onCancel,
+}: {
+  type: ItemType;
+  members: PickerMember[];
+  onCancel: () => void;
+}) {
   const zero = useZero();
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -269,156 +331,51 @@ function CreateWorkItemForm({ type, members }: { type: ItemType; members: Picker
 
   return (
     <form className="flex flex-col gap-4" onSubmit={create}>
-      <Label className="flex flex-col gap-1.5">
-        {type.name}名称
-        <Input value={name} onChange={(e) => setName(e.target.value)} required />
-      </Label>
+      <Field label={`${type.name}名称`}>
+        <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
+      </Field>
       {selectFields.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
           {selectFields.map((f) => (
-            <Label key={f.key} className="flex flex-col gap-1.5 font-normal">
-              {f.name}
-              <select
-                className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm"
+            <Field key={f.key} label={f.name}>
+              <Select
                 value={fields[f.key] ?? ""}
                 onChange={(e) => setFields((prev) => ({ ...prev, [f.key]: e.target.value }))}
               >
-                <option value="">—</option>
+                <option value="">未选择</option>
                 {f.options?.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
                   </option>
                 ))}
-              </select>
-            </Label>
+              </Select>
+            </Field>
           ))}
         </div>
       )}
-      <details>
-        <summary className="cursor-pointer text-sm text-slate-600">角色和负责人（默认都是你）</summary>
-        <div className="pt-3">
-          <RolePicker
-            roles={type.roles}
-            members={members}
-            value={assigned}
-            onToggle={(roleKey, userId, selected) =>
-              setAssigned((prev) => ({ ...prev, [roleKey]: toggled(prev[roleKey], userId, selected) }))
-            }
-          />
-        </div>
-      </details>
-      <div>
+      {type.roles.length > 0 && (
+        <details className="group rounded-md border border-line-subtle">
+          <summary className="cursor-pointer px-3 py-2 text-sm text-fg-muted select-none hover:text-fg">
+            角色和负责人（默认都是你）
+          </summary>
+          <div className="border-t border-line-subtle px-3 py-2">
+            <RolePicker
+              roles={type.roles}
+              members={members}
+              value={assigned}
+              onToggle={(roleKey, userId, selected) =>
+                setAssigned((prev) => ({ ...prev, [roleKey]: toggled(prev[roleKey], userId, selected) }))
+              }
+            />
+          </div>
+        </details>
+      )}
+      <div className="flex justify-end gap-2 pt-2">
+        <Button variant="outline" onClick={onCancel}>
+          取消
+        </Button>
         <Button type="submit">创建</Button>
       </div>
     </form>
-  );
-}
-
-/** 空间里的工作项类型，点进去配置角色、字段和流程。管理员可以新建类型。 */
-function TypesCard({ spaceId, types, canManage }: { spaceId: string; types: ItemType[]; canManage: boolean }) {
-  const zero = useZero();
-  const [error, setError] = useState<string | null>(null);
-
-  async function add(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const name = String(new FormData(form).get("name") ?? "").trim();
-    if (!name) return;
-    setError(null);
-    const result = await zero.mutate(mutators.workItemType.create({ id: newId(), spaceId, key: name, name })).client;
-    if (result.type === "error") return setError(result.error.message);
-    form.reset();
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>工作项类型</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <ul className="flex flex-wrap gap-2 text-sm">
-          {types.map((t) => (
-            <li key={t.id}>
-              <Link
-                to="/types/$typeId"
-                params={{ typeId: t.id }}
-                className="rounded-md border border-slate-200 px-2.5 py-1 hover:bg-slate-50"
-              >
-                {t.name}
-              </Link>
-            </li>
-          ))}
-        </ul>
-        {canManage && (
-          <form className="flex items-end gap-2" onSubmit={add}>
-            <Label className="flex flex-1 flex-col gap-1.5">
-              新类型名称
-              <Input name="name" placeholder="例如：缺陷、需求" />
-            </Label>
-            <Button type="submit" variant="outline">
-              新建类型
-            </Button>
-          </form>
-        )}
-        {error && <p className="text-sm text-red-600">{error}</p>}
-      </CardContent>
-    </Card>
-  );
-}
-
-function MembersCard({
-  spaceId,
-  members,
-  canManage,
-}: {
-  spaceId: string;
-  members: PickerMember[];
-  canManage: boolean;
-}) {
-  const [error, setError] = useState<string | null>(null);
-
-  async function add(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const email = String(new FormData(form).get("email") ?? "").trim();
-    if (!email) return;
-    setError(null);
-    const res = await fetch(`${env.apiUrl}/api/spaces/${spaceId}/members`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-    if (!res.ok) return setError(((await res.json()) as { error: string }).error);
-    form.reset();
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>成员</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <ul className="flex flex-wrap gap-2 text-sm">
-          {members.map((m) => (
-            <li key={m.userId} className="rounded-full bg-slate-100 px-2.5 py-0.5">
-              {m.name}
-            </li>
-          ))}
-        </ul>
-        {canManage && (
-          <form className="flex items-end gap-2" onSubmit={add}>
-            <Label className="flex flex-1 flex-col gap-1.5">
-              按邮箱添加成员
-              <Input name="email" type="email" placeholder="对方注册时用的邮箱" />
-            </Label>
-            <Button type="submit" variant="outline">
-              添加
-            </Button>
-          </form>
-        )}
-        {error && <p className="text-sm text-red-600">{error}</p>}
-      </CardContent>
-    </Card>
   );
 }

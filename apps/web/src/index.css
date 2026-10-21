@@ -1,5 +1,88 @@
 @import "tailwindcss";
 
+/*
+ * 设计规范：参照飞书项目的视觉语言。
+ * 颜色只用这里的语义 token（text-fg、bg-canvas、border-line、bg-brand-500 …），页面里不直接写 slate/sky。
+ * 字号：12 辅助信息、14 正文和控件、16 卡片标题、20 页面标题。控件高度 32px，圆角 6px，间距以 4px 为单位。
+ */
 @theme {
-  --font-sans: "Inter Variable", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial,
+    sans-serif;
+
+  /* 品牌蓝：主按钮、链接、选中态 */
+  --color-brand-50: #f0f4ff;
+  --color-brand-100: #e1eaff;
+  --color-brand-200: #bacefd;
+  --color-brand-300: #82a7fc;
+  --color-brand-500: #3370ff;
+  --color-brand-600: #245bdb;
+  --color-brand-700: #1c4cba;
+
+  /* 文字 */
+  --color-fg: #1f2329;
+  --color-fg-muted: #646a73;
+  --color-fg-subtle: #8f959e;
+  --color-fg-disabled: #bbbfc4;
+
+  /* 线和底色 */
+  --color-line: #dee0e3;
+  --color-line-subtle: #eff0f1;
+  --color-canvas: #f5f6f7;
+  --color-surface: #ffffff;
+  --color-hover: #1f23290d;
+  --color-pressed: #1f23291a;
+
+  /* 状态色：文字用 -600，浅底用 -50 */
+  --color-success-50: #e4f6e0;
+  --color-success-500: #34c724;
+  --color-success-600: #2ea121;
+  --color-warning-50: #fff3e5;
+  --color-warning-500: #ff8800;
+  --color-warning-600: #de7802;
+  --color-danger-50: #fde2e2;
+  --color-danger-500: #f54a45;
+  --color-danger-600: #d83931;
+  --color-violet-50: #efe6fe;
+  --color-violet-600: #6425d0;
+  --color-teal-50: #d5f6f2;
+  --color-teal-600: #078372;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  --shadow-popover: 0 6px 24px 0 #1f23290f, 0 3px 6px -4px #1f23291f, 0 9px 28px 8px #1f23290d;
+  --shadow-card: 0 1px 2px 0 #1f23290a;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-canvas text-sm text-fg antialiased;
+  }
+  ::selection {
+    @apply bg-brand-100;
+  }
+}
+
+/* React Flow：只读流程图不显示连接点；编辑器里悬停节点时才显示。 */
+.react-flow__handle {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--color-surface);
+  background: var(--color-fg-disabled);
+}
+.react-flow.readonly .react-flow__handle {
+  opacity: 0;
+}
+.react-flow__controls {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--color-line-subtle);
 }

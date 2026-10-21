@@ -1,36 +1,14 @@
-import { expect, request, test } from "@playwright/test";
-
-const API_URL = process.env.API_URL ?? "http://localhost:3000";
+import { expect, test } from "@playwright/test";
+import { addMember, createItem, oemSpace, openItems, registerColleague } from "./helpers";
 
 test("comment with a mention, and both people get notified", async ({ page, browser }) => {
   const suffix = `${Date.now()}`;
   const linEmail = `lin-comment-${suffix}@example.com`;
-  const colleague = await request.newContext({
-    baseURL: API_URL,
-    extraHTTPHeaders: { origin: "http://localhost:5173" },
-  });
-  const signUp = await colleague.post("/api/auth/sign-up/email", {
-    data: { email: linEmail, password: "correct-horse-battery", name: "Lin" },
-  });
-  expect(signUp.ok()).toBe(true);
-
-  await page.goto("/login");
-  await page.getByRole("button", { name: "没有账号？注册" }).click();
-  await page.getByLabel("姓名").fill("Pascal");
-  await page.getByLabel("邮箱").fill(`comments-${suffix}@example.com`);
-  await page.getByLabel("密码").fill("correct-horse-battery");
-  await page.getByRole("button", { name: "注册并登录" }).click();
-  await page.getByLabel("空间名称").fill(`评论 ${suffix}`);
-  await page.getByRole("button", { name: "创建" }).click();
-  await page.getByText(`评论 ${suffix}`).click();
-  await expect(page.getByRole("listitem").filter({ hasText: "Pascal" })).toBeVisible();
-  await page.getByRole("button", { name: "导入 OEM 模板" }).click();
-  await page.getByLabel("按邮箱添加成员").fill(linEmail);
-  await page.getByRole("button", { name: "添加" }).click();
-  await expect(page.getByRole("listitem").filter({ hasText: "Lin" })).toBeVisible();
-  await page.getByLabel("项目名称").fill("新品 J");
-  await page.getByRole("button", { name: "创建" }).click();
-  await expect(page.getByRole("heading", { name: "新品 J" })).toBeVisible();
+  await registerColleague(linEmail, "Lin");
+  await oemSpace(page, "Pascal", `comments-${suffix}@example.com`, `评论 ${suffix}`);
+  await addMember(page, linEmail, "Lin");
+  await openItems(page);
+  await createItem(page, "新品 J");
 
   // Pascal 是需求立项提案的负责人：worker 处理 nodeStarted 事件后给他发通知
   const bell = page.getByRole("button", { name: /^通知/ });

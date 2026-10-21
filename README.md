@@ -9,12 +9,23 @@
 | 路径 | 内容 |
 | --- | --- |
 | `packages/engine` | 流程引擎：零依赖纯 TypeScript，服务端和浏览器共用。`src/samples/oem-v289.ts` 是 OEM v289 流程的验收数据 |
-| `apps/web` | 前端：React 19 + Vite + Tailwind CSS v4 + React Flow。目前是一个可以点着走完 OEM 流程的演示页 |
+| `apps/web` | 前端：React 19 + Vite + Tailwind CSS v4 + Radix + React Flow。界面规范见下面的“界面” |
 | `apps/api` | 后端：Node.js 24 + Hono。Better Auth 登录（`/api/auth/*`）、Zero 的查询和写入接口（`/api/zero/*`）、流程校验 |
 | `apps/worker` | Temporal worker（每个工作项一个事件流 workflow，按顺序处理事件）和 Outbox 中继 |
 | `packages/db` | PostgreSQL 17 + Drizzle：表结构、迁移、`appendEvents`（业务写入和事件同一事务） |
 | `packages/sync` | Zero 同步层：schema（drizzle-zero 从 `packages/db` 生成）、查询、mutator，前端和服务端共用 |
 | `docker-compose.yml` | Postgres（pgvector、逻辑复制）、Temporal + UI、zero-cache、迁移；`app` profile 再加 API、worker、中继 |
+
+## 界面
+
+视觉参照飞书项目。设计 token 都在 `apps/web/src/index.css` 的 `@theme` 里：品牌蓝 `brand-*`，文字 `fg` / `fg-muted` / `fg-subtle`，
+线 `line` / `line-subtle`，底色 `canvas` / `surface`，状态色 `success` / `warning` / `danger`。页面里只用这些语义类，不直接写 slate、sky 这类颜色。
+字号 12/14/16/20，控件高 32px，圆角 6px。
+
+组件在 `apps/web/src/components/ui/`：`Button`、`Input` / `Select` / `Textarea` / `Field`、`Tag` / `StatusTag` / `StageTag`、`Avatar`、
+`Dialog`、`Popover`、`DropdownMenu`、`Tabs` / `Segmented`、`PageHeader` / `PageBody` / `Panel` / `EmptyState`。
+布局：`AppShell` 是左侧导航（空间切换、工作项类型、自动化、空间设置、通知、账号）加右侧页面；没有空间参数的页面用 `useActiveSpace` 报告自己所在的空间。
+新建类的操作用弹窗，详情页右侧是用细线分节的面板。
 
 ## 读写怎么走
 

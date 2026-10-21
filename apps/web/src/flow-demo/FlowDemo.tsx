@@ -17,10 +17,10 @@ const ADMIN: Actor = { userId: "admin", isSuperAdmin: true };
 const F = oemV289.F;
 
 const STATE_STYLE: Record<NodeState, string> = {
-  notStarted: "bg-white border-slate-300 text-slate-500",
-  inProgress: "bg-sky-50 border-sky-500 text-sky-900 ring-2 ring-sky-200 cursor-pointer",
-  completed: "bg-emerald-50 border-emerald-500 text-emerald-900",
-  skipped: "bg-slate-100 border-dashed border-slate-300 text-slate-400 line-through",
+  notStarted: "bg-surface border-line text-fg-muted",
+  inProgress: "bg-brand-50 border-brand-500 text-brand-600 ring-2 ring-brand-100 cursor-pointer",
+  completed: "bg-success-50 border-success-500 text-success-600",
+  skipped: "bg-canvas border-dashed border-line text-fg-subtle line-through",
 };
 
 const STATE_LABEL: Record<NodeState, string> = {
@@ -181,11 +181,11 @@ export function FlowDemo() {
   );
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
-      <aside className="flex w-80 shrink-0 flex-col gap-5 overflow-y-auto border-r border-slate-200 bg-white p-5">
+    <div className="flex h-screen bg-canvas font-sans text-fg">
+      <aside className="flex w-80 shrink-0 flex-col gap-5 overflow-y-auto border-r border-line-subtle bg-surface p-5">
         <header>
           <h1 className="text-lg font-semibold">OEM v289 流程演示</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-fg-muted">
             点击蓝色的进行中节点推进一步。左侧开关就是流程裁剪和卡点用到的字段。
           </p>
         </header>
@@ -198,14 +198,14 @@ export function FlowDemo() {
         </section>
 
         <section className="flex flex-col gap-2">
-          <h2 className="text-xs font-medium tracking-wide text-slate-500">字段</h2>
+          <h2 className="text-xs font-medium tracking-wide text-fg-muted">字段</h2>
           {TOGGLES.map((t) => (
             <label key={t.field} className="flex items-center justify-between gap-3 text-sm">
               <span>{t.label}</span>
               <input
                 id={`toggle-${t.field}`}
                 type="checkbox"
-                className="size-4 accent-sky-600"
+                className="size-4 accent-brand-500"
                 checked={fields[t.field] === t.on}
                 onChange={(e) => toggle(t.field, e.target.checked ? t.on : t.off)}
               />
@@ -214,17 +214,17 @@ export function FlowDemo() {
           <button
             type="button"
             onClick={reset}
-            className="mt-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
+            className="mt-1 rounded-md border border-line px-3 py-1.5 text-sm hover:bg-hover"
           >
             用当前字段重新开始
           </button>
         </section>
 
-        {error && <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">{error}</p>}
+        {error && <p className="rounded-md bg-warning-50 px-3 py-2 text-sm text-warning-600">{error}</p>}
 
         <section className="flex min-h-0 flex-col gap-2">
-          <h2 className="text-xs font-medium tracking-wide text-slate-500">事件</h2>
-          <ol className="flex flex-col gap-1 text-xs text-slate-600">
+          <h2 className="text-xs font-medium tracking-wide text-fg-muted">事件</h2>
+          <ol className="flex flex-col gap-1 text-xs text-fg-muted">
             {log.slice(0, 80).map((line, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: 事件日志只追加，不会重排
               <li key={`${log.length - i}`}>{line}</li>
@@ -252,8 +252,8 @@ export function FlowDemo() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md bg-slate-50 px-3 py-2">
-      <div className="text-xs text-slate-500">{label}</div>
+    <div className="rounded-md bg-canvas px-3 py-2">
+      <div className="text-xs text-fg-muted">{label}</div>
       <div className="font-medium tabular-nums">{value}</div>
     </div>
   );

@@ -1,7 +1,7 @@
 import type { FlowGraph } from "@fp/engine";
 
-export const COLUMN_WIDTH = 230;
-export const ROW_HEIGHT = 86;
+export const COLUMN_WIDTH = 240;
+export const ROW_HEIGHT = 64;
 
 /** 简单分层布局：列 = 从起点出发的最长路径深度，行 = 同列内的出现顺序。 */
 export function layoutByDepth(graph: FlowGraph): Map<string, { x: number; y: number }> {
