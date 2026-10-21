@@ -19,6 +19,11 @@ function rangeBound(value: number | string | undefined): number | null {
   return n === null || Number.isNaN(n) ? null : n;
 }
 
+/** “包含这段文字”的 ILIKE 模式，转义掉通配符。 */
+function containsPattern(text: string) {
+  return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
 /** 空间里当前用户能看到、并且符合筛选条件的工作项。 */
 function spaceItems({ spaceId, filter = {} }: z.output<typeof spaceItemsArgs>, userID: string) {
   let q = zql.workItem
@@ -37,7 +42,7 @@ function spaceItems({ spaceId, filter = {} }: z.output<typeof spaceItemsArgs>, u
         case "in":
           return fv.whereExists("items", (i) => i.where("item", "IN", f.values));
         case "contains":
-          return fv.where("str", "ILIKE", `%${f.text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+          return fv.where("str", "ILIKE", containsPattern(f.text));
         case "range": {
           let r = fv;
           const min = rangeBound(f.min);
@@ -275,6 +280,31 @@ export const queries = defineQueries({
         )
         .related("workItem", (w) => w.related("space").related("flowVersion")),
     ),
+  },
+  search: {
+    /**
+     * 全局搜索：自己所在的所有空间里，名称、文本类字段值（只查自己能看到的）或评论包含关键字的工作项，
+     * 最近更新的在前。带上命中的字段值和评论，用来显示命中在哪里。
+     */
+    workItems: defineQuery(z.object({ q: z.string().trim().min(1).max(100) }), ({ args, ctx }) => {
+      const pattern = containsPattern(args.q);
+      const visible = visibleFieldValues(ctx.userID);
+      return zql.workItem
+        .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID)))
+        .where(({ or, cmp, exists }) =>
+          or(
+            cmp("name", "ILIKE", pattern),
+            exists("fieldValues", (v) => visible(v.where("str", "ILIKE", pattern))),
+            exists("comments", (c) => c.where("body", "ILIKE", pattern)),
+          ),
+        )
+        .related("space")
+        .related("type", (t) => t.related("fields"))
+        .related("fieldValues", (v) => visible(v.where("str", "ILIKE", pattern)).limit(1))
+        .related("comments", (c) => c.where("body", "ILIKE", pattern).orderBy("createdAt", "desc").limit(1))
+        .orderBy("updatedAt", "desc")
+        .limit(30);
+    }),
   },
   notifications: {
     /** 自己最近的通知。 */
