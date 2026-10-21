@@ -9,6 +9,7 @@ import { cascadeSubItems, createMutatorRunner, matchRules, notify, runRule } fro
 import { and, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp, createServices, type Services } from "../src/app.ts";
+import type { Dashboard } from "../src/dashboard.ts";
 import { importOemTemplate } from "../src/seed/oem.ts";
 
 let services: Services;
@@ -2095,5 +2096,95 @@ describe("webhook config", () => {
 
     await run("webhook.delete", { id });
     expect(await stored()).toBeUndefined();
+  });
+});
+
+describe("space dashboard", () => {
+  const spaceId = randomUUID();
+  const projectType = `${spaceId}/project`;
+  const bugType = `${spaceId}/bug`;
+  let admin: { cookie: string; userId: string };
+  let stranger: { cookie: string; userId: string };
+  const run = (name: string, args: unknown, userId = admin.userId) => services.zero.run(name, args, userId);
+  const get = (cookie: string, query = "") =>
+    app.request(`/api/spaces/${spaceId}/dashboard${query}`, { headers: { cookie } });
+
+  beforeAll(async () => {
+    admin = await signUp(`dash-admin-${spaceId}@example.com`);
+    stranger = await signUp(`dash-stranger-${spaceId}@example.com`);
+    await run("space.create", { id: spaceId, name: "仪表盘" });
+    await run("workItemType.create", { id: projectType, spaceId, key: "project", name: "项目" });
+    await run("roleDef.create", { id: `${projectType}/role/pm`, typeId: projectType, key: "pm", name: "PM" });
+    await run("flowTemplate.create", { id: `${projectType}/t`, typeId: projectType, key: "t", name: "流程" });
+    await run("flowTemplate.saveDraft", {
+      templateId: `${projectType}/t`,
+      definition: {
+        key: "t",
+        version: 0,
+        nodes: [
+          { key: "start", name: "开始", completion: "auto", ownerRoles: [] },
+          { key: "plan", name: "立项", completion: "singleConfirm", ownerRoles: ["pm"], stageOnArrival: "立项中" },
+        ],
+        edges: [{ from: "start", to: "plan" }],
+      },
+    });
+    await run("flowTemplate.publish", { versionId: `${projectType}/t/v1` });
+    await run("workItemType.create", { id: bugType, spaceId, key: "bug", name: "缺陷", flowMode: "state" });
+    await run("flowTemplate.create", { id: `${bugType}/t`, typeId: bugType, key: "t", name: "流程" });
+    await run("flowTemplate.publish", { versionId: `${bugType}/t/v1` });
+
+    for (const name of ["官网改版", "小程序"])
+      await run("workItem.create", {
+        id: `${spaceId}/${name}`,
+        typeId: projectType,
+        name,
+        roles: { pm: [admin.userId] },
+      });
+    await run("node.setPlan", {
+      workItemId: `${spaceId}/官网改版`,
+      nodeKey: "plan",
+      start: "2026-01-05",
+      end: "2026-01-09",
+    });
+    for (const name of ["白屏", "闪退"])
+      await run("workItem.create", { id: `${spaceId}/${name}`, typeId: bugType, name });
+    await run("workItem.transition", { workItemId: `${spaceId}/闪退`, to: "doing" });
+    await run("workItem.transition", { workItemId: `${spaceId}/闪退`, to: "done" });
+  });
+
+  it("summarizes the space for its members only", async () => {
+    expect((await get(stranger.cookie)).status).toBe(404);
+    const res = await get(admin.cookie);
+    expect(res.status).toBe(200);
+    const d = (await res.json()) as Dashboard;
+    expect(d.totals).toMatchObject({
+      inProgress: 3,
+      completed: 1,
+      createdLast7Days: 4,
+      completedLast7Days: 1,
+      overdue: 1,
+    });
+    expect(d.byStage).toEqual([
+      { stage: "立项中", count: 2 },
+      { stage: "待处理", count: 1 },
+    ]);
+    expect(d.byType.map((t) => [t.name, t.count])).toEqual([
+      ["项目", 2],
+      ["缺陷", 1],
+    ]);
+    expect(d.weekly).toHaveLength(8);
+    expect(d.weekly.at(-1)).toMatchObject({ created: 4, completed: 1 });
+    expect(d.overdue).toEqual([
+      expect.objectContaining({
+        workItemName: "官网改版",
+        nodeName: "立项",
+        plannedEnd: "2026-01-09",
+        owners: [{ userId: admin.userId, name: expect.any(String) }],
+      }),
+    ]);
+    expect(d.load).toEqual([expect.objectContaining({ userId: admin.userId, nodes: 2, overdue: 1 })]);
+
+    const bugs = (await (await get(admin.cookie, `?type=${encodeURIComponent(bugType)}`)).json()) as Dashboard;
+    expect(bugs.totals).toMatchObject({ inProgress: 1, completed: 1, overdue: 0 });
   });
 });

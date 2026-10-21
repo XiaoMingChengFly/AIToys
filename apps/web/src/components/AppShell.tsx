@@ -1,7 +1,7 @@
 import { queries } from "@fp/sync";
 import { useQuery } from "@rocicorp/zero/react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronsUpDown, House, Inbox, KeyRound, LayoutList, LogOut, Settings, Zap } from "lucide-react";
+import { ChartColumn, ChevronsUpDown, House, Inbox, KeyRound, LayoutList, LogOut, Settings, Zap } from "lucide-react";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { SearchDialog } from "@/components/SearchDialog";
@@ -130,7 +130,11 @@ function Sidebar({ spaceId, user }: { spaceId: string | undefined; user: { id: s
                 {t.name}
               </Link>
             ))}
-            <Link to="/spaces/$spaceId/automations" params={{ spaceId: space.id }} className={cn(navItem, "mt-2")}>
+            <Link to="/spaces/$spaceId/dashboard" params={{ spaceId: space.id }} className={cn(navItem, "mt-2")}>
+              <ChartColumn />
+              仪表盘
+            </Link>
+            <Link to="/spaces/$spaceId/automations" params={{ spaceId: space.id }} className={navItem}>
               <Zap />
               自动化
             </Link>

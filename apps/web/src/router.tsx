@@ -5,6 +5,7 @@ import { authClient } from "@/lib/auth";
 import { ZeroRoot } from "@/lib/zero";
 import { ApiTokensPage } from "@/pages/ApiTokensPage";
 import { AutomationsPage } from "@/pages/AutomationsPage";
+import { DashboardPage } from "@/pages/DashboardPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { MyWorkPage } from "@/pages/MyWorkPage";
 import { SpacePage } from "@/pages/SpacePage";
@@ -57,6 +58,11 @@ const automationsRoute = createRoute({
   component: AutomationsPage,
 });
 const apiTokensRoute = createRoute({ getParentRoute: () => appRoute, path: "/settings/api", component: ApiTokensPage });
+const dashboardRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/spaces/$spaceId/dashboard",
+  component: DashboardPage,
+});
 const myWorkRoute = createRoute({ getParentRoute: () => appRoute, path: "/my-work", component: MyWorkPage });
 const itemRoute = createRoute({ getParentRoute: () => appRoute, path: "/items/$itemId", component: WorkItemPage });
 const typeRoute = createRoute({ getParentRoute: () => appRoute, path: "/types/$typeId", component: TypePage });
@@ -76,6 +82,7 @@ const routeTree = rootRoute.addChildren([
     spaceRoute,
     settingsRoute,
     automationsRoute,
+    dashboardRoute,
     itemRoute,
     typeRoute,
     templateRoute,

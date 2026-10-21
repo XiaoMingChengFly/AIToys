@@ -8,6 +8,7 @@ import { attachmentRoutes } from "./attachments.ts";
 import { type Auth, createAuth } from "./auth.ts";
 import { type BlobStore, fileBlobStore } from "./blobs.ts";
 import { config } from "./config.ts";
+import { dashboardRoutes } from "./dashboard.ts";
 import { createOpenApiHandler, OPEN_API_PREFIX } from "./open-api.ts";
 import { importOemTemplate } from "./seed/oem.ts";
 import { tokenRoutes } from "./tokens.ts";
@@ -54,6 +55,7 @@ export function createApp({ database, auth, zero, blobs }: Services) {
       .get("/api/health", (c) => c.json({ ok: true }))
       .route("/", attachmentRoutes(database, blobs, userID))
       .route("/", tokenRoutes(database, userID))
+      .route("/", dashboardRoutes(database, userID))
       // 开放接口给服务端调用，用令牌认证，不带 cookie，所以不需要 CORS 白名单
       .all(`${OPEN_API_PREFIX}/*`, async (c) => {
         const { matched, response } = await openApi.handle(c.req.raw, {
