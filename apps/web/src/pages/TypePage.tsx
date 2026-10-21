@@ -4,6 +4,7 @@ import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
+import { LayoutEditor } from "@/components/LayoutEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -23,7 +24,7 @@ export function displayFormula(source: string, fields: readonly { key: string; n
   });
 }
 
-/** 工作项类型的配置：流程模板、角色、关联、字段。只有空间管理员能改，成员只读。 */
+/** 工作项类型的配置：流程模板、角色、关联、字段、详情页布局。只有空间管理员能改，成员只读。 */
 export function TypePage() {
   const { typeId } = useParams({ from: "/app/types/$typeId" });
   const zero = useZero();
@@ -282,6 +283,21 @@ export function TypePage() {
               {newType === "formula" && <FormulaHelp />}
             </form>
           )}
+        </Section>
+
+        <Section title="详情页布局">
+          <LayoutEditor
+            key={JSON.stringify([type.detailLayout, type.fields.map((f) => f.key)])}
+            fields={type.fields}
+            layout={type.detailLayout ?? null}
+            canManage={isAdmin}
+            onSave={async (layout) => {
+              setError(null);
+              const outcome = await zero.mutate(mutators.workItemType.setLayout({ id: typeId, layout })).client;
+              if (outcome.type === "error") setError(outcome.error.message);
+              return outcome.type !== "error";
+            }}
+          />
         </Section>
       </PageBody>
     </>

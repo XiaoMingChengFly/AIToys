@@ -74,6 +74,8 @@ import {
   setFieldAccessArgs,
   setFormula,
   setFormulaArgs,
+  setLayout,
+  setLayoutArgs,
 } from "./templates.ts";
 import { createView, createViewArgs, deleteView, deleteViewArgs } from "./views.ts";
 import { createWorkItem, createWorkItemArgs } from "./work-items.ts";
@@ -173,6 +175,7 @@ export const mutators = defineMutators({
   },
   workItemType: {
     create: defineMutator(createTypeArgs, ({ tx, args, ctx }) => createType(tx, args, ctx.userID)),
+    setLayout: defineMutator(setLayoutArgs, ({ tx, args, ctx }) => setLayout(tx, args, ctx.userID)),
   },
   roleDef: {
     create: defineMutator(createRoleArgs, ({ tx, args, ctx }) => createRole(tx, args, ctx.userID)),

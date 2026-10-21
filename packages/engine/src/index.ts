@@ -1,6 +1,7 @@
 export * from "./automation/rule.ts";
 export * from "./fields/field-value.ts";
 export * from "./fields/formula.ts";
+export * from "./fields/layout.ts";
 export * from "./flow/condition.ts";
 export * from "./flow/definition.ts";
 export * from "./flow/engine.ts";
