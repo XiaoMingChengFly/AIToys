@@ -16,6 +16,11 @@ export interface GanttRow {
   actualEnd: Day | null;
   /** 当前用户能不能拖动它。 */
   editable: boolean;
+  /** 缩进层级：空间甘特图里节点行挂在工作项行下面。 */
+  depth?: number;
+  /** 汇总行（工作项）：画成两端带角的细条，可以展开收起。 */
+  summary?: boolean;
+  expanded?: boolean;
 }
 
 const ROW = 30;
@@ -51,12 +56,16 @@ export function GanttChart({
   calendar,
   today,
   onChange,
+  onToggle,
+  labelTitle = "节点",
 }: {
   rows: GanttRow[];
   deps: { from: string; to: string }[];
   calendar: WorkCalendar;
   today: Day;
   onChange: (key: string, start: Day, end: Day) => void;
+  onToggle?: (key: string) => void;
+  labelTitle?: string;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const header = useRef<HTMLCanvasElement>(null);
@@ -172,7 +181,20 @@ export function GanttChart({
       const { start, end } = spanOf(row);
       const y = i * ROW;
       ctx.fillStyle = COLORS.bar[row.state];
-      if (row.milestone) {
+      if (row.summary) {
+        // 汇总条：上方细条加两端向下的角
+        const bx = x(start) + 1;
+        const bw = (end - start + 1) * DAY_WIDTH - 2;
+        ctx.fillRect(bx, y + 9, bw, 6);
+        for (const tip of [bx, bx + bw]) {
+          ctx.beginPath();
+          ctx.moveTo(tip - (tip === bx ? 0 : 6), y + 15);
+          ctx.lineTo(tip + (tip === bx ? 6 : 0), y + 15);
+          ctx.lineTo(tip, y + 21);
+          ctx.closePath();
+          ctx.fill();
+        }
+      } else if (row.milestone) {
         const cx = x(start) + DAY_WIDTH / 2;
         const cy = y + ROW / 2;
         ctx.beginPath();
@@ -212,17 +234,18 @@ export function GanttChart({
     ctx.stroke();
   });
 
-  // 打开时把今天滚到左侧附近
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在第一次渲染时定位
+  // 打开（或数据第一次到达）时把今天滚到左侧附近
+  const hasRows = rows.length > 0;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在有数据后定位一次
   useEffect(() => {
     if (scroller.current) scroller.current.scrollLeft = Math.max(0, (today - range.first - 3) * DAY_WIDTH);
-  }, []);
+  }, [hasRows]);
 
   function hit(event: PointerEvent<HTMLCanvasElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
     const px = event.clientX - rect.left;
     const row = rows[Math.floor((event.clientY - rect.top) / ROW)];
-    if (!row?.editable || row.milestone) return null;
+    if (!row?.editable || row.milestone || row.summary) return null;
     const left = x(row.start);
     const right = x(row.end + 1);
     if (px < left || px > right) return null;
@@ -238,7 +261,7 @@ export function GanttChart({
             className="sticky left-0 z-30 flex shrink-0 items-end border-r border-b border-slate-200 bg-white px-3 pb-2 text-xs text-slate-500"
             style={{ width: LABEL_WIDTH, height: HEADER }}
           >
-            节点
+            {labelTitle}
           </div>
           <canvas ref={header} className="shrink-0" />
         </div>
@@ -247,11 +270,23 @@ export function GanttChart({
             {rows.map((row) => (
               <li
                 key={row.key}
-                className="flex items-center gap-1 truncate border-b border-slate-100 px-3 text-xs"
-                style={{ height: ROW }}
+                className="flex items-center gap-1 truncate border-b border-slate-100 pr-3 text-xs"
+                style={{ height: ROW, paddingLeft: 12 + (row.depth ?? 0) * 16 }}
                 title={row.label}
               >
-                <span className="truncate">{row.label}</span>
+                {row.summary && onToggle ? (
+                  <button
+                    type="button"
+                    aria-expanded={row.expanded ?? false}
+                    className="flex min-w-0 items-center gap-1 font-medium hover:text-sky-700"
+                    onClick={() => onToggle(row.key)}
+                  >
+                    <span className="w-3 shrink-0 text-slate-400">{row.expanded ? "▾" : "▸"}</span>
+                    <span className="truncate">{row.label}</span>
+                  </button>
+                ) : (
+                  <span className="truncate">{row.label}</span>
+                )}
                 {row.pinned && <span className="shrink-0 text-[10px] text-slate-400">手动</span>}
               </li>
             ))}
