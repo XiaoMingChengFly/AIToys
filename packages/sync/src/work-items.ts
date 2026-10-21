@@ -1,10 +1,13 @@
 import {
   dayInTimeZone,
   dayToTimestamp,
-  type FlowDefinition,
   FlowEngine,
   type FlowEvent,
+  isFinal,
+  nodeFlowOf,
   resolveOwners,
+  StatusFlow,
+  statusFlowOf,
   WorkCalendar,
 } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
@@ -72,23 +75,22 @@ export async function createWorkItem(
   if (!type) throw new Error("工作项类型不存在或没有权限。");
   await assertSpaceMembers(tx, type.spaceId, Object.values(args.roles).flat());
 
-  let definition: FlowDefinition | null = null;
-  let flowVersionId: string | null = null;
-  if (type.flowMode === "node") {
-    const templates = zql.flowTemplate.where("typeId", args.typeId);
-    const template = await tx.run(
-      (args.flowTemplateId ? templates.where("id", args.flowTemplateId) : templates.orderBy("createdAt", "asc")).one(),
-    );
-    if (!template?.currentVersionId) throw new Error("这个工作项类型还没有发布的流程模板。");
-    const version = await tx.run(zql.flowVersion.where("id", template.currentVersionId).one());
-    if (!version?.publishedAt) throw new Error("流程模板的当前版本还没有发布。");
-    definition = version.definition as FlowDefinition;
-    flowVersionId = version.id;
-  }
+  // 节点流和状态流都从类型的流程模板（默认第一个）的当前发布版本开始
+  const templates = zql.flowTemplate.where("typeId", args.typeId);
+  const template = await tx.run(
+    (args.flowTemplateId ? templates.where("id", args.flowTemplateId) : templates.orderBy("createdAt", "asc")).one(),
+  );
+  if (!template?.currentVersionId) throw new Error("这个工作项类型还没有发布的流程模板。");
+  const version = await tx.run(zql.flowVersion.where("id", template.currentVersionId).one());
+  if (!version?.publishedAt) throw new Error("流程模板的当前版本还没有发布。");
+  const definition = nodeFlowOf(version.definition);
+  const states = statusFlowOf(version.definition);
+  const statusFlow = states && new StatusFlow(states);
+  const flowVersionId = version.id;
 
   const now = Date.now();
   const engine = definition ? new FlowEngine(definition) : null;
-  const flow = engine?.start(args.fields, resolveOwners(definition as FlowDefinition, args.roles)) ?? null;
+  const flow = definition && engine ? engine.start(args.fields, resolveOwners(definition, args.roles)) : null;
   // 自动排期从创建那天（空间时区）开始；一开始就完成的节点（开始节点）算当天完成
   const space = await tx.run(zql.space.where("id", type.spaceId).one());
   const today = dayInTimeZone(now, space?.timezone ?? "Asia/Shanghai");
@@ -114,8 +116,10 @@ export async function createWorkItem(
     typeId: args.typeId,
     flowVersionId,
     name: args.name,
-    stage: flow?.state.stage ?? null,
-    status: flow?.state.status ?? "inProgress",
+    // 状态流：从第一个状态开始，阶段列显示状态名
+    stage: flow?.state.stage ?? statusFlow?.initial.name ?? null,
+    flowStatus: statusFlow?.initial.key ?? null,
+    status: flow?.state.status ?? (statusFlow && isFinal(statusFlow.initial.category) ? "completed" : "inProgress"),
     createdBy: userID,
     createdAt: now,
     updatedAt: now,
@@ -126,7 +130,7 @@ export async function createWorkItem(
     for (const userId of new Set(userIds))
       await tx.mutate.roleMember.insert({ workItemId: args.id, roleKey, userId, source: "manual" });
 
-  if (flow) {
+  if (definition && flow) {
     for (const [nodeKey, runtime] of Object.entries(flow.state.nodes)) {
       const reached = runtime.state === "inProgress" || runtime.state === "completed";
       await tx.mutate.nodeInstance.insert({
@@ -144,7 +148,7 @@ export async function createWorkItem(
       });
     }
     // 模板里预置的子任务；被跳过的节点也建上，节点恢复出现时就有
-    for (const node of (definition as FlowDefinition).nodes)
+    for (const node of definition.nodes)
       for (const [index, name] of (node.tasks ?? []).entries())
         await tx.mutate.nodeTask.insert({
           id: presetTaskId(args.id, node.key, index),

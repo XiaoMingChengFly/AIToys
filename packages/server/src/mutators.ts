@@ -1,5 +1,5 @@
 import { appendEvents, type NewEvent, type Tx } from "@fp/db";
-import type { FlowEvent } from "@fp/engine";
+import type { FlowEvent, StatusEvent } from "@fp/engine";
 import type { ZeroContext } from "@fp/sync";
 import {
   addRelation,
@@ -32,6 +32,8 @@ import {
   setSpaceCalendar,
   setTaskDone,
   setTaskDoneArgs,
+  transitionArgs,
+  transitionStatus,
   updateTask,
   updateTaskArgs,
 } from "@fp/sync";
@@ -52,8 +54,8 @@ function append(tx: Parameters<typeof drizzleTx>[0], ctx: ZeroContext, events: N
   );
 }
 
-/** 引擎事件转成 event_log 记录。由人触发的事件（确认、回滚）带 by，其余是流程自己推进的，actor 为空。 */
-function flowEvents(spaceId: string, workItemId: string, events: FlowEvent[]): NewEvent[] {
+/** 引擎事件转成 event_log 记录。由人触发的事件（确认、回滚、状态流转）带 by，其余是流程自己推进的，actor 为空。 */
+function flowEvents(spaceId: string, workItemId: string, events: (FlowEvent | StatusEvent)[]): NewEvent[] {
   return events.map(({ type, ...payload }) => ({
     spaceId,
     workItemId,
@@ -150,6 +152,10 @@ export const serverMutators = defineMutators(mutators, {
           actor: ctx.userID,
         },
       ]);
+    }),
+    transition: defineMutator(transitionArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, events } = await transitionStatus(tx, args, ctx.userID);
+      await append(tx, ctx, flowEvents(spaceId, args.workItemId, events));
     }),
   },
   node: {

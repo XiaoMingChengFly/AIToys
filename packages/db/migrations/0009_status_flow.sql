@@ -1,0 +1,1 @@
+ALTER TABLE "work_item" ADD COLUMN "flow_status" text;

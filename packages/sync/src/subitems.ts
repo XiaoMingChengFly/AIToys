@@ -1,4 +1,4 @@
-import type { FlowDefinition } from "@fp/engine";
+import { nodeFlowOf } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { zql } from "./schema.gen.ts";
@@ -25,7 +25,7 @@ export async function createSubItem(tx: Transaction, args: z.output<typeof creat
       .one(),
   );
   if (!parent) throw new Error("工作项不存在或没有权限。");
-  const definition = parent.flowVersion?.definition as FlowDefinition | undefined;
+  const definition = nodeFlowOf(parent.flowVersion?.definition);
   const node = definition?.nodes.find((n) => n.key === args.nodeKey);
   if (node?.completion !== "subItemDriven") throw new Error("这个节点不是由子工作项驱动的。");
   const instance = await tx.run(zql.nodeInstance.where("id", nodeInstanceId(args.parentId, args.nodeKey)).one());

@@ -1,4 +1,4 @@
-import { dayFromIso, dayToTimestamp, type FlowDefinition } from "@fp/engine";
+import { dayFromIso, dayToTimestamp, nodeFlowOf } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { isoDate } from "./flow.ts";
@@ -39,7 +39,7 @@ async function editableNode(tx: Transaction, workItemId: string, nodeKey: string
   );
   if (!item) throw new Error("工作项不存在或没有权限。");
   if (item.status === "terminated") throw new Error("工作项已终止。");
-  const node = (item.flowVersion?.definition as FlowDefinition | undefined)?.nodes.find((n) => n.key === nodeKey);
+  const node = nodeFlowOf(item.flowVersion?.definition)?.nodes.find((n) => n.key === nodeKey);
   if (!node) throw new Error("节点不存在。");
   const instance = await tx.run(zql.nodeInstance.where("id", nodeInstanceId(workItemId, nodeKey)).one());
   if (instance?.state === "completed") throw new Error(`节点「${node.name}」已完成，子任务不能再改。`);
