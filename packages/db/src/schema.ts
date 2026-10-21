@@ -11,6 +11,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -22,6 +23,17 @@ import {
   uniqueIndex,
   vector,
 } from "drizzle-orm/pg-core";
+
+/**
+ * 存任意 JSON 值的列（字段值可以是字符串、数字、数组……）。
+ * postgres.js 读出 jsonb 时已经解析过一次，drizzle 自带的 jsonb 会对字符串再 JSON.parse 一次，
+ * 把文本 "1.0" 读成数字 1、"true" 读成布尔值。这里读出时原样返回。
+ */
+const jsonValue = customType<{ data: unknown; driverData: unknown }>({
+  dataType: () => "jsonb",
+  toDriver: (value) => JSON.stringify(value),
+  fromDriver: (value) => value,
+});
 
 /*
  * 表结构对应设计文档「核心概念与数据模型」：配置层描述一类工作项长什么样、怎么流转，实例层记录工作项走到哪了。
@@ -313,7 +325,7 @@ export const fieldValue = pgTable(
       .notNull()
       .references(() => workItem.id, { onDelete: "cascade" }),
     fieldKey: text("field_key").notNull(),
-    value: jsonb("value").$type<unknown>(),
+    value: jsonValue("value"),
     /** 公式字段的结果计算时间；普通字段为空。 */
     computedAt: timestamp("computed_at", { withTimezone: true, mode: "date" }),
     updatedAt: updatedAt(),
@@ -396,6 +408,28 @@ export const nodeConfirmation = pgTable(
   (t) => [primaryKey({ columns: [t.nodeInstanceId, t.userId] })],
 );
 
+/** 节点上的子任务：拆给具体的人、带截止日期的待办。节点有未完成的子任务时不能确认完成。 */
+export const nodeTask = pgTable(
+  "node_task",
+  {
+    id: text("id").primaryKey(),
+    workItemId: text("work_item_id")
+      .notNull()
+      .references(() => workItem.id, { onDelete: "cascade" }),
+    nodeKey: text("node_key").notNull(),
+    name: text("name").notNull(),
+    assigneeId: text("assignee_id").references(() => user.id),
+    /** 截止日期（空间时区那天的 0 点，和节点的计划日期一样）。 */
+    dueDate: timestamp("due_date", { withTimezone: true, mode: "date" }),
+    done: boolean("done").notNull().default(false),
+    doneAt: timestamp("done_at", { withTimezone: true, mode: "date" }),
+    doneBy: text("done_by").references(() => user.id),
+    createdBy: text("created_by").references(() => user.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index("node_task_work_item").on(t.workItemId, t.nodeKey), index("node_task_assignee").on(t.assigneeId)],
+);
+
 /** 工作项下的评论。提及的人会收到通知（由事件流里的通知 activity 生成）。 */
 export const comment = pgTable(
   "comment",
@@ -426,7 +460,7 @@ export const notification = pgTable(
       .notNull()
       .references(() => space.id, { onDelete: "cascade" }),
     workItemId: text("work_item_id").references(() => workItem.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<"mentioned" | "nodeAssigned">().notNull(),
+    kind: text("kind").$type<"mentioned" | "nodeAssigned" | "taskAssigned">().notNull(),
     /** 列表里显示的一句话，生成时写好，避免前端再拼。 */
     text: text("text").notNull(),
     eventId: bigint("event_id", { mode: "number" }).notNull(),
@@ -600,6 +634,12 @@ export const workItemRelations = relations(workItem, ({ one, many }) => ({
   incoming: many(relation, { relationName: "to" }),
   events: many(eventLog),
   comments: many(comment),
+  tasks: many(nodeTask),
+}));
+
+export const nodeTaskRelations = relations(nodeTask, ({ one }) => ({
+  workItem: one(workItem, { fields: [nodeTask.workItemId], references: [workItem.id] }),
+  assignee: one(user, { fields: [nodeTask.assigneeId], references: [user.id] }),
 }));
 
 export const commentRelations = relations(comment, ({ one }) => ({

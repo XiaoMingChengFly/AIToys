@@ -17,7 +17,9 @@ import { Check, ChevronRight, CircleCheck, CircleDashed, CircleDot, Undo2 } from
 import { type ReactNode, useMemo, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
 import { CommentsCard } from "@/components/CommentsCard";
+import { CompleteNodeDialog } from "@/components/CompleteNodeDialog";
 import { GanttChart } from "@/components/GanttChart";
+import { NodeTasks } from "@/components/NodeTasks";
 import { RelationsCard } from "@/components/RelationsCard";
 import { RolePicker, toggled } from "@/components/RolePicker";
 import { SubItems } from "@/components/SubItems";
@@ -67,6 +69,8 @@ export function WorkItemPage() {
   const [view, setView] = useState<"flow" | "gantt">("flow");
   const [error, setError] = useState<string | null>(null);
   const [rolesOpen, setRolesOpen] = useState(false);
+  /** 正在填完成表单的节点。 */
+  const [completing, setCompleting] = useState<string | null>(null);
   useActiveSpace(item?.spaceId);
 
   if (!item)
@@ -112,11 +116,27 @@ export function WorkItemPage() {
       }),
     );
   const canPlan = (nodeKey: string) => isAdmin || (states.get(nodeKey)?.owners ?? []).includes(me);
-  const confirm = (nodeKey: string) => run(mutators.node.confirm({ workItemId: item.id, nodeKey }));
+  const confirm = (nodeKey: string) =>
+    graph?.node(nodeKey).form?.length
+      ? setCompleting(nodeKey)
+      : run(mutators.node.confirm({ workItemId: item.id, nodeKey }));
   const rollback = (nodeKey: string) => run(mutators.node.rollback({ workItemId: item.id, nodeKey }));
 
   const members = space?.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId })) ?? [];
   const nameOf = (userId: string) => members.find((m) => m.userId === userId)?.name ?? users.get(userId) ?? userId;
+  const today = dayInTimeZone(Date.now(), item.space?.timezone ?? "Asia/Shanghai");
+  const nodeTasks = (nodeKey: string, nodeName: string, readOnly: boolean) => (
+    <NodeTasks
+      workItemId={item.id}
+      nodeKey={nodeKey}
+      nodeName={nodeName}
+      tasks={item.tasks.filter((t) => t.nodeKey === nodeKey)}
+      members={members}
+      today={today}
+      readOnly={readOnly}
+    />
+  );
+  const completingNode = completing ? graph?.nodes.find((n) => n.key === completing) : undefined;
   const typeName = space?.workItemTypes.find((t) => t.id === item.typeId)?.name;
   // 进行中节点的负责角色排在前面，其余的默认收起
   const activeRoles = new Set(inProgress.flatMap((n) => n.ownerRoles));
@@ -233,6 +253,7 @@ export function WorkItemPage() {
                         canCreate
                       />
                     )}
+                    {nodeTasks(node.key, node.name, false)}
                     {canConfirm && (
                       <div>
                         <Button size="sm" onClick={() => confirm(node.key)}>
@@ -267,6 +288,8 @@ export function WorkItemPage() {
                       canCreate={false}
                     />
                   )}
+                {states.get(selectedNode.key)?.state !== "inProgress" &&
+                  nodeTasks(selectedNode.key, selectedNode.name, states.get(selectedNode.key)?.state !== "notStarted")}
                 {canRollback(selectedNode.key) && (
                   <div>
                     <Button size="sm" variant="outline" onClick={() => rollback(selectedNode.key)}>
@@ -322,6 +345,16 @@ export function WorkItemPage() {
 
           <CommentsCard workItemId={item.id} comments={item.comments} members={members} />
         </aside>
+        {completingNode && (
+          <CompleteNodeDialog
+            workItemId={item.id}
+            node={completingNode}
+            fields={item.type?.fields ?? []}
+            values={new Map(item.fieldValues.map((f) => [f.fieldKey, f.value]))}
+            open
+            onOpenChange={(open) => !open && setCompleting(null)}
+          />
+        )}
       </div>
     </div>
   );

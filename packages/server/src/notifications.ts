@@ -4,12 +4,12 @@ import { and, eq, inArray } from "drizzle-orm";
 
 interface NewNotification {
   userId: string;
-  kind: "mentioned" | "nodeAssigned";
+  kind: "mentioned" | "nodeAssigned" | "taskAssigned";
   text: string;
 }
 
 /**
- * 按一条事件生成站内通知：评论里被提及、节点开始时轮到的负责人。
+ * 按一条事件生成站内通知：评论里被提及、节点开始时轮到的负责人、被分配了子任务。
  * 通知 id 由事件和收件人决定，重试时插入同一行，不会重复。操作者自己不收通知。
  */
 export async function notify(database: Database, eventId: number): Promise<number> {
@@ -41,6 +41,13 @@ export async function notify(database: Database, eventId: number): Promise<numbe
     const name = definition?.nodes.find((n) => n.key === payload.node)?.name ?? payload.node;
     for (const userId of node?.owners ?? [])
       notifications.push({ userId, kind: "nodeAssigned", text: `「${item.name}」的节点「${name}」轮到你了` });
+  } else if ((event.kind === "taskCreated" || event.kind === "taskUpdated") && typeof payload.assigneeId === "string") {
+    const actor = event.actor ? await db.query.user.findFirst({ where: eq(schema.user.id, event.actor) }) : null;
+    notifications.push({
+      userId: payload.assigneeId,
+      kind: "taskAssigned",
+      text: `${actor?.name ?? "有人"} 在「${item.name}」给你分配了子任务「${String(payload.name)}」`,
+    });
   }
 
   const recipients = notifications.filter((n) => n.userId !== event.actor);

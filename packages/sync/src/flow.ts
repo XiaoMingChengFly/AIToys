@@ -19,6 +19,9 @@ import { assertSpaceMembers, nodeInstanceId } from "./work-items.ts";
 
 export const nodeActionArgs = z.object({ workItemId: z.string(), nodeKey: z.string() });
 export type NodeActionArgs = z.output<typeof nodeActionArgs>;
+/** 确认节点，同时提交完成表单里填的字段值（字段键 → 值）。 */
+export const confirmNodeArgs = nodeActionArgs.extend({ values: z.record(z.string(), z.json()).default({}) });
+export type ConfirmNodeArgs = z.output<typeof confirmNodeArgs>;
 
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式应为 YYYY-MM-DD。");
 /** 手动定节点的计划日期；start、end 都不传表示取消手动日期，交回自动排期。 */
@@ -172,6 +175,12 @@ export interface FlowChange {
   events: FlowEvent[];
 }
 
+export interface FieldChange {
+  fieldKey: string;
+  from: unknown;
+  to: unknown;
+}
+
 /** 确认、回滚前的共同检查。 */
 async function loadForAction(tx: Transaction, workItemId: string, userID: string): Promise<LoadedFlow> {
   const flow = await loadFlow(tx, workItemId, userID);
@@ -180,16 +189,40 @@ async function loadForAction(tx: Transaction, workItemId: string, userID: string
   return flow;
 }
 
-/** 负责人确认节点。会签节点要所有负责人都确认才完成。 */
-export async function confirmNode(tx: Transaction, args: NodeActionArgs, userID: string): Promise<FlowChange> {
+/**
+ * 负责人确认节点。会签节点要所有负责人都确认才完成。
+ * 节点有完成表单时，表单里填的值先写进字段（只接受表单里的字段），再按新值判断必填项和卡点；
+ * 节点上还有没完成的子任务时不能确认。
+ */
+export async function confirmNode(
+  tx: Transaction,
+  args: ConfirmNodeArgs,
+  userID: string,
+): Promise<FlowChange & { fieldChanges: FieldChange[] }> {
   const flow = await loadForAction(tx, args.workItemId, userID);
   const before = structuredClone(flow.state);
+  const node = flow.engine.graph.node(args.nodeKey);
+  const formFields = new Set((node.form ?? []).map((f) => f.field));
+  const fieldChanges: FieldChange[] = [];
+  for (const [fieldKey, value] of Object.entries(args.values)) {
+    if (!formFields.has(fieldKey)) throw new Error(`字段「${fieldKey}」不在节点「${node.name}」的完成表单里。`);
+    const from = flow.fields[fieldKey] ?? null;
+    if (JSON.stringify(from) === JSON.stringify(value)) continue;
+    await tx.mutate.fieldValue.upsert({ workItemId: args.workItemId, fieldKey, value, updatedAt: Date.now() });
+    flow.fields[fieldKey] = value;
+    fieldChanges.push({ fieldKey, from, to: value });
+  }
+  const events = fieldChanges.length > 0 ? flow.engine.onFieldsChanged(flow.state, flow.fields) : [];
+
+  const openTasks = await tx.run(
+    zql.nodeTask.where("workItemId", args.workItemId).where("nodeKey", args.nodeKey).where("done", false),
+  );
   // 管理员本身是负责人时按普通负责人确认（会签只算他那一票），不是负责人时才代为完成
   const isOwner = flow.state.nodes[args.nodeKey]?.owners.includes(userID) ?? false;
   const actor = { userId: userID, isSuperAdmin: flow.isAdmin && !isOwner };
-  const events = flow.engine.confirm(flow.state, args.nodeKey, actor, flow.fields);
+  events.push(...flow.engine.confirm(flow.state, args.nodeKey, actor, flow.fields, openTasks.length));
   await saveFlow(tx, flow, before);
-  return { spaceId: flow.spaceId, events };
+  return { spaceId: flow.spaceId, events, fieldChanges };
 }
 
 /** 回滚到某个已到达的节点：它之后已开始或完成的节点打回未开始。节点负责人或空间管理员可以操作。 */

@@ -44,6 +44,11 @@ export function nodeInstanceId(workItemId: string, nodeKey: string): string {
   return `${workItemId}/${nodeKey}`;
 }
 
+/** 预置子任务的 id 由工作项、节点和序号决定，浏览器乐观执行和服务端写出的是同一行。 */
+export function presetTaskId(workItemId: string, nodeKey: string, index: number): string {
+  return `${workItemId}/${nodeKey}/task-${index}`;
+}
+
 /**
  * 新建工作项：写工作项、字段值、角色成员，并用流程引擎算出初始的节点状态和阶段
  * （开始节点自动完成、后续节点进入进行中、被开关裁剪的节点跳过）。
@@ -138,6 +143,20 @@ export async function createWorkItem(
         updatedAt: now,
       });
     }
+    // 模板里预置的子任务；被跳过的节点也建上，节点恢复出现时就有
+    for (const node of (definition as FlowDefinition).nodes)
+      for (const [index, name] of (node.tasks ?? []).entries())
+        await tx.mutate.nodeTask.insert({
+          id: presetTaskId(args.id, node.key, index),
+          workItemId: args.id,
+          nodeKey: node.key,
+          name,
+          assigneeId: null,
+          dueDate: null,
+          done: false,
+          createdBy: userID,
+          createdAt: now,
+        });
   }
 
   return { spaceId: type.spaceId, flowVersionId, events: flow?.events ?? [] };
