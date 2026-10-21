@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { schema } from "@fp/db";
 import { createTestDatabase } from "@fp/db/testing";
 import { dayInTimeZone, dayToIso, oemV289 } from "@fp/engine";
-import { createMutatorRunner, matchRules, notify, runRule } from "@fp/server";
+import { cascadeSubItems, createMutatorRunner, matchRules, notify, runRule } from "@fp/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp, createServices, type Services } from "../src/app.ts";
@@ -792,5 +792,145 @@ describe("comments and notifications", () => {
     expect((await inbox(member.userId)).every((n) => n.readAt === null)).toBe(true);
     await services.zero.run("notification.markRead", { ids }, member.userId);
     expect((await inbox(member.userId)).every((n) => n.readAt !== null)).toBe(true);
+  });
+});
+
+describe("sub-items driving a node", () => {
+  const spaceId = randomUUID();
+  let admin: { cookie: string; userId: string };
+  let member: { cookie: string; userId: string };
+  const run = (name: string, args: unknown, userId = admin.userId) => services.zero.run(name, args, userId);
+  const projectType = `${spaceId}/project`;
+  const taskType = `${spaceId}/task`;
+  const parentId = randomUUID();
+
+  async function defineType(typeId: string, key: string, name: string, nodes: unknown[], edges: unknown[]) {
+    await run("workItemType.create", { id: typeId, spaceId, key, name });
+    await run("roleDef.create", { id: `${typeId}/role/owner`, typeId, key: "owner", name: "负责人" });
+    await run("flowTemplate.create", { id: `${typeId}/default`, typeId, key: "default", name: "默认流程" });
+    await run("flowTemplate.saveDraft", {
+      templateId: `${typeId}/default`,
+      definition: { key, version: 0, nodes, edges },
+    });
+    await run("flowTemplate.publish", { versionId: `${typeId}/default/v1` });
+  }
+  const nodeState = async (workItemId: string, nodeKey: string) =>
+    (
+      await services.database.db
+        .select()
+        .from(schema.nodeInstance)
+        .where(and(eq(schema.nodeInstance.workItemId, workItemId), eq(schema.nodeInstance.nodeKey, nodeKey)))
+    )[0]?.state;
+  /** worker 收到子工作项完成事件时做的事。 */
+  async function cascade(childId: string) {
+    const events = await services.database.db
+      .select()
+      .from(schema.eventLog)
+      .where(and(eq(schema.eventLog.workItemId, childId), eq(schema.eventLog.kind, "workItemCompleted")));
+    const runner = createMutatorRunner(services.database);
+    for (const e of events) await cascadeSubItems(runner, e.id);
+  }
+
+  beforeAll(async () => {
+    admin = await signUp(`sub-admin-${spaceId}@example.com`);
+    member = await signUp(`sub-member-${spaceId}@example.com`);
+    await run("space.create", { id: spaceId, name: "子工作项" });
+    await services.database.db.insert(schema.spaceMember).values({ spaceId, userId: member.userId });
+    await defineType(
+      projectType,
+      "project",
+      "项目",
+      [
+        { key: "start", name: "开始", completion: "auto", ownerRoles: [] },
+        { key: "build", name: "开发", completion: "subItemDriven", ownerRoles: ["owner"] },
+        { key: "accept", name: "验收", completion: "singleConfirm", ownerRoles: ["owner"] },
+      ],
+      [
+        { from: "start", to: "build" },
+        { from: "build", to: "accept" },
+      ],
+    );
+    await defineType(
+      taskType,
+      "task",
+      "任务",
+      [
+        { key: "start", name: "开始", completion: "auto", ownerRoles: [] },
+        { key: "work", name: "处理", completion: "singleConfirm", ownerRoles: ["owner"] },
+      ],
+      [{ from: "start", to: "work" }],
+    );
+    await run("workItem.create", {
+      id: parentId,
+      typeId: projectType,
+      name: "官网改版",
+      fields: {},
+      roles: { owner: [member.userId] },
+    });
+  });
+
+  it("only creates sub-items under an in-progress sub-item-driven node", async () => {
+    await expect(
+      run("workItem.createSubItem", { id: randomUUID(), parentId, nodeKey: "accept", typeId: taskType, name: "x" }),
+    ).rejects.toThrow("不是由子工作项驱动");
+    const outsider = await signUp(`sub-outsider-${randomUUID()}@example.com`);
+    await expect(
+      run(
+        "workItem.createSubItem",
+        { id: randomUUID(), parentId, nodeKey: "build", typeId: taskType, name: "x" },
+        outsider.userId,
+      ),
+    ).rejects.toThrow("没有权限");
+    // 子工作项驱动的节点，负责人不能手动确认
+    await expect(run("node.confirm", { workItemId: parentId, nodeKey: "build" }, member.userId)).rejects.toThrow(
+      "只有超管可以手动完成",
+    );
+  });
+
+  it("completes the parent node once every sub-item is done, and then starts the next node", async () => {
+    const [a, b] = [randomUUID(), randomUUID()];
+    await run("workItem.createSubItem", { id: a, parentId, nodeKey: "build", typeId: taskType, name: "首页" });
+    await run("workItem.createSubItem", { id: b, parentId, nodeKey: "build", typeId: taskType, name: "详情页" });
+
+    const relations = await services.database.db
+      .select()
+      .from(schema.relation)
+      .where(eq(schema.relation.fromId, parentId));
+    expect(relations.map((r) => [r.toId, r.parentNodeKey, r.relationDefId]).sort()).toEqual(
+      [
+        [a, "build", null],
+        [b, "build", null],
+      ].sort(),
+    );
+    // 子工作项的角色默认是父节点的负责人
+    const [owners] = await services.database.db
+      .select()
+      .from(schema.nodeInstance)
+      .where(and(eq(schema.nodeInstance.workItemId, a), eq(schema.nodeInstance.nodeKey, "work")));
+    expect(owners?.owners).toEqual([member.userId]);
+    const created = await services.database.db
+      .select()
+      .from(schema.eventLog)
+      .where(and(eq(schema.eventLog.workItemId, parentId), eq(schema.eventLog.kind, "subItemCreated")));
+    expect(created).toHaveLength(2);
+
+    await run("node.confirm", { workItemId: a, nodeKey: "work" }, member.userId);
+    await cascade(a);
+    expect(await nodeState(parentId, "build")).toBe("inProgress");
+
+    await run("node.confirm", { workItemId: b, nodeKey: "work" }, member.userId);
+    await cascade(b);
+    await cascade(b); // 重试不会出错，也不会重复推进
+    expect(await nodeState(parentId, "build")).toBe("completed");
+    expect(await nodeState(parentId, "accept")).toBe("inProgress");
+    const completed = await services.database.db
+      .select()
+      .from(schema.eventLog)
+      .where(and(eq(schema.eventLog.workItemId, parentId), eq(schema.eventLog.kind, "nodeCompleted")));
+    expect(completed.filter((e) => e.payload.node === "build")).toHaveLength(1);
+
+    await expect(
+      run("workItem.createSubItem", { id: randomUUID(), parentId, nodeKey: "build", typeId: taskType, name: "x" }),
+    ).rejects.toThrow("不在进行中");
   });
 });

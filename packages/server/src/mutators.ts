@@ -2,9 +2,12 @@ import { appendEvents, type NewEvent, type Tx } from "@fp/db";
 import type { FlowEvent } from "@fp/engine";
 import type { ZeroContext } from "@fp/sync";
 import {
+  completeBySubItems,
   confirmNode,
   createComment,
   createCommentArgs,
+  createSubItem,
+  createSubItemArgs,
   createWorkItem,
   createWorkItemArgs,
   mutators,
@@ -89,10 +92,34 @@ export const serverMutators = defineMutators(mutators, {
         ...flowEvents(spaceId, args.id, events),
       ]);
     }),
+    createSubItem: defineMutator(createSubItemArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, flowVersionId, events } = await createSubItem(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        {
+          spaceId,
+          workItemId: args.id,
+          kind: "workItemCreated",
+          payload: { typeId: args.typeId, flowVersionId, name: args.name },
+          actor: ctx.userID,
+        },
+        ...flowEvents(spaceId, args.id, events),
+        {
+          spaceId,
+          workItemId: args.parentId,
+          kind: "subItemCreated",
+          payload: { node: args.nodeKey, subItemId: args.id, name: args.name },
+          actor: ctx.userID,
+        },
+      ]);
+    }),
   },
   node: {
     confirm: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
       const { spaceId, events } = await confirmNode(tx, args, ctx.userID);
+      await append(tx, ctx, flowEvents(spaceId, args.workItemId, events));
+    }),
+    completeBySubItems: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, events } = await completeBySubItems(tx, args, ctx.userID);
       await append(tx, ctx, flowEvents(spaceId, args.workItemId, events));
     }),
     rollback: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
