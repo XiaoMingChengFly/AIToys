@@ -6,12 +6,17 @@ import {
   addRelationArgs,
   completeBySubItems,
   confirmNode,
+  confirmNodeArgs,
   createComment,
   createCommentArgs,
   createSubItem,
   createSubItemArgs,
+  createTask,
+  createTaskArgs,
   createWorkItem,
   createWorkItemArgs,
+  deleteTask,
+  deleteTaskArgs,
   mutators,
   nodeActionArgs,
   removeRelation,
@@ -25,6 +30,10 @@ import {
   setRoleArgs,
   setRoleMembers,
   setSpaceCalendar,
+  setTaskDone,
+  setTaskDoneArgs,
+  updateTask,
+  updateTaskArgs,
 } from "@fp/sync";
 import { defineMutator, defineMutators } from "@rocicorp/zero";
 import type { DrizzleTransaction } from "@rocicorp/zero/server/adapters/drizzle";
@@ -144,9 +153,19 @@ export const serverMutators = defineMutators(mutators, {
     }),
   },
   node: {
-    confirm: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
-      const { spaceId, events } = await confirmNode(tx, args, ctx.userID);
-      await append(tx, ctx, flowEvents(spaceId, args.workItemId, events));
+    confirm: defineMutator(confirmNodeArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, events, fieldChanges } = await confirmNode(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        // 完成表单里填的字段先记，节点变化在后
+        ...fieldChanges.map((c) => ({
+          spaceId,
+          workItemId: args.workItemId,
+          kind: "fieldChanged",
+          payload: { ...c },
+          actor: ctx.userID,
+        })),
+        ...flowEvents(spaceId, args.workItemId, events),
+      ]);
     }),
     completeBySubItems: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
       const { spaceId, events } = await completeBySubItems(tx, args, ctx.userID);
@@ -164,6 +183,62 @@ export const serverMutators = defineMutators(mutators, {
           workItemId: args.workItemId,
           kind: "nodePlanChanged",
           payload: { node: args.nodeKey, start: args.start ?? null, end: args.end ?? null },
+          actor: ctx.userID,
+        },
+      ]);
+    }),
+  },
+  task: {
+    create: defineMutator(createTaskArgs, async ({ tx, args, ctx }) => {
+      const { spaceId } = await createTask(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        {
+          spaceId,
+          workItemId: args.workItemId,
+          kind: "taskCreated",
+          payload: { taskId: args.id, node: args.nodeKey, name: args.name, assigneeId: args.assigneeId },
+          actor: ctx.userID,
+        },
+      ]);
+    }),
+    update: defineMutator(updateTaskArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, task } = await updateTask(tx, args, ctx.userID);
+      const reassigned = args.assigneeId !== undefined && args.assigneeId !== task.assigneeId;
+      await append(tx, ctx, [
+        {
+          spaceId,
+          workItemId: task.workItemId,
+          kind: "taskUpdated",
+          payload: {
+            taskId: args.id,
+            node: task.nodeKey,
+            name: args.name ?? task.name,
+            ...(reassigned && { assigneeId: args.assigneeId, from: task.assigneeId ?? null }),
+          },
+          actor: ctx.userID,
+        },
+      ]);
+    }),
+    setDone: defineMutator(setTaskDoneArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, task } = await setTaskDone(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        {
+          spaceId,
+          workItemId: task.workItemId,
+          kind: args.done ? "taskDone" : "taskReopened",
+          payload: { taskId: args.id, node: task.nodeKey, name: task.name },
+          actor: ctx.userID,
+        },
+      ]);
+    }),
+    delete: defineMutator(deleteTaskArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, task } = await deleteTask(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        {
+          spaceId,
+          workItemId: task.workItemId,
+          kind: "taskDeleted",
+          payload: { taskId: args.id, node: task.nodeKey, name: task.name },
           actor: ctx.userID,
         },
       ]);

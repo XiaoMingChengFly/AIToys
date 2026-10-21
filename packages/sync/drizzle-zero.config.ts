@@ -29,6 +29,7 @@ export default drizzleZeroConfig(schema, {
     relation: true,
     nodeInstance: true,
     nodeConfirmation: true,
+    nodeTask: true,
     eventLog: true,
     automationRun: true,
     outbox: false,

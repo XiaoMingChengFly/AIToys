@@ -1,4 +1,4 @@
-import { evaluate, type Fields } from "./condition.ts";
+import { evaluate, type Fields, isEmpty } from "./condition.ts";
 import { type FlowDefinition, FlowGraph, type NodeDefinition } from "./definition.ts";
 import { type Actor, FlowError, type FlowEvent, type NodeRuntime, type WorkItemState } from "./state.ts";
 
@@ -34,8 +34,11 @@ export class FlowEngine {
     return events;
   }
 
-  /** 负责人确认节点（单人确认、会签），或超管手动完成自动节点。 */
-  confirm(state: WorkItemState, nodeKey: string, actor: Actor, fields: Fields): FlowEvent[] {
+  /**
+   * 负责人确认节点（单人确认、会签），或超管手动完成自动节点。
+   * openTasks 是节点上还没完成的子任务数，有未完成的子任务时不能确认（超管代为完成除外）。
+   */
+  confirm(state: WorkItemState, nodeKey: string, actor: Actor, fields: Fields, openTasks = 0): FlowEvent[] {
     const node = this.graph.node(nodeKey);
     const runtime = this.runtime(state, nodeKey);
     const admin = actor.isSuperAdmin === true;
@@ -48,6 +51,9 @@ export class FlowEngine {
       throw new FlowError(`你不是节点「${node.name}」的负责人。`);
 
     const manualOverride = isAutomatic && admin;
+    if (!admin && openTasks > 0) throw new FlowError(`节点「${node.name}」还有 ${openTasks} 个子任务没完成。`);
+    if (!manualOverride && missingFormFields(node, fields).length > 0)
+      throw new FlowError(`节点「${node.name}」的完成表单还有必填项没填。`);
     if (node.gate && !manualOverride && !evaluate(node.gate, fields))
       throw new FlowError(`节点「${node.name}」的流转条件还没满足。`);
 
@@ -189,6 +195,7 @@ export class FlowEngine {
       if (node.completion !== "auto") continue;
       if (this.runtime(state, node.key).state !== "inProgress") continue;
       if (node.gate && !evaluate(node.gate, fields)) continue;
+      if (missingFormFields(node, fields).length > 0) continue;
       this.complete(state, node.key, null, events);
       changed = true;
     }
@@ -205,4 +212,9 @@ export class FlowEngine {
       events.push({ type: "workItemCompleted" });
     }
   }
+}
+
+/** 节点完成表单里还没填的必填字段键。 */
+export function missingFormFields(node: NodeDefinition, fields: Fields): string[] {
+  return (node.form ?? []).filter((f) => f.required && isEmpty(fields[f.field])).map((f) => f.field);
 }

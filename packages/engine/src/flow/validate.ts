@@ -36,6 +36,9 @@ export function validateFlow(definition: FlowDefinition): ValidationResult {
     const needsPeople = node.completion === "singleConfirm" || node.completion === "allConfirm";
     if (needsPeople && node.ownerRoles.length === 0)
       warnings.push(`节点「${node.name}」需要人确认，但没有配置负责角色。`);
+    const formFields = (node.form ?? []).map((f) => f.field);
+    if (new Set(formFields).size !== formFields.length) errors.push(`节点「${node.name}」的完成表单里有重复的字段。`);
+    if ((node.tasks ?? []).some((t) => t.trim() === "")) errors.push(`节点「${node.name}」有名称为空的预置子任务。`);
   }
 
   if (errors.length === 0) warnings.push(...stageRegressions(graph, order));

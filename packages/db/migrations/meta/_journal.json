@@ -57,6 +57,13 @@
       "when": 1792575875365,
       "tag": "0007_sub_items",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792578718649,
+      "tag": "0008_node_tasks",
+      "breakpoints": true
     }
   ]
 }

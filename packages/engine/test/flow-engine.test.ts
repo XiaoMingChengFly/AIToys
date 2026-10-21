@@ -5,6 +5,7 @@ import {
   cond,
   type FlowDefinition,
   FlowEngine,
+  type NodeDefinition,
   resolveOwners,
   validateFlow,
 } from "../src/index.ts";
@@ -108,6 +109,36 @@ describe("FlowEngine", () => {
     expect(state.nodes.a?.state).toBe("inProgress");
     expect(state.nodes.b?.state).toBe("notStarted");
     expect(state.status).toBe("inProgress");
+  });
+
+  it("requires the completion form's required fields before a confirm", () => {
+    const f = flow(["a", []], ["b", ["a"]]);
+    (f.nodes[0] as NodeDefinition).form = [{ field: "x", required: true }, { field: "y" }];
+    const engine = new FlowEngine(f);
+    const { state } = engine.start(noFields, ownersOf(f));
+    expect(() => engine.confirm(state, "a", u1, noFields)).toThrow("必填");
+    engine.confirm(state, "a", u1, { x: "1" });
+    expect(state.nodes.a?.state).toBe("completed");
+  });
+
+  it("holds an auto node until its required form fields are filled", () => {
+    const f = flow(["a", []], ["b", ["a"], "auto"], ["c", ["b"]]);
+    (f.nodes[1] as NodeDefinition).form = [{ field: "x", required: true }];
+    const engine = new FlowEngine(f);
+    const { state } = engine.start(noFields, ownersOf(f));
+    engine.confirm(state, "a", u1, noFields);
+    expect(state.nodes.b?.state).toBe("inProgress");
+    engine.onFieldsChanged(state, { x: "1" });
+    expect(state.nodes.b?.state).toBe("completed");
+  });
+
+  it("blocks a confirm while the node has open tasks, unless a super admin completes it", () => {
+    const f = flow(["a", []], ["b", ["a"]]);
+    const engine = new FlowEngine(f);
+    const { state } = engine.start(noFields, ownersOf(f));
+    expect(() => engine.confirm(state, "a", u1, noFields, 2)).toThrow("2 个子任务");
+    engine.confirm(state, "a", { userId: "admin", isSuperAdmin: true }, noFields, 2);
+    expect(state.nodes.a?.state).toBe("completed");
   });
 });
 

@@ -10,6 +10,13 @@ export type CompletionMode =
   /** 关联的子工作项走到结束时完成。 */
   | "subItemDriven";
 
+/** 节点完成表单里的一项：确认完成时要填的工作项字段。 */
+export interface NodeFormField {
+  field: string;
+  /** 必填：没填就不能完成节点（自动节点也等它填好）。 */
+  required?: boolean;
+}
+
 export interface NodeDefinition {
   key: string;
   name: string;
@@ -19,6 +26,10 @@ export interface NodeDefinition {
   visibility?: Condition;
   /** 卡点：节点完成前必须满足的条件。 */
   gate?: Condition;
+  /** 完成表单：负责人确认完成时一起填写的字段。 */
+  form?: NodeFormField[];
+  /** 预置子任务的名称，新建工作项时为节点建好。 */
+  tasks?: string[];
   /** 节点到达时把工作项阶段改成这个值。 */
   stageOnArrival?: string;
   /** 预估工期（工作日）。不填时需要人确认的节点按 1 天，自动节点按 0 天（里程碑）。 */

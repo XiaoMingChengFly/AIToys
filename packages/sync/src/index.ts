@@ -10,6 +10,7 @@ export * from "./relations.ts";
 export * from "./schema.gen.ts";
 export * from "./spaces.ts";
 export * from "./subitems.ts";
+export * from "./tasks.ts";
 export * from "./templates.ts";
 export * from "./views.ts";
 export * from "./work-items.ts";

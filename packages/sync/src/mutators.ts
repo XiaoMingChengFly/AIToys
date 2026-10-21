@@ -12,6 +12,7 @@ import { createComment, createCommentArgs, markNotificationsRead, markReadArgs }
 import {
   completeBySubItems,
   confirmNode,
+  confirmNodeArgs,
   nodeActionArgs,
   recomputeFlow,
   rollbackNode,
@@ -33,6 +34,16 @@ import {
 import { zql } from "./schema.gen.ts";
 import { setCalendarArgs, setSpaceCalendar } from "./spaces.ts";
 import { createSubItem, createSubItemArgs } from "./subitems.ts";
+import {
+  createTask,
+  createTaskArgs,
+  deleteTask,
+  deleteTaskArgs,
+  setTaskDone,
+  setTaskDoneArgs,
+  updateTask,
+  updateTaskArgs,
+} from "./tasks.ts";
 import {
   createField,
   createFieldArgs,
@@ -165,7 +176,7 @@ export const mutators = defineMutators({
     }),
   },
   node: {
-    confirm: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
+    confirm: defineMutator(confirmNodeArgs, async ({ tx, args, ctx }) => {
       await confirmNode(tx, args, ctx.userID);
     }),
     rollback: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
@@ -176,6 +187,20 @@ export const mutators = defineMutators({
     }),
     completeBySubItems: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
       await completeBySubItems(tx, args, ctx.userID);
+    }),
+  },
+  task: {
+    create: defineMutator(createTaskArgs, async ({ tx, args, ctx }) => {
+      await createTask(tx, args, ctx.userID);
+    }),
+    update: defineMutator(updateTaskArgs, async ({ tx, args, ctx }) => {
+      await updateTask(tx, args, ctx.userID);
+    }),
+    setDone: defineMutator(setTaskDoneArgs, async ({ tx, args, ctx }) => {
+      await setTaskDone(tx, args, ctx.userID);
+    }),
+    delete: defineMutator(deleteTaskArgs, async ({ tx, args, ctx }) => {
+      await deleteTask(tx, args, ctx.userID);
     }),
   },
   role: {
