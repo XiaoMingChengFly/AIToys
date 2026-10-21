@@ -3,14 +3,38 @@ import {
   condition,
   continueAsNew,
   defineSignal,
+  ParentClosePolicy,
   proxyActivities,
   setHandler,
+  startChild,
   workflowInfo,
 } from "@temporalio/workflow";
 import type { Activities } from "./activities.ts";
-import { EVENT_SIGNAL, type StreamEvent, type StreamWorkflowInput } from "./shared.ts";
+import {
+  EVENT_SIGNAL,
+  type StreamEvent,
+  type StreamWorkflowInput,
+  type WebhookWorkflowInput,
+  webhookWorkflowId,
+} from "./shared.ts";
 
 const { processEvent, runRule } = proxyActivities<Activities>({
+  startToCloseTimeout: "1 minute",
+  retry: { initialInterval: "1 second", maximumInterval: "1 minute" },
+});
+
+/** Webhook 推送失败时的重试：10 秒、30 秒、1.5 分钟、4.5 分钟、13.5 分钟后各再试一次。 */
+const webhook = proxyActivities<Activities>({
+  startToCloseTimeout: "30 seconds",
+  retry: {
+    initialInterval: "10 seconds",
+    backoffCoefficient: 3,
+    maximumInterval: "30 minutes",
+    maximumAttempts: 6,
+    nonRetryableErrorTypes: ["WebhookBlocked"],
+  },
+});
+const { failWebhook } = proxyActivities<Activities>({
   startToCloseTimeout: "1 minute",
   retry: { initialInterval: "1 second", maximumInterval: "1 minute" },
 });
@@ -42,13 +66,37 @@ export async function streamWorkflow(input: StreamWorkflowInput): Promise<void> 
     if (!(await condition(() => pending.length > 0, IDLE_TIMEOUT))) return;
     const next = pending.shift() as StreamEvent;
     // 规则按创建顺序逐条执行，前一条规则的改动后一条能看到
-    const { matchedRuleIds } = await processEvent(next.eventId);
+    const { matchedRuleIds, webhookIds = [] } = await processEvent(next.eventId);
     for (const ruleId of matchedRuleIds) await runRule(ruleId, next.eventId);
+    // Webhook 各自在子 workflow 里推送和重试，接收方慢或挂了都不耽误这个流后面的事件
+    for (const webhookId of webhookIds) await startWebhook({ webhookId, eventId: next.eventId });
     processed++;
 
     if (processed >= EVENTS_PER_RUN || workflowInfo().continueAsNewSuggested) {
       await condition(allHandlersFinished);
       await continueAsNew<typeof streamWorkflow>({ stream: input.stream, lastSeenEventId, pending });
     }
+  }
+}
+
+async function startWebhook(input: WebhookWorkflowInput) {
+  try {
+    await startChild(webhookWorkflow, {
+      workflowId: webhookWorkflowId(input),
+      args: [input],
+      parentClosePolicy: ParentClosePolicy.ABANDON,
+    });
+  } catch (error) {
+    // 重复投递的事件：这次推送已经开始了
+    if (!(error instanceof Error && error.name === "WorkflowExecutionAlreadyStartedError")) throw error;
+  }
+}
+
+/** 把一条事件推送给一个 Webhook，失败按退避重试，用完重试次数记为失败。 */
+export async function webhookWorkflow({ webhookId, eventId }: WebhookWorkflowInput): Promise<void> {
+  try {
+    await webhook.deliverWebhook(webhookId, eventId);
+  } catch {
+    await failWebhook(webhookId, eventId);
   }
 }

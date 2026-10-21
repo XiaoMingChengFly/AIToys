@@ -134,6 +134,18 @@ export const queries = defineQueries({
         .orderBy("createdAt", "asc"),
     ),
   },
+  webhooks: {
+    /** 空间的 Webhook 和最近的推送记录。含签名密钥，只给空间管理员。 */
+    bySpace: defineQuery(z.object({ spaceId: z.string() }), ({ args, ctx }) =>
+      zql.webhook
+        .where("spaceId", args.spaceId)
+        .whereExists("space", (s) =>
+          s.whereExists("members", (m) => m.where("userId", ctx.userID).where("role", "admin")),
+        )
+        .related("deliveries", (d) => d.orderBy("createdAt", "desc").limit(20))
+        .orderBy("createdAt", "asc"),
+    ),
+  },
   types: {
     /** 类型配置页：角色、字段、模板及其最新版本。 */
     byId: defineQuery(z.object({ id: z.string() }), ({ args, ctx }) =>

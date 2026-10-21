@@ -273,6 +273,56 @@ export const automationRule = pgTable("automation_rule", {
   updatedAt: updatedAt(),
 });
 
+/**
+ * Webhook：空间里发生的事件推送到外部地址。空间管理员配置。
+ * 请求体用 secret 做 HMAC-SHA256 签名，接收方据此确认请求来自这里。
+ */
+export const webhook = pgTable(
+  "webhook",
+  {
+    id: text("id").primaryKey(),
+    spaceId: text("space_id")
+      .notNull()
+      .references(() => space.id),
+    name: text("name").notNull(),
+    url: text("url").notNull(),
+    secret: text("secret").notNull(),
+    /** 要推送的事件类型；为空表示全部。 */
+    events: jsonb("events").$type<string[]>(),
+    enabled: boolean("enabled").notNull().default(true),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index("webhook_space").on(t.spaceId)],
+);
+
+export type WebhookDeliveryStatus = "pending" | "succeeded" | "failed";
+
+/** 一个事件推送给一个 Webhook 的记录，id 是 `<webhookId>:<eventId>`。失败会按退避重试几次。 */
+export const webhookDelivery = pgTable(
+  "webhook_delivery",
+  {
+    id: text("id").primaryKey(),
+    webhookId: text("webhook_id")
+      .notNull()
+      .references(() => webhook.id, { onDelete: "cascade" }),
+    eventId: bigint("event_id", { mode: "number" })
+      .notNull()
+      .references(() => eventLog.id),
+    kind: text("kind").notNull(),
+    status: text("status").$type<WebhookDeliveryStatus>().notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    /** 最近一次请求的 HTTP 状态码；没连上时为空。 */
+    responseStatus: integer("response_status"),
+    error: text("error"),
+    createdAt: createdAt(),
+    finishedAt: timestamp("finished_at", { withTimezone: true, mode: "date" }),
+  },
+  (t) => [index("webhook_delivery_webhook").on(t.webhookId, t.createdAt)],
+);
+
 /** 工作项列表的筛选条件。各项之间是“且”，同一项里的多个值是“或”；为空表示不限。 */
 export interface WorkItemFilter {
   typeIds?: string[];
@@ -661,6 +711,7 @@ export const spaceRelations = relations(space, ({ many }) => ({
   workItems: many(workItem),
   automationRules: many(automationRule),
   views: many(savedView),
+  webhooks: many(webhook),
 }));
 
 export const spaceMemberRelations = relations(spaceMember, ({ one }) => ({
@@ -806,6 +857,15 @@ export const eventLogRelations = relations(eventLog, ({ one }) => ({
     fields: [eventLog.workItemId, eventLog.fieldKey],
     references: [fieldValue.workItemId, fieldValue.fieldKey],
   }),
+}));
+
+export const webhookRelations = relations(webhook, ({ one, many }) => ({
+  space: one(space, { fields: [webhook.spaceId], references: [space.id] }),
+  deliveries: many(webhookDelivery),
+}));
+
+export const webhookDeliveryRelations = relations(webhookDelivery, ({ one }) => ({
+  webhook: one(webhook, { fields: [webhookDelivery.webhookId], references: [webhook.id] }),
 }));
 
 export const automationRunRelations = relations(automationRun, ({ one }) => ({

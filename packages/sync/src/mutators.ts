@@ -78,6 +78,14 @@ import {
   setLayoutArgs,
 } from "./templates.ts";
 import { createView, createViewArgs, deleteView, deleteViewArgs } from "./views.ts";
+import {
+  createWebhook,
+  createWebhookArgs,
+  deleteWebhook,
+  deleteWebhookArgs,
+  updateWebhook,
+  updateWebhookArgs,
+} from "./webhooks.ts";
 import { createWorkItem, createWorkItemArgs } from "./work-items.ts";
 
 /*
@@ -148,6 +156,11 @@ export const mutators = defineMutators({
     create: defineMutator(createAutomationArgs, ({ tx, args, ctx }) => createAutomation(tx, args, ctx.userID)),
     update: defineMutator(updateAutomationArgs, ({ tx, args, ctx }) => updateAutomation(tx, args, ctx.userID)),
     delete: defineMutator(deleteAutomationArgs, ({ tx, args, ctx }) => deleteAutomation(tx, args, ctx.userID)),
+  },
+  webhook: {
+    create: defineMutator(createWebhookArgs, ({ tx, args, ctx }) => createWebhook(tx, args, ctx.userID)),
+    update: defineMutator(updateWebhookArgs, ({ tx, args, ctx }) => updateWebhook(tx, args, ctx.userID)),
+    delete: defineMutator(deleteWebhookArgs, ({ tx, args, ctx }) => deleteWebhook(tx, args, ctx.userID)),
   },
   comment: {
     create: defineMutator(createCommentArgs, async ({ tx, args, ctx }) => {
