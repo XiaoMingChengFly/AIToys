@@ -1854,3 +1854,20 @@ describe("attachments", () => {
     ).toBe(200);
   });
 });
+
+describe("global search", () => {
+  it("only searches field values the user can see", async () => {
+    const user = await signUp(`search-${randomUUID()}@example.com`);
+    const body = JSON.stringify(["transform", [{ id: "q1", name: "search.workItems", args: [{ q: "100%_" }] }]]);
+    const res = await app.request("/api/zero/query?schema=zero_0&appID=zero", {
+      method: "POST",
+      body,
+      headers: { cookie: user.cookie },
+    });
+    const ast = JSON.stringify(((await res.json()) as { queries: { ast: unknown }[] }).queries[0]?.ast);
+    expect(ast).toContain("field_viewer");
+    expect(ast).toContain("ILIKE");
+    // 通配符被转义，按字面匹配
+    expect(ast).toContain(String.raw`%100\\%\\_%`);
+  });
+});

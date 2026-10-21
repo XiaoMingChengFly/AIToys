@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { ChevronsUpDown, House, Inbox, LayoutList, LogOut, Settings, Zap } from "lucide-react";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { NotificationsBell } from "@/components/NotificationsBell";
+import { SearchDialog } from "@/components/SearchDialog";
 import { Avatar } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -57,7 +58,8 @@ function Sidebar({ spaceId, user }: { spaceId: string | undefined; user: { id: s
         <span className="font-semibold">飞书项目</span>
       </div>
 
-      <div className="px-3 pb-2">
+      <div className="flex flex-col gap-0.5 px-3 pb-2">
+        <SearchDialog className={cn(navItem, "w-full cursor-pointer")} />
         <Link to="/my-work" className={navItem}>
           <Inbox />
           我的工作
