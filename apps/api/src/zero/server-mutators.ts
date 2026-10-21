@@ -1,5 +1,15 @@
-import { appendEvents, type Tx } from "@fp/db";
-import { createWorkItem, createWorkItemArgs, mutators, setFieldArgs, visibleWorkItem, zql } from "@fp/sync";
+import { appendEvents, type NewEvent, type Tx } from "@fp/db";
+import type { FlowEvent } from "@fp/engine";
+import {
+  confirmNode,
+  createWorkItem,
+  createWorkItemArgs,
+  mutators,
+  nodeActionArgs,
+  rollbackNode,
+  setFieldArgs,
+  setFieldValue,
+} from "@fp/sync";
 import { defineMutator, defineMutators } from "@rocicorp/zero";
 import type { DrizzleTransaction } from "@rocicorp/zero/server/adapters/drizzle";
 
@@ -7,6 +17,17 @@ import type { DrizzleTransaction } from "@rocicorp/zero/server/adapters/drizzle"
 function drizzleTx(tx: { location: string; dbTransaction?: { wrappedTransaction: unknown } }): Tx {
   if (tx.location !== "server" || !tx.dbTransaction) throw new Error("只能在服务端执行。");
   return tx.dbTransaction.wrappedTransaction as DrizzleTransaction as unknown as Tx;
+}
+
+/** 引擎事件转成 event_log 记录。由人触发的事件（确认、回滚）带 by，其余是流程自己推进的，actor 为空。 */
+function flowEvents(spaceId: string, workItemId: string, events: FlowEvent[]): NewEvent[] {
+  return events.map(({ type, ...payload }) => ({
+    spaceId,
+    workItemId,
+    kind: type,
+    payload,
+    actor: "by" in payload && typeof payload.by === "string" ? payload.by : null,
+  }));
 }
 
 /**
@@ -17,30 +38,41 @@ export const serverMutators = defineMutators(mutators, {
   workItem: {
     create: defineMutator(createWorkItemArgs, async ({ tx, args, ctx }) => {
       const { spaceId, flowVersionId, events } = await createWorkItem(tx, args, ctx.userID);
-      const base = { spaceId, workItemId: args.id, actor: ctx.userID };
       await appendEvents(drizzleTx(tx), [
-        { ...base, kind: "workItemCreated", payload: { typeId: args.typeId, flowVersionId, name: args.name } },
+        {
+          spaceId,
+          workItemId: args.id,
+          kind: "workItemCreated",
+          payload: { typeId: args.typeId, flowVersionId, name: args.name },
+          actor: ctx.userID,
+        },
         // 引擎在初始化时算出的节点变化（开始节点完成、后续节点开始、裁剪、阶段改写）
-        ...events.map(({ type, ...payload }) => ({ ...base, kind: type, payload, actor: null })),
+        ...flowEvents(spaceId, args.id, events),
       ]);
+    }),
+  },
+  node: {
+    confirm: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, events } = await confirmNode(tx, args, ctx.userID);
+      await appendEvents(drizzleTx(tx), flowEvents(spaceId, args.workItemId, events));
+    }),
+    rollback: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, events } = await rollbackNode(tx, args, ctx.userID);
+      await appendEvents(drizzleTx(tx), flowEvents(spaceId, args.workItemId, events));
     }),
   },
   fieldValue: {
     set: defineMutator(setFieldArgs, async ({ tx, args, ctx }) => {
-      const item = await visibleWorkItem(tx, args.workItemId, ctx.userID);
-      if (!item) throw new Error("工作项不存在或没有权限。");
-      const before = await tx.run(
-        zql.fieldValue.where("workItemId", args.workItemId).where("fieldKey", args.fieldKey).one(),
-      );
-      await mutators.fieldValue.set.fn({ tx, args, ctx });
+      const { spaceId, from, events } = await setFieldValue(tx, args, ctx.userID);
       await appendEvents(drizzleTx(tx), [
         {
-          spaceId: item.spaceId,
+          spaceId,
           workItemId: args.workItemId,
           kind: "fieldChanged",
-          payload: { fieldKey: args.fieldKey, from: before?.value ?? null, to: args.value },
+          payload: { fieldKey: args.fieldKey, from, to: args.value },
           actor: ctx.userID,
         },
+        ...flowEvents(spaceId, args.workItemId, events),
       ]);
     }),
   },

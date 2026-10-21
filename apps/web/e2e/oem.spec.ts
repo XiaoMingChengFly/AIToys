@@ -28,6 +28,21 @@ test("sign up, import OEM, create a project and see its flow", async ({ page }) 
   await expect(panel.getByText("需求立项提案")).toBeVisible();
   await expect(panel.getByText("负责人：Pascal")).toBeVisible();
 
+  // 卡点：关联需求 SKU 没填时不能确认
+  await panel.getByRole("button", { name: "确认完成" }).click();
+  await expect(page.getByRole("alert")).toContainText("流转条件还没满足");
+  await panel.getByLabel("关联需求SKU流程").fill("SKU-001");
+  await panel.getByLabel("关联需求SKU流程").blur();
+  await panel.getByRole("region", { name: "需求立项提案" }).getByRole("button", { name: "确认完成" }).click();
+  await expect(panel.getByText("财务分析（需求立项）")).toBeVisible();
+  await expect(panel.getByRole("region", { name: "需求立项提案" })).toHaveCount(0);
+
+  // 在流程图上选中已完成的节点，回滚到它
+  await page.locator(".react-flow__node", { hasText: "需求立项提案" }).click();
+  await panel.getByRole("button", { name: "回滚到此节点" }).click();
+  await expect(panel.getByRole("region", { name: "需求立项提案" })).toBeVisible();
+  await expect(panel.getByText("财务分析（需求立项）")).toHaveCount(0);
+
   // 刷新后数据仍在：来自服务端，而不只是浏览器里的乐观写入
   await page.reload();
   await expect(page.locator("aside").getByText("需求立项提案")).toBeVisible();

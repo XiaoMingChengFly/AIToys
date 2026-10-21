@@ -1,5 +1,6 @@
 import { defineMutator, defineMutators, type Transaction } from "@rocicorp/zero";
 import { z } from "zod";
+import { confirmNode, nodeActionArgs, recomputeFlow, rollbackNode } from "./flow.ts";
 import { zql } from "./schema.gen.ts";
 import { createWorkItem, createWorkItemArgs } from "./work-items.ts";
 
@@ -25,6 +26,27 @@ export function visibleWorkItem(tx: Transaction, workItemId: string, userID: str
   );
 }
 
+/**
+ * 改一个字段的值，并按新值重算流程（出现条件、自动节点）。
+ * 公式字段由公式引擎计算，不能手动改（公式引擎接入后在这里校验）。
+ * 返回旧值和流程变化，服务端用来写事件。
+ */
+export async function setFieldValue(tx: Transaction, args: z.output<typeof setFieldArgs>, userID: string) {
+  const item = await visibleWorkItem(tx, args.workItemId, userID);
+  if (!item) throw new Error("工作项不存在或没有权限。");
+  const before = await tx.run(
+    zql.fieldValue.where("workItemId", args.workItemId).where("fieldKey", args.fieldKey).one(),
+  );
+  await tx.mutate.fieldValue.upsert({
+    workItemId: args.workItemId,
+    fieldKey: args.fieldKey,
+    value: args.value,
+    updatedAt: Date.now(),
+  });
+  const events = await recomputeFlow(tx, args.workItemId, userID);
+  return { spaceId: item.spaceId, from: before?.value ?? null, events };
+}
+
 export const mutators = defineMutators({
   space: {
     /** 新建空间，创建人成为空间管理员。 */
@@ -39,17 +61,17 @@ export const mutators = defineMutators({
       await createWorkItem(tx, args, ctx.userID);
     }),
   },
+  node: {
+    confirm: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
+      await confirmNode(tx, args, ctx.userID);
+    }),
+    rollback: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
+      await rollbackNode(tx, args, ctx.userID);
+    }),
+  },
   fieldValue: {
-    /** 改一个字段的值。公式字段由公式引擎计算，不能手动改（公式引擎接入后在这里校验）。 */
     set: defineMutator(setFieldArgs, async ({ tx, args, ctx }) => {
-      const item = await visibleWorkItem(tx, args.workItemId, ctx.userID);
-      if (!item) throw new Error("工作项不存在或没有权限。");
-      await tx.mutate.fieldValue.upsert({
-        workItemId: args.workItemId,
-        fieldKey: args.fieldKey,
-        value: args.value,
-        updatedAt: Date.now(),
-      });
+      await setFieldValue(tx, args, ctx.userID);
     }),
   },
 });

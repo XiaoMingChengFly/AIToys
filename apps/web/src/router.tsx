@@ -24,7 +24,7 @@ function AppLayout() {
   if (!session) return <Navigate to="/login" />;
   return (
     <ZeroRoot userID={session.user.id}>
-      <div className="min-h-screen bg-slate-50">
+      <div className="flex h-screen flex-col bg-slate-50">
         <nav className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-2 text-sm">
           <Link to="/" className="font-semibold">
             飞书项目复刻
@@ -36,7 +36,9 @@ function AppLayout() {
             </Button>
           </div>
         </nav>
-        <Outlet />
+        <main className="min-h-0 flex-1 overflow-auto">
+          <Outlet />
+        </main>
       </div>
     </ZeroRoot>
   );

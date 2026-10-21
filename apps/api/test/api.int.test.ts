@@ -121,6 +121,10 @@ describe("workItem.create with OEM v289", () => {
     finance = await signUp(`finance-${spaceId}@example.com`);
     dev = await signUp(`dev-${spaceId}@example.com`);
     await services.zero.run("space.create", { id: spaceId, name: "OEM 验收" }, npd.userId);
+    await services.database.db.insert(schema.spaceMember).values([
+      { spaceId, userId: finance.userId },
+      { spaceId, userId: dev.userId },
+    ]);
     ({ typeId } = await importOemTemplate(services.database.db, spaceId));
   });
 
@@ -188,6 +192,86 @@ describe("workItem.create with OEM v289", () => {
     await expect(
       services.zero.run("workItem.create", { id: randomUUID(), typeId, name: "x" }, stranger.userId),
     ).rejects.toThrow("没有权限");
+  });
+
+  async function reload(id: string) {
+    const { db } = services.database;
+    const [item] = await db.select().from(schema.workItem).where(eq(schema.workItem.id, id));
+    const nodes = await db.select().from(schema.nodeInstance).where(eq(schema.nodeInstance.workItemId, id));
+    const confirmations = await db.select().from(schema.nodeConfirmation);
+    const events = await db
+      .select()
+      .from(schema.eventLog)
+      .where(eq(schema.eventLog.workItemId, id))
+      .orderBy(schema.eventLog.id);
+    return {
+      item,
+      node: (key: string) => nodes.find((n) => n.nodeKey === key),
+      confirmedBy: (key: string) =>
+        confirmations.filter((c) => c.nodeInstanceId === `${id}/${key}`).map((c) => c.userId),
+      events,
+    };
+  }
+
+  it("needs all three owners to confirm 需求立项提案, then starts 财务分析", async () => {
+    const { id } = await create({ ...fields, [F.linkedSku]: "SKU-001" });
+    const confirm = (userId: string) => services.zero.run("node.confirm", { workItemId: id, nodeKey: "doing" }, userId);
+
+    await confirm(npd.userId);
+    let now = await reload(id);
+    expect(now.node("doing")?.state).toBe("inProgress");
+    expect(now.confirmedBy("doing")).toEqual([npd.userId]);
+
+    await confirm(finance.userId);
+    await confirm(dev.userId);
+    now = await reload(id);
+    expect(now.node("doing")).toMatchObject({ state: "completed", actualEnd: expect.any(Date) });
+    expect(now.node("state_51")).toMatchObject({ state: "inProgress", actualStart: expect.any(Date) });
+
+    const kinds = now.events.map((e) => [e.kind, (e.payload as { node?: string }).node, e.actor]);
+    expect(kinds).toEqual(
+      expect.arrayContaining([
+        ["nodeConfirmed", "doing", npd.userId],
+        ["nodeCompleted", "doing", dev.userId],
+        ["nodeStarted", "state_51", null],
+      ]),
+    );
+  });
+
+  it("refuses a confirm from someone who is not an owner and writes nothing", async () => {
+    const { id } = await create(fields);
+    const outsider = await signUp(`member-${randomUUID()}@example.com`);
+    await services.database.db.insert(schema.spaceMember).values({ spaceId, userId: outsider.userId });
+    const before = (await reload(id)).events.length;
+    await expect(
+      services.zero.run("node.confirm", { workItemId: id, nodeKey: "doing" }, outsider.userId),
+    ).rejects.toThrow("负责人");
+    expect((await reload(id)).events).toHaveLength(before);
+  });
+
+  it("rolls back to 需求立项提案: clears its confirmations and reopens it, later nodes go back to not started", async () => {
+    const { id } = await create({ ...fields, [F.linkedSku]: "SKU-001" });
+    for (const u of [npd, finance, dev])
+      await services.zero.run("node.confirm", { workItemId: id, nodeKey: "doing" }, u.userId);
+
+    await services.zero.run("node.rollback", { workItemId: id, nodeKey: "doing" }, npd.userId);
+    const now = await reload(id);
+    expect(now.node("doing")).toMatchObject({ state: "inProgress", actualEnd: null });
+    expect(now.confirmedBy("doing")).toEqual([]);
+    expect(now.node("state_51")).toMatchObject({ state: "notStarted", actualStart: null });
+    expect(now.events.at(-1)?.kind).toBe("nodeRolledBack");
+  });
+
+  it("re-evaluates node visibility when a switch field changes", async () => {
+    const { id } = await create(fields);
+    expect((await reload(id)).node("state_53")?.state).toBe("notStarted");
+
+    await services.zero.run("fieldValue.set", { workItemId: id, fieldKey: F.needPhaseOut, value: "否" }, npd.userId);
+    const now = await reload(id);
+    expect(now.node("state_53")?.state).toBe("skipped");
+    const changed = now.events.findIndex((e) => e.kind === "fieldChanged");
+    const skipped = now.events.slice(changed + 1).map((e) => [e.kind, (e.payload as { node: string }).node]);
+    expect(skipped).toContainEqual(["nodeSkipped", "state_53"]);
   });
 });
 

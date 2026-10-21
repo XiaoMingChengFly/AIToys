@@ -40,6 +40,9 @@ export const queries = defineQueries({
         .where("id", args.id)
         .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID)))
         .related("flowVersion")
+        .related("type", (t) => t.related("fields", (f) => f.orderBy("sort", "asc")))
+        // 自己在空间里的成员身份：前端乐观执行确认、回滚时要判断是不是管理员
+        .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID)))
         .related("fieldValues")
         .related("roleMembers", (r) => r.related("user"))
         .related("nodes", (n) => n.related("confirmations"))

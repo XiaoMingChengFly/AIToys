@@ -1,10 +1,13 @@
 import { type FlowDefinition, FlowGraph, type NodeState } from "@fp/engine";
-import { queries } from "@fp/sync";
-import { useQuery } from "@rocicorp/zero/react";
+import { mutators, queries } from "@fp/sync";
+import type { QueryResultType } from "@rocicorp/zero";
+import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
 import { Background, Controls, type Edge, MarkerType, type Node, ReactFlow } from "@xyflow/react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input, Label } from "@/components/ui/input";
 import { layoutByDepth } from "@/flow-demo/layout";
 
 const STATE_STYLE: Record<NodeState, string> = {
@@ -23,9 +26,12 @@ const STATE_LABEL: Record<NodeState, string> = {
 
 export function WorkItemPage() {
   const { itemId } = useParams({ from: "/app/items/$itemId" });
+  const zero = useZero();
   const [item, result] = useQuery(queries.workItems.byId({ id: itemId }));
   const definition = item?.flowVersion?.definition as FlowDefinition | undefined;
   const graph = useMemo(() => (definition ? new FlowGraph(definition) : null), [definition]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   if (!item)
     return (
@@ -34,12 +40,31 @@ export function WorkItemPage() {
       </p>
     );
 
+  const me = String(zero.userID);
+  const isAdmin = item.space?.members.some((m) => m.isAdmin) ?? false;
   const states = new Map(item.nodes.map((n) => [n.nodeKey, n]));
   const users = new Map(item.roleMembers.map((m) => [m.userId, m.user?.name ?? m.userId]));
   const inProgress = graph?.nodes.filter((n) => states.get(n.key)?.state === "inProgress") ?? [];
+  const selectedNode = selected ? graph?.nodes.find((n) => n.key === selected) : undefined;
+
+  /** 先在浏览器里乐观执行；被拒绝时（本地或服务端）把原因显示出来。 */
+  async function run(request: Parameters<typeof zero.mutate>[0]) {
+    setError(null);
+    const { client, server } = zero.mutate(request);
+    for (const outcome of [await client, await server])
+      if (outcome.type === "error") return setError(outcome.error.message);
+  }
+  /** 已到达的节点可以回滚，节点负责人或空间管理员才能操作；服务端会再校验一遍。 */
+  const canRollback = (nodeKey: string) => {
+    const runtime = states.get(nodeKey);
+    const reached = runtime?.state === "completed" || runtime?.state === "inProgress";
+    return reached && (isAdmin || (runtime?.owners ?? []).includes(me));
+  };
+  const confirm = (nodeKey: string) => run(mutators.node.confirm({ workItemId: item.id, nodeKey }));
+  const rollback = (nodeKey: string) => run(mutators.node.rollback({ workItemId: item.id, nodeKey }));
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-full flex-col">
       <header className="flex items-center gap-4 border-b border-slate-200 bg-white px-6 py-3">
         <Link
           to="/spaces/$spaceId"
@@ -53,33 +78,137 @@ export function WorkItemPage() {
         <span className="text-sm text-slate-500">{item.status === "completed" ? "已完成" : "进行中"}</span>
       </header>
       <div className="flex min-h-0 flex-1">
-        <div className="flex-1">{graph && <Diagram graph={graph} states={states} />}</div>
-        <aside className="w-80 overflow-y-auto border-l border-slate-200 bg-slate-50 p-4">
+        <div className="flex-1">{graph && <Diagram graph={graph} states={states} onSelect={setSelected} />}</div>
+        <aside className="flex w-96 flex-col gap-4 overflow-y-auto border-l border-slate-200 bg-slate-50 p-4">
+          {error && (
+            <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </p>
+          )}
           <Card>
             <CardHeader>
               <CardTitle>进行中的节点</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
-              {inProgress.map((node) => (
-                <div key={node.key} className="text-sm">
-                  <div className="font-medium">{node.name}</div>
-                  <div className="text-slate-500">
-                    负责人：
-                    {(states.get(node.key)?.owners ?? []).map((u) => users.get(u) ?? u).join("、") || "无（自动）"}
-                  </div>
-                </div>
-              ))}
+              {inProgress.map((node) => {
+                const runtime = states.get(node.key);
+                const owners = runtime?.owners ?? [];
+                const confirmed = new Set(runtime?.confirmations.map((c) => c.userId));
+                const canConfirm = (owners.includes(me) && !confirmed.has(me)) || (isAdmin && !owners.includes(me));
+                return (
+                  <section key={node.key} aria-label={node.name} className="flex flex-col gap-1 text-sm">
+                    <div className="font-medium">{node.name}</div>
+                    <div className="text-slate-500">
+                      负责人：
+                      {owners.map((u) => `${users.get(u) ?? u}${confirmed.has(u) ? "（已确认）" : ""}`).join("、") ||
+                        "无（自动）"}
+                    </div>
+                    {canConfirm && (
+                      <div>
+                        <Button size="sm" onClick={() => confirm(node.key)}>
+                          确认完成
+                        </Button>
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
               {inProgress.length === 0 && <p className="text-sm text-slate-500">没有进行中的节点。</p>}
             </CardContent>
           </Card>
+
+          {selectedNode && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{selectedNode.name}</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-2 text-sm">
+                <div>状态：{STATE_LABEL[states.get(selectedNode.key)?.state ?? "notStarted"]}</div>
+                {canRollback(selectedNode.key) && (
+                  <div>
+                    <Button size="sm" variant="outline" onClick={() => rollback(selectedNode.key)}>
+                      回滚到此节点
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          <FieldsCard
+            item={item}
+            onSet={(fieldKey, value) => run(mutators.fieldValue.set({ workItemId: item.id, fieldKey, value }))}
+          />
         </aside>
       </div>
     </div>
   );
 }
 
-function Diagram({ graph, states }: { graph: FlowGraph; states: Map<string, { state: NodeState | null }> }) {
+type Item = NonNullable<QueryResultType<ReturnType<typeof queries.workItems.byId>>>;
+
+/** 工作项字段。选项字段用下拉，其它先用文本框，失焦时保存。 */
+function FieldsCard({ item, onSet }: { item: Item; onSet: (fieldKey: string, value: string | null) => void }) {
+  const values = new Map(item.fieldValues.map((f) => [f.fieldKey, f.value]));
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>字段</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {(item.type?.fields ?? []).map((field) => {
+          const value = values.get(field.key);
+          const text = value === null || value === undefined ? "" : String(value);
+          return (
+            <Label key={field.key} className="flex flex-col gap-1.5 font-normal">
+              {field.name}
+              {field.options ? (
+                <select
+                  className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm"
+                  value={text}
+                  onChange={(e) => onSet(field.key, e.target.value || null)}
+                >
+                  <option value="">—</option>
+                  {field.options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  key={text}
+                  defaultValue={text}
+                  onBlur={(e) => {
+                    if (e.target.value !== text) onSet(field.key, e.target.value.trim() || null);
+                  }}
+                />
+              )}
+            </Label>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Diagram({
+  graph,
+  states,
+  onSelect,
+}: {
+  graph: FlowGraph;
+  states: Map<string, { state: NodeState | null }>;
+  onSelect: (nodeKey: string) => void;
+}) {
   const positions = useMemo(() => layoutByDepth(graph), [graph]);
+  // 流程图很宽，缩到一屏放不下。打开时以第一个进行中的节点为准，放在左侧偏上
+  const [viewport] = useState(() => {
+    const zoom = 0.8;
+    const current = graph.nodes.find((n) => states.get(n.key)?.state === "inProgress");
+    const at = (current && positions.get(current.key)) ?? { x: 0, y: 0 };
+    return { x: 160 - at.x * zoom, y: 120 - at.y * zoom, zoom };
+  });
   const nodes: Node[] = graph.nodes.map((n) => {
     const state = states.get(n.key)?.state ?? "notStarted";
     return {
@@ -103,7 +232,15 @@ function Diagram({ graph, states }: { graph: FlowGraph; states: Map<string, { st
     markerEnd: { type: MarkerType.ArrowClosed },
   }));
   return (
-    <ReactFlow nodes={nodes} edges={edges} fitView nodesDraggable={false} nodesConnectable={false}>
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      defaultViewport={viewport}
+      minZoom={0.1}
+      nodesDraggable={false}
+      nodesConnectable={false}
+      onNodeClick={(_, node) => onSelect(node.id)}
+    >
       <Background />
       <Controls showInteractive={false} />
     </ReactFlow>
