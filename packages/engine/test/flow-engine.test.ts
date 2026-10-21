@@ -132,13 +132,16 @@ describe("FlowEngine", () => {
     expect(state.nodes.b?.state).toBe("completed");
   });
 
-  it("blocks a confirm while the node has open tasks, unless a super admin completes it", () => {
-    const f = flow(["a", []], ["b", ["a"]]);
+  it("blocks a confirm while the node has open tasks, unless a super admin completes an automatic node", () => {
+    const f = flow(["a", []], ["b", ["a"], "subItemDriven"]);
     const engine = new FlowEngine(f);
     const { state } = engine.start(noFields, ownersOf(f));
+    const admin = { userId: "admin", isSuperAdmin: true };
     expect(() => engine.confirm(state, "a", u1, noFields, 2)).toThrow("2 个子任务");
-    engine.confirm(state, "a", { userId: "admin", isSuperAdmin: true }, noFields, 2);
-    expect(state.nodes.a?.state).toBe("completed");
+    expect(() => engine.confirm(state, "a", admin, noFields, 2)).toThrow("2 个子任务");
+    engine.confirm(state, "a", u1, noFields);
+    engine.confirm(state, "b", admin, noFields, 2);
+    expect(state.nodes.b?.state).toBe("completed");
   });
 });
 

@@ -339,11 +339,13 @@ function NodeLabel({ data, type }: { data: NodeData; type: TypeConfig }) {
       <div className="truncate text-xs text-fg-muted">
         {data.ownerRoles.map(roleName).join("、") || COMPLETION.find((c) => c.value === data.completion)?.label}
       </div>
-      {(data.visibility || data.gate || data.stageOnArrival) && (
+      {(data.visibility || data.gate || data.stageOnArrival || data.form || data.tasks) && (
         <div className="truncate text-xs text-brand-500">
           {[
             data.visibility && "有出现条件",
             data.gate && "有卡点",
+            data.form && "有表单",
+            data.tasks && `${data.tasks.length} 个子任务`,
             data.stageOnArrival && `阶段：${data.stageOnArrival}`,
           ]
             .filter(Boolean)
@@ -443,6 +445,8 @@ function NodePanel({
             fields={type.fields}
             onChange={(gate) => onChange({ gate })}
           />
+          <FormEditor value={data.form ?? []} fields={type.fields} onChange={(form) => onChange({ form })} />
+          <TasksEditor value={data.tasks ?? []} onChange={(tasks) => onChange({ tasks })} />
           <div className="flex items-center justify-between">
             <span className="text-xs text-fg-subtle">键：{data.key}</span>
             <Button variant="ghost" size="sm" className="text-danger-600" onClick={onDelete}>
@@ -452,6 +456,110 @@ function NodePanel({
         </fieldset>
       </CardContent>
     </Card>
+  );
+}
+
+/** 完成表单：负责人确认完成时要填的字段，可以设为必填。 */
+function FormEditor({
+  value,
+  fields,
+  onChange,
+}: {
+  value: NonNullable<NodeData["form"]>;
+  fields: TypeConfig["fields"];
+  onChange: (form: NodeData["form"]) => void;
+}) {
+  const set = (next: typeof value) => onChange(next.length > 0 ? next : undefined);
+  const unused = fields.filter((f) => !value.some((v) => v.field === f.key));
+  return (
+    <fieldset className="flex flex-col gap-1.5">
+      <legend className="text-sm font-medium text-fg">完成表单（确认完成时填写）</legend>
+      {value.map((item) => {
+        const field = fields.find((f) => f.key === item.field);
+        return (
+          <div key={item.field} className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate">{field?.name ?? `${item.field}（不存在）`}</span>
+            <Label className="flex items-center gap-1 font-normal text-fg-muted">
+              <input
+                type="checkbox"
+                aria-label={`${field?.name ?? item.field}必填`}
+                checked={item.required === true}
+                onChange={(e) =>
+                  set(value.map((v) => (v.field === item.field ? { field: v.field, required: e.target.checked } : v)))
+                }
+              />
+              必填
+            </Label>
+            <button
+              type="button"
+              aria-label={`从表单移除${field?.name ?? item.field}`}
+              className="px-1 text-fg-subtle hover:text-danger-600"
+              onClick={() => set(value.filter((v) => v.field !== item.field))}
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
+      {unused.length > 0 && (
+        <Select
+          aria-label="添加表单字段"
+          value=""
+          onChange={(e) => e.target.value && set([...value, { field: e.target.value, required: true }])}
+        >
+          <option value="">+ 添加字段</option>
+          {unused.map((f) => (
+            <option key={f.key} value={f.key}>
+              {f.name}
+            </option>
+          ))}
+        </Select>
+      )}
+    </fieldset>
+  );
+}
+
+/** 预置子任务：新建工作项时为节点建好的待办。 */
+function TasksEditor({ value, onChange }: { value: string[]; onChange: (tasks: string[] | undefined) => void }) {
+  const [draft, setDraft] = useState("");
+  const set = (next: string[]) => onChange(next.length > 0 ? next : undefined);
+  return (
+    <fieldset className="flex flex-col gap-1.5">
+      <legend className="text-sm font-medium text-fg">预置子任务</legend>
+      {value.map((name, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: 子任务名可能重复，按位置编辑
+        <div key={i} className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate">{name}</span>
+          <button
+            type="button"
+            aria-label={`删除预置子任务${name}`}
+            className="px-1 text-fg-subtle hover:text-danger-600"
+            onClick={() => set(value.filter((_, j) => j !== i))}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <form
+        className="flex gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!draft.trim()) return;
+          set([...value, draft.trim()]);
+          setDraft("");
+        }}
+      >
+        <Input
+          aria-label="预置子任务名称"
+          placeholder="子任务名称"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <Button type="submit" variant="outline" size="sm" className="h-8">
+          添加
+        </Button>
+      </form>
+    </fieldset>
   );
 }
 

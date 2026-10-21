@@ -1197,7 +1197,11 @@ describe("node tasks and completion forms", () => {
     const values = await db().select().from(schema.fieldValue).where(eq(schema.fieldValue.workItemId, itemId));
     expect(Object.fromEntries(values.map((v) => [v.fieldKey, v.value]))).toEqual({ 版本号: "1.0", 备注: "首版" });
     const kinds = (
-      await db().select().from(schema.eventLog).where(eq(schema.eventLog.workItemId, itemId)).orderBy(schema.eventLog.id)
+      await db()
+        .select()
+        .from(schema.eventLog)
+        .where(eq(schema.eventLog.workItemId, itemId))
+        .orderBy(schema.eventLog.id)
     ).map((e) => e.kind);
     expect(kinds.slice(-4)).toEqual(["fieldChanged", "fieldChanged", "nodeCompleted", "nodeStarted"]);
   });

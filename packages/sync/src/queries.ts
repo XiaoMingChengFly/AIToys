@@ -122,6 +122,8 @@ export const queries = defineQueries({
         .related("roleMembers", (r) => r.related("user"))
         .related("nodes", (n) => n.related("confirmations"))
         .related("comments", (c) => c.related("author").orderBy("createdAt", "asc"))
+        // 节点子任务；确认节点时乐观执行也要数没完成的子任务
+        .related("tasks", (t) => t.orderBy("createdAt", "asc").orderBy("id", "asc"))
         // 子工作项、上级工作项和自定义关联（两个方向）
         .related("outgoing", (r) => r.related("to").related("def"))
         .related("incoming", (r) => r.related("from").related("def"))

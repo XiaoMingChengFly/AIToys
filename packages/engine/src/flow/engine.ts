@@ -36,7 +36,7 @@ export class FlowEngine {
 
   /**
    * 负责人确认节点（单人确认、会签），或超管手动完成自动节点。
-   * openTasks 是节点上还没完成的子任务数，有未完成的子任务时不能确认（超管代为完成除外）。
+   * openTasks 是节点上还没完成的子任务数，有未完成的子任务时不能确认（和卡点一样，只有超管手动完成自动节点时不看）。
    */
   confirm(state: WorkItemState, nodeKey: string, actor: Actor, fields: Fields, openTasks = 0): FlowEvent[] {
     const node = this.graph.node(nodeKey);
@@ -51,7 +51,7 @@ export class FlowEngine {
       throw new FlowError(`你不是节点「${node.name}」的负责人。`);
 
     const manualOverride = isAutomatic && admin;
-    if (!admin && openTasks > 0) throw new FlowError(`节点「${node.name}」还有 ${openTasks} 个子任务没完成。`);
+    if (!manualOverride && openTasks > 0) throw new FlowError(`节点「${node.name}」还有 ${openTasks} 个子任务没完成。`);
     if (!manualOverride && missingFormFields(node, fields).length > 0)
       throw new FlowError(`节点「${node.name}」的完成表单还有必填项没填。`);
     if (node.gate && !manualOverride && !evaluate(node.gate, fields))
