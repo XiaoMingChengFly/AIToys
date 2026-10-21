@@ -1490,6 +1490,28 @@ describe("permissions", () => {
     expect(ast).toContain("field_viewer");
   });
 
+  it("records the changed field on events and filters restricted changes out of the activity query", async () => {
+    const changes = await services.database.db
+      .select({ fieldKey: schema.eventLog.fieldKey, payload: schema.eventLog.payload })
+      .from(schema.eventLog)
+      .where(and(eq(schema.eventLog.workItemId, itemId), eq(schema.eventLog.kind, "fieldChanged")));
+    expect(changes.length).toBeGreaterThan(0);
+    for (const c of changes) expect(c.fieldKey).toBe(c.payload.fieldKey);
+
+    const body = JSON.stringify([
+      "transform",
+      [{ id: "q1", name: "workItems.activity", args: [{ workItemId: itemId, limit: 50 }] }],
+    ]);
+    const res = await app.request("/api/zero/query?schema=zero_0&appID=zero", {
+      method: "POST",
+      body,
+      headers: { cookie: dev.cookie },
+    });
+    const ast = JSON.stringify(((await res.json()) as { queries: { ast: unknown }[] }).queries[0]?.ast);
+    expect(ast).toContain("event_log");
+    expect(ast).toContain("field_viewer");
+  });
+
   it("lets operator roles roll back and re-plan a node, not just its owners", async () => {
     // other 现在是“测试”，节点“开发”的可操作角色
     await run(

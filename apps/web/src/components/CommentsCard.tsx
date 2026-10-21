@@ -4,7 +4,6 @@ import { type FormEvent, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
-import { Panel } from "@/components/ui/page";
 import { cn, newId } from "@/lib/utils";
 
 interface CommentRow {
@@ -14,7 +13,7 @@ interface CommentRow {
   author?: { name: string } | null;
 }
 
-/** 工作项评论：按时间排列，可以提及空间成员，被提及的人会收到通知。 */
+/** 工作项评论（放在详情页侧栏“评论”页签里）：按时间排列，可以提及空间成员，被提及的人会收到通知。 */
 export function CommentsCard({
   workItemId,
   comments,
@@ -41,7 +40,7 @@ export function CommentsCard({
   }
 
   return (
-    <Panel title={`评论${comments.length ? ` ${comments.length}` : ""}`}>
+    <div className="flex flex-col gap-3">
       {comments.length === 0 && <p className="text-fg-subtle">还没有评论。</p>}
       <ol aria-label="评论列表" className="flex flex-col gap-4">
         {comments.map((c) => (
@@ -98,6 +97,6 @@ export function CommentsCard({
         </div>
         {error && <p className="text-sm text-danger-600">{error}</p>}
       </form>
-    </Panel>
+    </div>
   );
 }

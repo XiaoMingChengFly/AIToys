@@ -48,6 +48,12 @@ test("guests only read and comment, and restricted fields stay hidden from peopl
   await fields.getByLabel("报价").blur();
   await fields.getByLabel("客户").fill("A 公司");
   await fields.getByLabel("客户").blur();
+  // 动态逐条记下改动
+  await page.getByRole("tablist", { name: "评论和动态" }).getByRole("tab", { name: "动态" }).click();
+  const activity = page.getByRole("list", { name: "动态列表" });
+  await expect(activity).toContainText("Pascal 把「报价」从 空 改为 100");
+  await expect(activity).toContainText("Pascal 把「客户」从 空 改为 A 公司");
+  await expect(activity).toContainText("Pascal 创建了工作项");
   const url = page.url();
 
   // Lin 登录：能看、能评论，不能改；看不到报价
@@ -65,6 +71,13 @@ test("guests only read and comment, and restricted fields stay hidden from peopl
   await expect(linFields.getByLabel("客户")).toHaveValue("A 公司");
   await expect(linFields.getByLabel("客户")).toBeDisabled();
   await expect(linFields.getByText("报价")).toHaveCount(0);
+  // 动态里也没有报价的改动
+  const linTabs = lin.getByRole("tablist", { name: "评论和动态" });
+  await linTabs.getByRole("tab", { name: "动态" }).click();
+  const linActivity = lin.getByRole("list", { name: "动态列表" });
+  await expect(linActivity).toContainText("把「客户」从 空 改为 A 公司");
+  await expect(linActivity).not.toContainText("报价");
+  await linTabs.getByRole("tab", { name: /评论/ }).click();
   await expect(lin.getByRole("region", { name: "当前状态" }).getByRole("button", { name: "处理中" })).toBeDisabled();
   await lin.getByLabel("评论内容").fill("报价什么时候出？");
   await lin.getByRole("button", { name: "发表评论" }).click();
