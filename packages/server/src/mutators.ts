@@ -1,5 +1,6 @@
 import { appendEvents, type NewEvent, type Tx } from "@fp/db";
 import type { FlowEvent } from "@fp/engine";
+import type { ZeroContext } from "@fp/sync";
 import {
   confirmNode,
   createWorkItem,
@@ -20,9 +21,17 @@ import { defineMutator, defineMutators } from "@rocicorp/zero";
 import type { DrizzleTransaction } from "@rocicorp/zero/server/adapters/drizzle";
 
 /** 服务端事务里拿到的 Drizzle 事务，用它写事件，和 Zero 的写入在同一个数据库事务里。 */
-function drizzleTx(tx: { location: string; dbTransaction?: { wrappedTransaction: unknown } }): Tx {
+export function drizzleTx(tx: { location: string; dbTransaction?: { wrappedTransaction: unknown } }): Tx {
   if (tx.location !== "server" || !tx.dbTransaction) throw new Error("只能在服务端执行。");
   return tx.dbTransaction.wrappedTransaction as DrizzleTransaction as unknown as Tx;
+}
+
+/** 在 mutator 的事务里追加事件；自动化执行时给每条事件记上起因。 */
+function append(tx: Parameters<typeof drizzleTx>[0], ctx: ZeroContext, events: NewEvent[]) {
+  return appendEvents(
+    drizzleTx(tx),
+    events.map((e) => ({ ...e, causedBy: ctx.causedBy ?? null })),
+  );
 }
 
 /** 引擎事件转成 event_log 记录。由人触发的事件（确认、回滚）带 by，其余是流程自己推进的，actor 为空。 */
@@ -44,7 +53,7 @@ export const serverMutators = defineMutators(mutators, {
   space: {
     setCalendar: defineMutator(setCalendarArgs, async ({ tx, args, ctx }) => {
       const { from, to } = await setSpaceCalendar(tx, args, ctx.userID);
-      await appendEvents(drizzleTx(tx), [
+      await append(tx, ctx, [
         { spaceId: args.spaceId, kind: "calendarChanged", payload: { from, to }, actor: ctx.userID },
       ]);
     }),
@@ -52,7 +61,7 @@ export const serverMutators = defineMutators(mutators, {
   workItem: {
     create: defineMutator(createWorkItemArgs, async ({ tx, args, ctx }) => {
       const { spaceId, flowVersionId, events } = await createWorkItem(tx, args, ctx.userID);
-      await appendEvents(drizzleTx(tx), [
+      await append(tx, ctx, [
         {
           spaceId,
           workItemId: args.id,
@@ -68,15 +77,15 @@ export const serverMutators = defineMutators(mutators, {
   node: {
     confirm: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
       const { spaceId, events } = await confirmNode(tx, args, ctx.userID);
-      await appendEvents(drizzleTx(tx), flowEvents(spaceId, args.workItemId, events));
+      await append(tx, ctx, flowEvents(spaceId, args.workItemId, events));
     }),
     rollback: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
       const { spaceId, events } = await rollbackNode(tx, args, ctx.userID);
-      await appendEvents(drizzleTx(tx), flowEvents(spaceId, args.workItemId, events));
+      await append(tx, ctx, flowEvents(spaceId, args.workItemId, events));
     }),
     setPlan: defineMutator(setPlanArgs, async ({ tx, args, ctx }) => {
       const { spaceId } = await setNodePlan(tx, args, ctx.userID);
-      await appendEvents(drizzleTx(tx), [
+      await append(tx, ctx, [
         {
           spaceId,
           workItemId: args.workItemId,
@@ -90,7 +99,7 @@ export const serverMutators = defineMutators(mutators, {
   role: {
     set: defineMutator(setRoleArgs, async ({ tx, args, ctx }) => {
       const { spaceId, from, to } = await setRoleMembers(tx, args, ctx.userID);
-      await appendEvents(drizzleTx(tx), [
+      await append(tx, ctx, [
         {
           spaceId,
           workItemId: args.workItemId,
@@ -104,7 +113,7 @@ export const serverMutators = defineMutators(mutators, {
   fieldValue: {
     set: defineMutator(setFieldArgs, async ({ tx, args, ctx }) => {
       const { spaceId, from, events } = await setFieldValue(tx, args, ctx.userID);
-      await appendEvents(drizzleTx(tx), [
+      await append(tx, ctx, [
         {
           spaceId,
           workItemId: args.workItemId,

@@ -27,6 +27,22 @@ export const queries = defineQueries({
         .one(),
     ),
   },
+  automations: {
+    /** 空间的自动化规则和每条规则最近的执行记录。 */
+    bySpace: defineQuery(z.object({ spaceId: z.string() }), ({ args, ctx }) =>
+      zql.automationRule
+        .where("spaceId", args.spaceId)
+        .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID)))
+        .related("creator")
+        .related("runs", (r) =>
+          r
+            .orderBy("id", "desc")
+            .limit(10)
+            .related("event", (e) => e.related("workItem")),
+        )
+        .orderBy("createdAt", "asc"),
+    ),
+  },
   types: {
     /** 类型配置页：角色、字段、模板及其最新版本。 */
     byId: defineQuery(z.object({ id: z.string() }), ({ args, ctx }) =>

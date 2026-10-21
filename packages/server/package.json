@@ -1,0 +1,25 @@
+{
+  "name": "@fp/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fp/db": "workspace:*",
+    "@fp/engine": "workspace:*",
+    "@fp/sync": "workspace:*",
+    "@rocicorp/zero": "1.10.0",
+    "drizzle-orm": "0.45.4"
+  },
+  "devDependencies": {
+    "@types/node": "24.7.0"
+  }
+}

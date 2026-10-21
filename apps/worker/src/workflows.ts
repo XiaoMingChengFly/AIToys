@@ -10,7 +10,7 @@ import {
 import type { Activities } from "./activities.ts";
 import { EVENT_SIGNAL, type StreamEvent, type StreamWorkflowInput } from "./shared.ts";
 
-const { processEvent } = proxyActivities<Activities>({
+const { processEvent, runRule } = proxyActivities<Activities>({
   startToCloseTimeout: "1 minute",
   retry: { initialInterval: "1 second", maximumInterval: "1 minute" },
 });
@@ -25,6 +25,7 @@ const EVENTS_PER_RUN = 500;
 /**
  * 一个事件流（一个工作项或一个空间）对应一个长期运行的 workflow，按 event_log 的顺序逐条处理事件。
  * 同一个工作项上的流程推进和自动化因此天然串行，不会互相踩。
+ * 自动化动作写出的新事件也会回到这个流，但带着 causedBy，不会再触发规则。
  */
 export async function streamWorkflow(input: StreamWorkflowInput): Promise<void> {
   const pending = [...input.pending];
@@ -40,7 +41,9 @@ export async function streamWorkflow(input: StreamWorkflowInput): Promise<void> 
   for (let processed = 0; ; ) {
     if (!(await condition(() => pending.length > 0, IDLE_TIMEOUT))) return;
     const next = pending.shift() as StreamEvent;
-    await processEvent(next.eventId);
+    // 规则按创建顺序逐条执行，前一条规则的改动后一条能看到
+    const { matchedRuleIds } = await processEvent(next.eventId);
+    for (const ruleId of matchedRuleIds) await runRule(ruleId, next.eventId);
     processed++;
 
     if (processed >= EVENTS_PER_RUN || workflowInfo().continueAsNewSuggested) {

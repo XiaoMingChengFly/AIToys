@@ -1,4 +1,12 @@
-import type { CalendarConfig, FlowDefinition, NodeState, WorkItemStatus } from "@fp/engine";
+import type {
+  AutomationAction,
+  AutomationTrigger,
+  CalendarConfig,
+  Condition,
+  FlowDefinition,
+  NodeState,
+  WorkItemStatus,
+} from "@fp/engine";
 import { relations, sql } from "drizzle-orm";
 import {
   bigint,
@@ -237,9 +245,14 @@ export const automationRule = pgTable("automation_rule", {
     .references(() => space.id),
   name: text("name").notNull(),
   enabled: boolean("enabled").notNull().default(true),
-  trigger: jsonb("trigger").$type<{ kind: string } & Record<string, unknown>>().notNull(),
-  conditions: jsonb("conditions").$type<unknown>(),
-  actions: jsonb("actions").$type<unknown[]>().notNull(),
+  trigger: jsonb("trigger").$type<AutomationTrigger>().notNull(),
+  /** 触发后按工作项字段求值的条件，为空表示不加条件。 */
+  conditions: jsonb("conditions").$type<Condition | null>(),
+  actions: jsonb("actions").$type<AutomationAction[]>().notNull(),
+  /** 规则以创建人的身份执行动作，权限和他手动操作一样。 */
+  createdBy: text("created_by")
+    .notNull()
+    .references(() => user.id),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -492,6 +505,7 @@ export const flowVersionRelations = relations(flowVersion, ({ one }) => ({
 
 export const automationRuleRelations = relations(automationRule, ({ one, many }) => ({
   space: one(space, { fields: [automationRule.spaceId], references: [space.id] }),
+  creator: one(user, { fields: [automationRule.createdBy], references: [user.id] }),
   runs: many(automationRun),
 }));
 

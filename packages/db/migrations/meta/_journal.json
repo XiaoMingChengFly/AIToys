@@ -29,6 +29,13 @@
       "when": 1792572640312,
       "tag": "0003_space_calendar",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792573640128,
+      "tag": "0004_automation_rule_owner",
+      "breakpoints": true
     }
   ]
 }

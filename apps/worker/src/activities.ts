@@ -1,10 +1,10 @@
-import { type Database, schema } from "@fp/db";
-import { and, eq } from "drizzle-orm";
+import type { Database } from "@fp/db";
+import { createMutatorRunner, matchRules, runRule } from "@fp/server";
+import { Context } from "@temporalio/activity";
 
 export interface ProcessEventResult {
   eventId: number;
-  kind: string;
-  /** 触发器和事件类型匹配上的、已启用的自动化规则。 */
+  /** 被这条事件触发的规则：已启用，触发器和条件都满足。 */
   matchedRuleIds: string[];
 }
 
@@ -13,25 +13,17 @@ export interface ProcessEventResult {
  * 每个 activity 都必须可以安全重试：Temporal 会在超时或失败时再次调用。
  */
 export function createActivities(database: Database) {
-  const { db } = database;
+  const runner = createMutatorRunner(database);
 
   return {
-    /**
-     * 处理一条事件。现在只做读取和规则匹配；条件求值和动作执行在自动化引擎里接入，
-     * 执行结果会写 automation_run（rule_id + event_id 唯一，重试不会重复执行）。
-     */
+    /** 读一条事件，找出它触发的自动化规则。只读，可以随意重试。 */
     async processEvent(eventId: number): Promise<ProcessEventResult> {
-      const event = await db.query.eventLog.findFirst({ where: eq(schema.eventLog.id, eventId) });
-      if (!event) throw new Error(`event_log 里没有事件 ${eventId}`);
-      const rules = await db
-        .select({ id: schema.automationRule.id, trigger: schema.automationRule.trigger })
-        .from(schema.automationRule)
-        .where(and(eq(schema.automationRule.spaceId, event.spaceId), eq(schema.automationRule.enabled, true)));
-      return {
-        eventId,
-        kind: event.kind,
-        matchedRuleIds: rules.filter((r) => r.trigger.kind === event.kind).map((r) => r.id),
-      };
+      return { eventId, matchedRuleIds: await matchRules(database, eventId) };
+    },
+
+    /** 执行一条规则。执行记录和动作在同一个事务里提交，重试时不会重复执行。 */
+    async runRule(ruleId: string, eventId: number): Promise<string> {
+      return runRule(runner, ruleId, eventId, Context.current().info.workflowExecution?.workflowId ?? "unknown");
     },
   };
 }

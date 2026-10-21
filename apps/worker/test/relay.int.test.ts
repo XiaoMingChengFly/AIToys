@@ -35,6 +35,7 @@ beforeAll(async () => {
     name: "需求评审进行中时建评审管理",
     trigger: { kind: "nodeStarted" },
     actions: [],
+    createdBy: "u1",
   });
 });
 
@@ -66,6 +67,7 @@ describe("outbox relay → Temporal", () => {
           processed.push(result);
           return result;
         },
+        runRule: activities.runRule,
       },
     });
 
@@ -97,6 +99,14 @@ describe("outbox relay → Temporal", () => {
     expect(processed.map((p) => p.eventId).filter((id) => w2.includes(id))).toEqual(w2);
     expect(processed).toHaveLength(4);
     expect(processed.find((p) => p.eventId === w2[0])?.matchedRuleIds).toEqual(["r1"]);
+    // 两个 nodeStarted 各执行一次规则（没有动作），重复投递的那条不会再执行
+    const runs = await database.db.select().from(schema.automationRun).where(eq(schema.automationRun.ruleId, "r1"));
+    expect(runs.map((r) => [r.eventId, r.status]).sort()).toEqual(
+      [
+        [w1[0], "succeeded"],
+        [w2[0], "succeeded"],
+      ].sort(),
+    );
     expect(await database.db.$count(schema.outbox, isNull(schema.outbox.dispatchedAt))).toBe(0);
 
     expect((await handles[0]?.describe())?.status.name).toBe("RUNNING");

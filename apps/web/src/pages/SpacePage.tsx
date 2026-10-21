@@ -81,6 +81,13 @@ export function SpacePage() {
         </Link>
         <span className="text-slate-300">/</span>
         <h1 className="text-xl font-semibold">{space.name}</h1>
+        <Link
+          to="/spaces/$spaceId/automations"
+          params={{ spaceId }}
+          className="ml-auto text-sm text-sky-700 hover:underline"
+        >
+          自动化
+        </Link>
       </div>
 
       {space.workItemTypes.length === 0 && isAdmin && <ImportOem spaceId={spaceId} />}
