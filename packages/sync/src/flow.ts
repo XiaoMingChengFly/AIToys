@@ -7,6 +7,7 @@ import {
   FlowEngine,
   type FlowEvent,
   nodeFlowOf,
+  normalizeFieldValue,
   resolveOwners,
   WorkCalendar,
   type WorkItemState,
@@ -14,6 +15,7 @@ import {
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { requireWriter, syncFieldAccess } from "./access.ts";
+import { fieldDefOf, writeFieldValue } from "./field-values.ts";
 import { type NodePlan, planNodes } from "./planning.ts";
 import { zql } from "./schema.gen.ts";
 import { assertRoleMembers, nodeInstanceId } from "./work-items.ts";
@@ -40,6 +42,7 @@ export type SetRoleArgs = z.output<typeof setRoleArgs>;
 /** 一个工作项在数据库里的流程现状，还原成引擎能用的 WorkItemState。 */
 interface LoadedFlow {
   workItemId: string;
+  typeId: string;
   spaceId: string;
   timeZone: string;
   calendar: WorkCalendar;
@@ -92,6 +95,7 @@ async function loadFlow(tx: Transaction, workItemId: string, userID: string): Pr
   };
   return {
     workItemId,
+    typeId: item.typeId,
     spaceId: item.spaceId,
     timeZone,
     calendar: WorkCalendar.fromConfig(item.space?.calendar),
@@ -210,13 +214,18 @@ export async function confirmNode(
   const node = flow.engine.graph.node(args.nodeKey);
   const formFields = new Set((node.form ?? []).map((f) => f.field));
   const fieldChanges: FieldChange[] = [];
-  for (const [fieldKey, value] of Object.entries(args.values)) {
+  for (const [fieldKey, input] of Object.entries(args.values)) {
     if (!formFields.has(fieldKey)) throw new Error(`字段「${fieldKey}」不在节点「${node.name}」的完成表单里。`);
-    const from = flow.fields[fieldKey] ?? null;
-    if (JSON.stringify(from) === JSON.stringify(value)) continue;
-    await tx.mutate.fieldValue.upsert({ workItemId: args.workItemId, fieldKey, value, updatedAt: Date.now() });
-    flow.fields[fieldKey] = value;
-    fieldChanges.push({ fieldKey, from, to: value });
+    const value = normalizeFieldValue(await fieldDefOf(tx, flow.typeId, fieldKey), input);
+    if (JSON.stringify(flow.fields[fieldKey] ?? null) === JSON.stringify(value)) continue;
+    const { from, to } = await writeFieldValue(
+      tx,
+      { id: args.workItemId, typeId: flow.typeId, spaceId: flow.spaceId },
+      fieldKey,
+      value,
+    );
+    flow.fields[fieldKey] = to;
+    fieldChanges.push({ fieldKey, from, to });
   }
   if (fieldChanges.length > 0) await syncFieldAccess(tx, args.workItemId);
   const events = fieldChanges.length > 0 ? flow.engine.onFieldsChanged(flow.state, flow.fields) : [];

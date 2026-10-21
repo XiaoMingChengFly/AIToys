@@ -28,12 +28,8 @@ export async function importOemTemplate(db: Db, spaceId: string): Promise<{ type
         typeId,
         key,
         name: key,
-        dataType:
-          key === F.linkedSku
-            ? ("relation" as const)
-            : key === F.formulaLocked
-              ? ("text" as const)
-              : ("select" as const),
+        // 关联 SKU 先按文本记录 SKU 编号
+        dataType: key === F.linkedSku || key === F.formulaLocked ? ("text" as const) : ("select" as const),
         options: key === F.linkedSku || key === F.formulaLocked ? null : yesNo,
         sort,
       })),

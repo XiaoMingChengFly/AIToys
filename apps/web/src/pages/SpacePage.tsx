@@ -7,6 +7,7 @@ import { Columns3, GanttChartSquare, List, Plus } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
 import { Board } from "@/components/Board";
+import { FieldInput, type FieldInputValue } from "@/components/FieldInput";
 import { FilterBar } from "@/components/FilterBar";
 import { type PickerMember, RolePicker, toggled } from "@/components/RolePicker";
 import { SpaceGantt } from "@/components/SpaceGantt";
@@ -148,6 +149,7 @@ function WorkItems({
     id: t.id,
     name: t.name,
     definitions: t.flowTemplates.flatMap((f) => (f.currentVersion ? [f.currentVersion.definition] : [])),
+    fields: t.fields,
   }));
 
   const rows = useMemo<Row[]>(
@@ -323,18 +325,21 @@ function CreateWorkItemForm({
   const zero = useZero();
   const navigate = useNavigate();
   const [name, setName] = useState("");
-  const [fields, setFields] = useState<Record<string, string>>({});
+  const [fields, setFields] = useState<Record<string, FieldInputValue>>({});
   // 默认所有角色都由创建人担任，可以在下面改
   const [assigned, setAssigned] = useState<Record<string, string[]>>(() =>
     Object.fromEntries(type.roles.map((r) => [r.key, [String(zero.userID)]])),
   );
-  const selectFields = type.fields.filter((f) => f.dataType === "select" && f.options?.length);
+  // 新建时可以直接填的字段（公式字段由系统计算）
+  const editableFields = type.fields.filter((f) => f.dataType !== "formula" && f.dataType !== "relation");
 
   async function create(event: FormEvent) {
     event.preventDefault();
     if (!name.trim()) return;
     const id = newId();
-    const values = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== ""));
+    const values = Object.fromEntries(
+      Object.entries(fields).filter(([, v]) => v !== null && v !== "" && !(Array.isArray(v) && v.length === 0)),
+    );
     zero.mutate(mutators.workItem.create({ id, typeId: type.id, name: name.trim(), fields: values, roles: assigned }));
     await navigate({ to: "/items/$itemId", params: { itemId: id } });
   }
@@ -344,21 +349,17 @@ function CreateWorkItemForm({
       <Field label={`${type.name}名称`}>
         <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
       </Field>
-      {selectFields.length > 0 && (
+      {editableFields.length > 0 && (
         <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
-          {selectFields.map((f) => (
+          {editableFields.map((f) => (
             <Field key={f.key} label={f.name}>
-              <Select
-                value={fields[f.key] ?? ""}
-                onChange={(e) => setFields((prev) => ({ ...prev, [f.key]: e.target.value }))}
-              >
-                <option value="">未选择</option>
-                {f.options?.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
+              <FieldInput
+                field={f}
+                value={fields[f.key] ?? null}
+                members={members}
+                live
+                onChange={(value) => setFields((prev) => ({ ...prev, [f.key]: value }))}
+              />
             </Field>
           ))}
         </div>

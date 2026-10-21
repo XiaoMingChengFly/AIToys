@@ -1,10 +1,12 @@
 import { nodeFlowOf, statusFlowOf } from "@fp/engine";
 import { mutators, type WorkItemFilterArgs } from "@fp/sync";
 import { useZero } from "@rocicorp/zero/react";
-import { Bookmark, X } from "lucide-react";
+import { Bookmark, SlidersHorizontal, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
+import type { FieldConfig } from "@/components/FieldInput";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn, newId } from "@/lib/utils";
 
 const STATUS_OPTIONS = [
@@ -27,7 +29,10 @@ interface View {
 /** 是否和当前筛选条件相同（按有值的条件比较）。 */
 function same(a: WorkItemFilterArgs, b: WorkItemFilterArgs) {
   const keys = ["typeIds", "statuses", "stages", "memberIds"] as const;
-  return keys.every((k) => (a[k] ?? []).join() === (b[k] ?? []).join());
+  return (
+    keys.every((k) => (a[k] ?? []).join() === (b[k] ?? []).join()) &&
+    JSON.stringify(a.fields ?? []) === JSON.stringify(b.fields ?? [])
+  );
 }
 
 /**
@@ -48,7 +53,7 @@ export function FilterBar({
   filter: WorkItemFilterArgs;
   onChange: (filter: WorkItemFilterArgs) => void;
   /** definitions：类型已发布的流程定义（节点流或状态流），用来列出可筛的阶段。 */
-  types: (Option & { definitions: unknown[] })[];
+  types: (Option & { definitions: unknown[]; fields?: readonly FieldConfig[] })[];
   members: Option[];
   views: readonly View[];
   isAdmin: boolean;
@@ -71,6 +76,16 @@ export function FilterBar({
     ),
   ];
   const empty = Object.values(filter).every((v) => !v?.length);
+  // 可筛的字段：筛了类型时只列这些类型的字段；同键字段只列一次
+  const fields = [
+    ...new Map(
+      types
+        .filter((t) => !filter.typeIds?.length || filter.typeIds.includes(t.id))
+        .flatMap((t) => t.fields ?? [])
+        .filter((f) => FILTER_OP[f.dataType])
+        .map((f) => [f.key, f]),
+    ).values(),
+  ];
 
   const pick = (key: keyof WorkItemFilterArgs, value: string) =>
     onChange({ ...filter, [key]: value ? [value] : undefined });
@@ -141,7 +156,12 @@ export function FilterBar({
           aria-label="按类型筛选"
           value={filter.typeIds?.[0] ?? ""}
           onChange={(e) =>
-            onChange({ ...filter, typeIds: e.target.value ? [e.target.value] : undefined, stages: undefined })
+            onChange({
+              ...filter,
+              typeIds: e.target.value ? [e.target.value] : undefined,
+              stages: undefined,
+              fields: undefined,
+            })
           }
         >
           <option value="">全部类型</option>
@@ -187,6 +207,12 @@ export function FilterBar({
             </option>
           ))}
         </Select>
+        <FieldFilters
+          fields={fields}
+          members={members}
+          value={filter.fields ?? []}
+          onChange={(next) => onChange({ ...filter, fields: next.length > 0 ? next : undefined })}
+        />
         {!empty && (
           <>
             <Button variant="ghost" onClick={() => onChange({})}>
@@ -204,5 +230,158 @@ export function FilterBar({
       </div>
       {error && <p className="text-sm text-danger-600">{error}</p>}
     </div>
+  );
+}
+
+type FieldFilter = NonNullable<WorkItemFilterArgs["fields"]>[number];
+
+/** 各字段类型用哪种筛选：属于某些值、范围、包含文字。 */
+const FILTER_OP: Record<string, FieldFilter["op"] | undefined> = {
+  select: "in",
+  multiSelect: "in",
+  bool: "in",
+  user: "in",
+  number: "range",
+  date: "range",
+  text: "contains",
+  link: "contains",
+};
+
+/** 字段筛选：已加的条件显示成标签，点“字段筛选”再加一个。 */
+function FieldFilters({
+  fields,
+  members,
+  value,
+  onChange,
+}: {
+  fields: readonly FieldConfig[];
+  members: readonly Option[];
+  value: readonly FieldFilter[];
+  onChange: (next: FieldFilter[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [key, setKey] = useState("");
+  const [values, setValues] = useState<string[]>([]);
+  const [min, setMin] = useState("");
+  const [max, setMax] = useState("");
+  const [text, setText] = useState("");
+  const field = fields.find((f) => f.key === key) ?? fields[0];
+  if (fields.length === 0 && value.length === 0) return null;
+
+  const choices = (f: FieldConfig) =>
+    f.dataType === "bool"
+      ? [
+          { value: "true", label: "是" },
+          { value: "false", label: "否" },
+        ]
+      : f.dataType === "user"
+        ? members.map((m) => ({ value: m.id, label: m.name }))
+        : (f.options ?? []);
+  const describe = (filter: FieldFilter) => {
+    const f = fields.find((x) => x.key === filter.field);
+    const name = f?.name ?? filter.field;
+    if (filter.op === "in")
+      return `${name}：${filter.values.map((v) => (f ? choices(f).find((c) => c.value === v)?.label : v) ?? v).join("、")}`;
+    if (filter.op === "contains") return `${name}包含“${filter.text}”`;
+    if (filter.min !== undefined && filter.max !== undefined) return `${name}：${filter.min} ~ ${filter.max}`;
+    return filter.min !== undefined ? `${name} ≥ ${filter.min}` : `${name} ≤ ${filter.max}`;
+  };
+  const reset = (nextKey: string) => {
+    setKey(nextKey);
+    setValues([]);
+    setMin("");
+    setMax("");
+    setText("");
+  };
+  const build = (): FieldFilter | null => {
+    if (!field) return null;
+    const op = FILTER_OP[field.dataType];
+    if (op === "in") return values.length > 0 ? { field: field.key, op, values } : null;
+    if (op === "contains") return text.trim() ? { field: field.key, op, text: text.trim() } : null;
+    const bound = (v: string) => (v === "" ? undefined : field.dataType === "number" ? Number(v) : v);
+    const range = { field: field.key, op: "range" as const, min: bound(min), max: bound(max) };
+    return range.min === undefined && range.max === undefined ? null : range;
+  };
+  const inputType = field?.dataType === "date" ? "date" : "number";
+
+  return (
+    <>
+      {value.map((filter, i) => (
+        <span
+          // biome-ignore lint/suspicious/noArrayIndexKey: 条件没有自己的 id，按位置删除
+          key={i}
+          className="inline-flex h-7 items-center gap-1 rounded-md bg-brand-50 pr-1 pl-2.5 text-sm text-brand-500"
+        >
+          {describe(filter)}
+          <button
+            type="button"
+            aria-label={`去掉条件 ${describe(filter)}`}
+            className="rounded p-0.5 hover:bg-brand-100"
+            onClick={() => onChange(value.filter((_, j) => j !== i))}
+          >
+            <X className="size-3" />
+          </button>
+        </span>
+      ))}
+      {fields.length > 0 && (
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost">
+              <SlidersHorizontal />
+              字段筛选
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="flex w-72 flex-col gap-2 p-3">
+            <Select aria-label="筛选字段" value={field?.key ?? ""} onChange={(e) => reset(e.target.value)}>
+              {fields.map((f) => (
+                <option key={f.key} value={f.key}>
+                  {f.name}
+                </option>
+              ))}
+            </Select>
+            {field && FILTER_OP[field.dataType] === "in" && (
+              <ul aria-label="筛选值" className="flex max-h-48 flex-col overflow-y-auto">
+                {choices(field).map((c) => (
+                  <li key={c.value}>
+                    <label className="flex h-7 items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={values.includes(c.value)}
+                        onChange={(e) =>
+                          setValues(e.target.checked ? [...values, c.value] : values.filter((v) => v !== c.value))
+                        }
+                      />
+                      {c.label}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {field && FILTER_OP[field.dataType] === "range" && (
+              <div className="flex items-center gap-1.5">
+                <Input aria-label="最小值" type={inputType} value={min} onChange={(e) => setMin(e.target.value)} />
+                <span className="text-fg-subtle">~</span>
+                <Input aria-label="最大值" type={inputType} value={max} onChange={(e) => setMax(e.target.value)} />
+              </div>
+            )}
+            {field && FILTER_OP[field.dataType] === "contains" && (
+              <Input aria-label="包含文字" value={text} onChange={(e) => setText(e.target.value)} />
+            )}
+            <Button
+              size="sm"
+              onClick={() => {
+                const next = build();
+                if (!next) return;
+                onChange([...value.filter((f) => f.field !== next.field), next]);
+                setOpen(false);
+                reset(field?.key ?? "");
+              }}
+            >
+              应用
+            </Button>
+          </PopoverContent>
+        </Popover>
+      )}
+    </>
   );
 }

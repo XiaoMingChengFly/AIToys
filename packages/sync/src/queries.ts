@@ -1,3 +1,4 @@
+import { fieldIndex } from "@fp/engine";
 import { defineQueries, defineQuery } from "@rocicorp/zero";
 import { z } from "zod";
 import { zql } from "./schema.gen.ts";
@@ -10,6 +11,14 @@ import { workItemFilter } from "./views.ts";
 
 const spaceItemsArgs = z.object({ spaceId: z.string(), filter: workItemFilter.optional() });
 
+/** 范围筛选的边界：数字原样；日期（YYYY-MM-DD）换成检索列里的天数。 */
+function rangeBound(value: number | string | undefined): number | null {
+  if (value === undefined || value === "") return null;
+  if (typeof value === "number") return value;
+  const n = fieldIndex({ name: "", dataType: "date" }, value).num;
+  return n === null || Number.isNaN(n) ? null : n;
+}
+
 /** 空间里当前用户能看到、并且符合筛选条件的工作项。 */
 function spaceItems({ spaceId, filter = {} }: z.output<typeof spaceItemsArgs>, userID: string) {
   let q = zql.workItem
@@ -20,6 +29,25 @@ function spaceItems({ spaceId, filter = {} }: z.output<typeof spaceItemsArgs>, u
   if (filter.stages?.length) q = q.where("stage", "IN", filter.stages);
   const memberIds = filter.memberIds;
   if (memberIds?.length) q = q.whereExists("roleMembers", (r) => r.where("userId", "IN", memberIds));
+  // 字段条件查检索列；只在自己能看到的字段值里找，受限字段不会被用来探测
+  for (const f of filter.fields ?? [])
+    q = q.whereExists("fieldValues", (v) => {
+      const fv = visibleFieldValues(userID)(v.where("fieldKey", f.field));
+      switch (f.op) {
+        case "in":
+          return fv.whereExists("items", (i) => i.where("item", "IN", f.values));
+        case "contains":
+          return fv.where("str", "ILIKE", `%${f.text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+        case "range": {
+          let r = fv;
+          const min = rangeBound(f.min);
+          const max = rangeBound(f.max);
+          if (min !== null) r = r.where("num", ">=", min);
+          if (max !== null) r = r.where("num", "<=", max);
+          return r;
+        }
+      }
+    });
   return q;
 }
 

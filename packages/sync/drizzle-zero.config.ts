@@ -26,6 +26,7 @@ export default drizzleZeroConfig(schema, {
     workItem: true,
     fieldValue: true,
     fieldViewer: true,
+    fieldValueItem: true,
     roleMember: true,
     relation: true,
     nodeInstance: true,

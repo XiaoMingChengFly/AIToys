@@ -1,5 +1,7 @@
 import {
   type Condition,
+  conditionFields,
+  EDITABLE_FIELD_TYPES,
   type FlowDefinition,
   isStatusFlow,
   type StatusFlowDefinition,
@@ -37,7 +39,7 @@ export const createFieldArgs = z.object({
   typeId: z.string(),
   key,
   name: z.string().min(1),
-  dataType: z.enum(["text", "number", "bool", "date", "select", "multiSelect", "user", "link", "relation"]),
+  dataType: z.enum(EDITABLE_FIELD_TYPES),
   options: z.array(z.object({ value: z.string().min(1), label: z.string().min(1) })).optional(),
 });
 /** 字段的可见和可改角色；空数组表示不限制。 */
@@ -52,6 +54,12 @@ export const condition: z.ZodType<Condition, Condition> = z.lazy(() =>
   z.union([
     z.object({ kind: z.literal("equal"), field: z.string(), value: z.union([z.string(), z.number(), z.boolean()]) }),
     z.object({ kind: z.literal("notEmpty"), field: z.string() }),
+    z.object({
+      kind: z.literal("compare"),
+      field: z.string(),
+      op: z.enum(["gt", "gte", "lt", "lte"]),
+      value: z.union([z.number(), z.string()]),
+    }),
     z.object({ kind: z.literal("all"), items: z.array(condition) }),
     z.object({ kind: z.literal("any"), items: z.array(condition) }),
   ]),
@@ -243,8 +251,7 @@ export function checkReferences(
   const errors: string[] = [];
   const roles = new Set(roleKeys);
   const fields = new Set(fieldKeys);
-  const fieldsOf = (c: Condition): string[] =>
-    c.kind === "all" || c.kind === "any" ? c.items.flatMap(fieldsOf) : [c.field];
+  const fieldsOf = conditionFields;
   if (isStatusFlow(definition)) {
     const name = (key: string) => definition.statuses.find((s) => s.key === key)?.name ?? key;
     for (const t of definition.transitions) {

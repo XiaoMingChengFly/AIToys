@@ -3,7 +3,7 @@ import { schema } from "@fp/db";
 import { createTestDatabase } from "@fp/db/testing";
 import { dayInTimeZone, dayToIso, type FlowDefinition, oemV289 } from "@fp/engine";
 import { cascadeSubItems, createMutatorRunner, matchRules, notify, runRule } from "@fp/server";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp, createServices, type Services } from "../src/app.ts";
 import { importOemTemplate } from "../src/seed/oem.ts";
@@ -60,6 +60,17 @@ describe("login + Zero mutators", () => {
   it("fieldValue.set writes the value and its event in one transaction", async () => {
     const { db } = services.database;
     await db.insert(schema.workItemType).values({ id: `${spaceId}-t`, spaceId, key: "project", name: "项目" });
+    await db.insert(schema.fieldDef).values({
+      id: `${spaceId}-f`,
+      typeId: `${spaceId}-t`,
+      key: "needConceptTest",
+      name: "是否需要概念测试",
+      dataType: "select",
+      options: [
+        { value: "是", label: "是" },
+        { value: "否", label: "否" },
+      ],
+    });
     await db.insert(schema.workItem).values({
       id: workItemId,
       spaceId,
@@ -1490,5 +1501,114 @@ describe("permissions", () => {
     await expect(run("node.setPlan", { workItemId: itemId, nodeKey: "dev" }, other.userId)).rejects.toThrow(
       "只有节点负责人、可操作角色或空间管理员可以调整排期",
     );
+  });
+});
+
+describe("typed field values", () => {
+  const spaceId = randomUUID();
+  const typeId = `${spaceId}/task`;
+  const templateId = `${typeId}/default`;
+  let admin: { cookie: string; userId: string };
+  let stranger: { cookie: string; userId: string };
+  let itemId: string;
+  const run = (name: string, args: unknown, userId = admin.userId) => services.zero.run(name, args, userId);
+  const set = (fieldKey: string, value: unknown) => run("fieldValue.set", { workItemId: itemId, fieldKey, value });
+  const row = async (fieldKey: string) =>
+    (
+      await services.database.db
+        .select()
+        .from(schema.fieldValue)
+        .where(and(eq(schema.fieldValue.workItemId, itemId), eq(schema.fieldValue.fieldKey, fieldKey)))
+    )[0];
+  const items = async (fieldKey: string) =>
+    (
+      await services.database.db
+        .select()
+        .from(schema.fieldValueItem)
+        .where(and(eq(schema.fieldValueItem.workItemId, itemId), eq(schema.fieldValueItem.fieldKey, fieldKey)))
+    )
+      .map((r) => r.item)
+      .sort();
+
+  beforeAll(async () => {
+    admin = await signUp(`ft-admin-${spaceId}@example.com`);
+    stranger = await signUp(`ft-stranger-${spaceId}@example.com`);
+    await run("space.create", { id: spaceId, name: "字段类型" });
+    await run("workItemType.create", { id: typeId, spaceId, key: "task", name: "任务", flowMode: "state" });
+    const field = (key: string, dataType: string, options?: string[]) =>
+      run("fieldDef.create", {
+        id: `${typeId}/field/${key}`,
+        typeId,
+        key,
+        name: key,
+        dataType,
+        ...(options && { options: options.map((o) => ({ value: o, label: o })) }),
+      });
+    await field("工时", "number");
+    await field("截止", "date");
+    await field("标签", "multiSelect", ["前端", "后端", "测试"]);
+    await field("协作人", "user");
+    await field("文档", "link");
+    await run("flowTemplate.create", { id: templateId, typeId, key: "default", name: "流程" });
+    await run("flowTemplate.publish", { versionId: `${templateId}/v1` });
+    itemId = randomUUID();
+    await run("workItem.create", {
+      id: itemId,
+      typeId,
+      name: "接口联调",
+      fields: { 工时: "8", 标签: ["后端", "前端"] },
+    });
+  });
+
+  it("normalizes values on create and keeps the filter index", async () => {
+    expect(await row("工时")).toMatchObject({ value: 8, num: 8 });
+    expect((await row("标签"))?.value).toEqual(["前端", "后端"]);
+    expect(await items("标签")).toEqual(["前端", "后端"].sort());
+  });
+
+  it("validates each type and updates the index on change", async () => {
+    await expect(set("工时", "很多")).rejects.toThrow("「工时」要填数字");
+    await expect(set("截止", "2026-13-01")).rejects.toThrow("要填日期");
+    await expect(set("标签", ["运维"])).rejects.toThrow("没有选项「运维」");
+    await expect(set("文档", "docs")).rejects.toThrow("http");
+    await expect(set("协作人", [stranger.userId])).rejects.toThrow("「协作人」只能选空间成员");
+    await expect(set("不存在", "x")).rejects.toThrow("字段「不存在」不存在");
+
+    await set("截止", "2026-11-02");
+    expect(await row("截止")).toMatchObject({ value: "2026-11-02", str: "2026-11-02" });
+    expect((await row("截止"))?.num).toBe(Date.parse("2026-11-02T00:00:00Z") / 86_400_000);
+    await set("标签", ["测试"]);
+    expect(await items("标签")).toEqual(["测试"]);
+    await set("协作人", [admin.userId]);
+    expect(await items("协作人")).toEqual([admin.userId]);
+    await set("标签", null);
+    expect(await items("标签")).toEqual([]);
+
+    const [event] = await services.database.db
+      .select()
+      .from(schema.eventLog)
+      .where(and(eq(schema.eventLog.workItemId, itemId), eq(schema.eventLog.kind, "fieldChanged")))
+      .orderBy(desc(schema.eventLog.id))
+      .limit(1);
+    expect(event?.payload).toEqual({ fieldKey: "标签", from: ["测试"], to: null });
+  });
+
+  it("puts field filters into the synced list query", async () => {
+    const filter = {
+      fields: [
+        { field: "标签", op: "in", values: ["后端"] },
+        { field: "工时", op: "range", min: 4 },
+        { field: "截止", op: "range", max: "2026-12-31" },
+        { field: "文档", op: "contains", text: "wiki" },
+      ],
+    };
+    const body = JSON.stringify(["transform", [{ id: "q1", name: "workItems.bySpace", args: [{ spaceId, filter }] }]]);
+    const res = await app.request("/api/zero/query?schema=zero_0&appID=zero", {
+      method: "POST",
+      body,
+      headers: { cookie: admin.cookie },
+    });
+    const ast = JSON.stringify(((await res.json()) as { queries: { ast: unknown }[] }).queries[0]?.ast);
+    for (const part of ["field_value_item", "后端", '"num"', "ILIKE", "%wiki%"]) expect(ast).toContain(part);
   });
 });

@@ -5,6 +5,7 @@ import {
   type FlowEvent,
   isFinal,
   nodeFlowOf,
+  normalizeFieldValue,
   resolveOwners,
   StatusFlow,
   statusFlowOf,
@@ -12,7 +13,8 @@ import {
 } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
-import { requireWriter, syncFieldAccess } from "./access.ts";
+import { assertSpaceMembers, requireWriter, syncFieldAccess } from "./access.ts";
+import { fieldDefOf, writeFieldValue } from "./field-values.ts";
 import { planNodes } from "./planning.ts";
 import { zql } from "./schema.gen.ts";
 
@@ -27,21 +29,6 @@ export const createWorkItemArgs = z.object({
   roles: z.record(z.string(), z.array(z.string())).default({}),
 });
 export type CreateWorkItemArgs = z.output<typeof createWorkItemArgs>;
-
-/** 角色成员必须是空间成员。 */
-export async function assertSpaceMembers(
-  tx: Transaction,
-  spaceId: string,
-  userIds: string[],
-  message = "角色成员必须是空间成员。",
-) {
-  const wanted = [...new Set(userIds)];
-  if (wanted.length === 0) return;
-  const members = await tx.run(zql.spaceMember.where("spaceId", spaceId).where("userId", "IN", wanted));
-  const found = new Set(members.map((m) => m.userId));
-  const missing = wanted.filter((u) => !found.has(u));
-  if (missing.length > 0) throw new Error(message);
-}
 
 /** 角色成员必须是空间成员，而且不能是访客（访客只能查看和评论，担任角色也没法推进流程）。 */
 export async function assertRoleMembers(tx: Transaction, spaceId: string, userIds: string[]) {
@@ -87,6 +74,12 @@ export async function createWorkItem(
   if (!type) throw new Error("工作项类型不存在或没有权限。");
   await requireWriter(tx, type.spaceId, userID);
   await assertRoleMembers(tx, type.spaceId, Object.values(args.roles).flat());
+  // 字段值先按类型整理成规范形式，流程引擎按整理后的值判断出现条件
+  const fields: Record<string, unknown> = {};
+  for (const [fieldKey, input] of Object.entries(args.fields)) {
+    const value = normalizeFieldValue(await fieldDefOf(tx, args.typeId, fieldKey), input);
+    if (value !== null) fields[fieldKey] = value;
+  }
 
   // 节点流和状态流都从类型的流程模板（默认第一个）的当前发布版本开始
   const templates = zql.flowTemplate.where("typeId", args.typeId);
@@ -103,7 +96,7 @@ export async function createWorkItem(
 
   const now = Date.now();
   const engine = definition ? new FlowEngine(definition) : null;
-  const flow = definition && engine ? engine.start(args.fields, resolveOwners(definition, args.roles)) : null;
+  const flow = definition && engine ? engine.start(fields, resolveOwners(definition, args.roles)) : null;
   // 自动排期从创建那天（空间时区）开始；一开始就完成的节点（开始节点）算当天完成
   const space = await tx.run(zql.space.where("id", type.spaceId).one());
   const today = dayInTimeZone(now, space?.timezone ?? "Asia/Shanghai");
@@ -137,8 +130,8 @@ export async function createWorkItem(
     createdAt: now,
     updatedAt: now,
   });
-  for (const [fieldKey, value] of Object.entries(args.fields))
-    await tx.mutate.fieldValue.insert({ workItemId: args.id, fieldKey, value, updatedAt: now });
+  for (const [fieldKey, value] of Object.entries(fields))
+    await writeFieldValue(tx, { id: args.id, typeId: args.typeId, spaceId: type.spaceId }, fieldKey, value);
   for (const [roleKey, userIds] of Object.entries(args.roles))
     for (const userId of new Set(userIds))
       await tx.mutate.roleMember.insert({ workItemId: args.id, roleKey, userId, source: "manual" });

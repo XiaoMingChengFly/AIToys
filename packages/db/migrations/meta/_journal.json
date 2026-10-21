@@ -78,6 +78,13 @@
       "when": 1792586377267,
       "tag": "0010_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792587899601,
+      "tag": "0011_field_index",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import type { Condition } from "@fp/engine";
+import type { CompareOp, Condition } from "@fp/engine";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 
@@ -7,16 +7,36 @@ export interface ConditionField {
   key: string;
   name: string;
   options: readonly { value: string; label: string }[] | null;
+  dataType?: string;
 }
 
-type Simple = Extract<Condition, { kind: "equal" | "notEmpty" }>;
+type Simple = Extract<Condition, { kind: "equal" | "notEmpty" | "compare" }>;
+const isSimple = (c: Condition): c is Simple => c.kind === "equal" || c.kind === "notEmpty" || c.kind === "compare";
+
+/** 判断方式：下拉里的值 → 条件。比较类只对数字、日期字段出现。 */
+const COMPARE_LABEL: Record<CompareOp, string> = { gt: "大于", gte: "大于等于", lt: "小于", lte: "小于等于" };
+const ordered = (field: ConditionField | undefined) => field?.dataType === "number" || field?.dataType === "date";
+const choices = (field: ConditionField | undefined): ConditionField["options"] =>
+  field?.dataType === "bool"
+    ? [
+        { value: "true", label: "是" },
+        { value: "false", label: "否" },
+      ]
+    : (field?.options ?? null);
+
+/** 新条件或换了字段时的默认值。 */
+function initial(field: ConditionField | undefined, key: string): Simple {
+  const first = choices(field)?.[0]?.value;
+  if (first !== undefined)
+    return { kind: "equal", field: key, value: field?.dataType === "bool" ? first === "true" : first };
+  return { kind: "notEmpty", field: key };
+}
 
 /** 把条件拆成“全部满足/任一满足 + 一组简单条件”；嵌套的复杂条件返回 null，界面上只读。 */
 function flatten(condition: Condition | undefined): { mode: "all" | "any"; items: Simple[] } | null {
   if (!condition) return { mode: "all", items: [] };
-  if (condition.kind === "equal" || condition.kind === "notEmpty") return { mode: "all", items: [condition] };
-  if (condition.items.every((c) => c.kind === "equal" || c.kind === "notEmpty"))
-    return { mode: condition.kind, items: condition.items as Simple[] };
+  if (isSimple(condition)) return { mode: "all", items: [condition] };
+  if (condition.items.every(isSimple)) return { mode: condition.kind, items: condition.items as Simple[] };
   return null;
 }
 
@@ -71,7 +91,18 @@ export function ConditionEditor({
         return (
           // biome-ignore lint/suspicious/noArrayIndexKey: 条件没有自己的 id，按位置编辑
           <div key={i} className="flex flex-wrap items-center gap-1.5">
-            <Select aria-label="字段" value={item.field} onChange={(e) => update({ ...item, field: e.target.value })}>
+            <Select
+              aria-label="字段"
+              value={item.field}
+              onChange={(e) =>
+                update(
+                  initial(
+                    fields.find((f) => f.key === e.target.value),
+                    e.target.value,
+                  ),
+                )
+              }
+            >
               {!field && <option value={item.field}>{item.field}（不存在）</option>}
               {fields.map((f) => (
                 <option key={f.key} value={f.key}>
@@ -81,26 +112,50 @@ export function ConditionEditor({
             </Select>
             <Select
               aria-label="判断"
-              value={item.kind}
-              onChange={(e) =>
-                update(
-                  e.target.value === "notEmpty"
-                    ? { kind: "notEmpty", field: item.field }
-                    : { kind: "equal", field: item.field, value: field?.options?.[0]?.value ?? "" },
-                )
-              }
+              value={item.kind === "compare" ? item.op : item.kind}
+              onChange={(e) => {
+                const op = e.target.value;
+                if (op === "notEmpty") return update({ kind: "notEmpty", field: item.field });
+                const value =
+                  item.kind === "notEmpty" ? (initial(field, item.field) as { value?: unknown }).value : item.value;
+                if (op === "equal")
+                  return update({
+                    kind: "equal",
+                    field: item.field,
+                    value: (value ?? "") as string | number | boolean,
+                  });
+                update({
+                  kind: "compare",
+                  field: item.field,
+                  op: op as CompareOp,
+                  value: field?.dataType === "number" ? Number(value) || 0 : String(value ?? ""),
+                });
+              }}
             >
-              <option value="equal">等于</option>
+              <option value="equal">
+                {field?.dataType === "multiSelect" || field?.dataType === "user" ? "包含" : "等于"}
+              </option>
+              {ordered(field) &&
+                Object.entries(COMPARE_LABEL).map(([op, text]) => (
+                  <option key={op} value={op}>
+                    {text}
+                  </option>
+                ))}
               <option value="notEmpty">不为空</option>
             </Select>
-            {item.kind === "equal" &&
-              (field?.options ? (
+            {item.kind !== "notEmpty" &&
+              (choices(field) ? (
                 <Select
                   aria-label="值"
                   value={String(item.value)}
-                  onChange={(e) => update({ ...item, value: e.target.value })}
+                  onChange={(e) =>
+                    update({
+                      ...item,
+                      value: field?.dataType === "bool" ? e.target.value === "true" : e.target.value,
+                    } as Simple)
+                  }
                 >
-                  {field.options.map((o) => (
+                  {choices(field)?.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>
@@ -109,9 +164,15 @@ export function ConditionEditor({
               ) : (
                 <Input
                   aria-label="值"
-                  className="h-8 w-28"
+                  type={field?.dataType === "number" ? "number" : field?.dataType === "date" ? "date" : "text"}
+                  className="h-8 w-36"
                   value={String(item.value)}
-                  onChange={(e) => update({ ...item, value: e.target.value })}
+                  onChange={(e) =>
+                    update({
+                      ...item,
+                      value: field?.dataType === "number" ? Number(e.target.value) : e.target.value,
+                    } as Simple)
+                  }
                 />
               ))}
             <button
@@ -127,18 +188,7 @@ export function ConditionEditor({
       })}
       {firstField && (
         <div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              set([
-                ...items,
-                firstField.options?.length
-                  ? { kind: "equal", field: firstField.key, value: firstField.options[0]?.value ?? "" }
-                  : { kind: "notEmpty", field: firstField.key },
-              ])
-            }
-          >
+          <Button variant="ghost" size="sm" onClick={() => set([...items, initial(firstField, firstField.key)])}>
             + 添加条件
           </Button>
         </div>

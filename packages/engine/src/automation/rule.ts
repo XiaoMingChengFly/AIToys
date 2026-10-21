@@ -13,7 +13,7 @@ export type AutomationTrigger =
 
 /** 动作：都作用在触发事件所在的工作项上。 */
 export type AutomationAction =
-  | { type: "setField"; field: string; value: string | number | boolean | null }
+  | { type: "setField"; field: string; value: string | number | boolean | string[] | null }
   | { type: "setRole"; role: string; userIds: string[] }
   | { type: "confirmNode"; node: string };
 

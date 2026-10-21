@@ -118,3 +118,18 @@ export async function syncFieldAccess(tx: Transaction, workItemId: string) {
         restricted: restricted.has(value.fieldKey),
       });
 }
+
+/** 这些人必须都是空间成员（角色成员、提及、人员字段等）。 */
+export async function assertSpaceMembers(
+  tx: Transaction,
+  spaceId: string,
+  userIds: string[],
+  message = "角色成员必须是空间成员。",
+) {
+  const wanted = [...new Set(userIds)];
+  if (wanted.length === 0) return;
+  const members = await tx.run(zql.spaceMember.where("spaceId", spaceId).where("userId", "IN", wanted));
+  const found = new Set(members.map((m) => m.userId));
+  const missing = wanted.filter((u) => !found.has(u));
+  if (missing.length > 0) throw new Error(message);
+}

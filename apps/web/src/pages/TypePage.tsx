@@ -1,3 +1,4 @@
+import { FIELD_TYPE_LABEL, type FieldDataType } from "@fp/engine";
 import { mutators, queries } from "@fp/sync";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
@@ -9,13 +10,10 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { ErrorBanner, PageBody, PageHeader } from "@/components/ui/page";
 import { newId } from "@/lib/utils";
 
-const DATA_TYPES = [
-  { value: "select", label: "单选" },
-  { value: "text", label: "文本" },
-  { value: "number", label: "数字" },
-  { value: "date", label: "日期" },
-  { value: "relation", label: "关联" },
-] as const;
+/** 新建字段时可选的类型，常用的在前。 */
+const DATA_TYPES = (["select", "multiSelect", "text", "number", "date", "user", "link", "bool"] as const).map(
+  (value) => ({ value, label: FIELD_TYPE_LABEL[value] }),
+);
 
 /** 工作项类型的配置：流程模板、角色、关联、字段。只有空间管理员能改，成员只读。 */
 export function TypePage() {
@@ -232,7 +230,7 @@ export function TypePage() {
                   key: name,
                   name,
                   dataType,
-                  ...(dataType === "select" && { options }),
+                  ...((dataType === "select" || dataType === "multiSelect") && { options }),
                 });
               })}
             >
@@ -251,7 +249,7 @@ export function TypePage() {
                 </Select>
               </Label>
               <Label className="flex flex-col gap-1.5">
-                选项（单选用，逗号分隔）
+                选项（单选、多选用，逗号分隔）
                 <Input name="options" placeholder="是，否" />
               </Label>
               <Button type="submit" variant="outline">
@@ -333,7 +331,7 @@ function FieldRow({
       <tr className="border-b border-line-subtle">
         <td className="py-1.5 pr-4">{field.name}</td>
         <td className="py-1.5 pr-4 text-fg-muted">
-          {DATA_TYPES.find((d) => d.value === field.dataType)?.label ?? field.dataType}
+          {FIELD_TYPE_LABEL[field.dataType as FieldDataType] ?? field.dataType}
         </td>
         <td className="py-1.5 pr-4 text-fg-muted">{field.options?.map((o) => o.label).join(" / ")}</td>
         <td className="py-1.5 text-xs text-fg-muted">
