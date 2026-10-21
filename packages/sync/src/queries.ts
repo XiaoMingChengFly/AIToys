@@ -66,8 +66,9 @@ export const queries = defineQueries({
       zql.workItemType
         .where("id", args.id)
         .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID)))
-        .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID)))
+        .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID)).related("workItemTypes"))
         .related("roles", (r) => r.orderBy("createdAt", "asc"))
+        .related("relationDefs", (r) => r.related("toType").orderBy("createdAt", "asc"))
         .related("fields", (f) => f.orderBy("sort", "asc"))
         .related("flowTemplates", (t) => t.related("versions", (v) => v.orderBy("version", "desc").limit(1)))
         .one(),
@@ -110,16 +111,20 @@ export const queries = defineQueries({
         .where("id", args.id)
         .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID)))
         .related("flowVersion")
-        .related("type", (t) => t.related("fields", (f) => f.orderBy("sort", "asc")))
+        .related("type", (t) =>
+          t
+            .related("fields", (f) => f.orderBy("sort", "asc"))
+            .related("relationDefs", (r) => r.related("toType").orderBy("createdAt", "asc")),
+        )
         // 自己在空间里的成员身份：前端乐观执行确认、回滚时要判断是不是管理员
         .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID)))
         .related("fieldValues")
         .related("roleMembers", (r) => r.related("user"))
         .related("nodes", (n) => n.related("confirmations"))
         .related("comments", (c) => c.related("author").orderBy("createdAt", "asc"))
-        // 子工作项和上级工作项
-        .related("outgoing", (r) => r.related("to"))
-        .related("incoming", (r) => r.related("from"))
+        // 子工作项、上级工作项和自定义关联（两个方向）
+        .related("outgoing", (r) => r.related("to").related("def"))
+        .related("incoming", (r) => r.related("from").related("def"))
         .one(),
     ),
   },

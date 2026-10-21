@@ -20,6 +20,16 @@ import {
   setRoleArgs,
   setRoleMembers,
 } from "./flow.ts";
+import {
+  addRelation,
+  addRelationArgs,
+  createRelationDef,
+  createRelationDefArgs,
+  deleteRelationDef,
+  deleteRelationDefArgs,
+  removeRelation,
+  removeRelationArgs,
+} from "./relations.ts";
 import { zql } from "./schema.gen.ts";
 import { setCalendarArgs, setSpaceCalendar } from "./spaces.ts";
 import { createSubItem, createSubItemArgs } from "./subitems.ts";
@@ -117,6 +127,18 @@ export const mutators = defineMutators({
   view: {
     create: defineMutator(createViewArgs, ({ tx, args, ctx }) => createView(tx, args, ctx.userID)),
     delete: defineMutator(deleteViewArgs, ({ tx, args, ctx }) => deleteView(tx, args, ctx.userID)),
+  },
+  relationDef: {
+    create: defineMutator(createRelationDefArgs, ({ tx, args, ctx }) => createRelationDef(tx, args, ctx.userID)),
+    delete: defineMutator(deleteRelationDefArgs, ({ tx, args, ctx }) => deleteRelationDef(tx, args, ctx.userID)),
+  },
+  relation: {
+    add: defineMutator(addRelationArgs, async ({ tx, args, ctx }) => {
+      await addRelation(tx, args, ctx.userID);
+    }),
+    remove: defineMutator(removeRelationArgs, async ({ tx, args, ctx }) => {
+      await removeRelation(tx, args, ctx.userID);
+    }),
   },
   workItemType: {
     create: defineMutator(createTypeArgs, ({ tx, args, ctx }) => createType(tx, args, ctx.userID)),

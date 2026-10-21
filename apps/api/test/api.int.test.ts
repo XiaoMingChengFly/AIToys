@@ -934,3 +934,121 @@ describe("sub-items driving a node", () => {
     ).rejects.toThrow("不在进行中");
   });
 });
+
+describe("custom relations between work items", () => {
+  const spaceId = randomUUID();
+  let admin: { cookie: string; userId: string };
+  let member: { cookie: string; userId: string };
+  const run = (name: string, args: unknown, userId = admin.userId) => services.zero.run(name, args, userId);
+  const needType = `${spaceId}/need`;
+  const skuType = `${spaceId}/sku`;
+  const [need, skuA, skuB, otherNeed] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+  const linksOf = (fromId: string) =>
+    services.database.db.select().from(schema.relation).where(eq(schema.relation.fromId, fromId));
+
+  beforeAll(async () => {
+    admin = await signUp(`rel-admin-${spaceId}@example.com`);
+    member = await signUp(`rel-member-${spaceId}@example.com`);
+    await run("space.create", { id: spaceId, name: "关联" });
+    await services.database.db.insert(schema.spaceMember).values({ spaceId, userId: member.userId });
+    for (const [typeId, key, name] of [
+      [needType, "need", "需求"],
+      [skuType, "sku", "SKU"],
+    ] as const) {
+      await run("workItemType.create", { id: typeId, spaceId, key, name });
+      await run("flowTemplate.create", { id: `${typeId}/default`, typeId, key: "default", name: "默认" });
+      await run("flowTemplate.saveDraft", {
+        templateId: `${typeId}/default`,
+        definition: {
+          key,
+          version: 0,
+          nodes: [
+            { key: "start", name: "开始", completion: "auto", ownerRoles: [] },
+            { key: "do", name: "处理", completion: "singleConfirm", ownerRoles: [] },
+          ],
+          edges: [{ from: "start", to: "do" }],
+        },
+      });
+      await run("flowTemplate.publish", { versionId: `${typeId}/default/v1` });
+    }
+    for (const [id, typeId, name] of [
+      [need, needType, "新需求"],
+      [otherNeed, needType, "另一个需求"],
+      [skuA, skuType, "SKU-A"],
+      [skuB, skuType, "SKU-B"],
+    ] as const)
+      await run("workItem.create", { id, typeId, name, fields: {}, roles: {} });
+  });
+
+  it("only lets space admins define relations, between types of the same space", async () => {
+    await expect(
+      run(
+        "relationDef.create",
+        { id: randomUUID(), fromTypeId: needType, toTypeId: skuType, name: "关联 SKU", cardinality: "many" },
+        member.userId,
+      ),
+    ).rejects.toThrow("空间管理员");
+    await run("relationDef.create", {
+      id: `${needType}/rel/skus`,
+      fromTypeId: needType,
+      toTypeId: skuType,
+      name: "关联 SKU",
+      cardinality: "many",
+    });
+    await run("relationDef.create", {
+      id: `${needType}/rel/main`,
+      fromTypeId: needType,
+      toTypeId: skuType,
+      name: "主 SKU",
+      cardinality: "one",
+    });
+    await expect(
+      run("relationDef.create", {
+        id: randomUUID(),
+        fromTypeId: needType,
+        toTypeId: skuType,
+        name: "关联 SKU",
+        cardinality: "many",
+      }),
+    ).rejects.toThrow("已经存在");
+  });
+
+  it("links items of the right types, once each, and replaces a single relation", async () => {
+    const add = (relationDefId: string, toId: string, userId = member.userId) =>
+      run("relation.add", { id: randomUUID(), relationDefId, fromId: need, toId }, userId);
+    await add(`${needType}/rel/skus`, skuA);
+    await add(`${needType}/rel/skus`, skuB);
+    await expect(add(`${needType}/rel/skus`, skuA)).rejects.toThrow("已经关联过");
+    await expect(add(`${needType}/rel/skus`, otherNeed)).rejects.toThrow("对应类型");
+    const outsider = await signUp(`rel-outsider-${randomUUID()}@example.com`);
+    await expect(add(`${needType}/rel/skus`, skuA, outsider.userId)).rejects.toThrow("没有权限");
+
+    await add(`${needType}/rel/main`, skuA);
+    await add(`${needType}/rel/main`, skuB);
+    const links = await linksOf(need);
+    expect(links.map((r) => [r.relationDefId, r.toId]).sort()).toEqual(
+      [
+        [`${needType}/rel/skus`, skuA],
+        [`${needType}/rel/skus`, skuB],
+        [`${needType}/rel/main`, skuB],
+      ].sort(),
+    );
+    const events = await services.database.db
+      .select()
+      .from(schema.eventLog)
+      .where(and(eq(schema.eventLog.workItemId, need), eq(schema.eventLog.kind, "relationAdded")));
+    expect(events.at(-1)?.payload).toEqual({ relationDefId: `${needType}/rel/main`, toId: skuB, replaced: [skuA] });
+  });
+
+  it("removes one relation, and deleting a definition removes its relations", async () => {
+    const main = (await linksOf(need)).find((r) => r.relationDefId === `${needType}/rel/main`);
+    await run("relation.remove", { id: main?.id }, member.userId);
+    expect((await linksOf(need)).filter((r) => r.relationDefId === `${needType}/rel/main`)).toEqual([]);
+
+    await expect(run("relationDef.delete", { id: `${needType}/rel/skus` }, member.userId)).rejects.toThrow(
+      "空间管理员",
+    );
+    await run("relationDef.delete", { id: `${needType}/rel/skus` });
+    expect(await linksOf(need)).toEqual([]);
+  });
+});

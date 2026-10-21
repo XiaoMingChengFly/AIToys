@@ -16,6 +16,7 @@ import { Background, Controls, type Edge, MarkerType, type Node, ReactFlow } fro
 import { useMemo, useState } from "react";
 import { CommentsCard } from "@/components/CommentsCard";
 import { GanttChart } from "@/components/GanttChart";
+import { RelationsCard } from "@/components/RelationsCard";
 import { RolePicker, toggled } from "@/components/RolePicker";
 import { SubItems } from "@/components/SubItems";
 import { Button } from "@/components/ui/button";
@@ -266,6 +267,14 @@ export function WorkItemPage() {
           <FieldsCard
             item={item}
             onSet={(fieldKey, value) => run(mutators.fieldValue.set({ workItemId: item.id, fieldKey, value }))}
+          />
+
+          <RelationsCard
+            workItemId={item.id}
+            spaceId={item.spaceId}
+            defs={item.type?.relationDefs ?? []}
+            outgoing={item.outgoing.map((r) => ({ ...r, item: r.to }))}
+            incoming={item.incoming.map((r) => ({ ...r, item: r.from }))}
           />
 
           <CommentsCard

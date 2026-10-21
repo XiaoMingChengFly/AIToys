@@ -15,7 +15,7 @@ const DATA_TYPES = [
   { value: "relation", label: "关联" },
 ] as const;
 
-/** 工作项类型的配置：角色、字段、流程模板。只有空间管理员能改，成员只读。 */
+/** 工作项类型的配置：流程模板、角色、关联、字段。只有空间管理员能改，成员只读。 */
 export function TypePage() {
   const { typeId } = useParams({ from: "/app/types/$typeId" });
   const zero = useZero();
@@ -124,6 +124,75 @@ export function TypePage() {
             </Label>
             <Button type="submit" variant="outline">
               添加角色
+            </Button>
+          </form>
+        )}
+      </Section>
+
+      <Section title="关联">
+        <ul aria-label="关联列表" className="flex flex-col gap-1.5 text-sm">
+          {type.relationDefs.map((d) => (
+            <li key={d.id} className="flex items-center gap-3">
+              <span className="font-medium">{d.name}</span>
+              <span className="text-slate-500">
+                → {d.toType?.name ?? "?"}（{d.cardinality === "one" ? "单个" : "多个"}）
+              </span>
+              {isAdmin && (
+                <button
+                  type="button"
+                  aria-label={`删除关联 ${d.name}`}
+                  className="text-slate-400 hover:text-red-600"
+                  onClick={async () => {
+                    setError(null);
+                    const outcome = await zero.mutate(mutators.relationDef.delete({ id: d.id })).client;
+                    if (outcome.type === "error") setError(outcome.error.message);
+                  }}
+                >
+                  删除
+                </button>
+              )}
+            </li>
+          ))}
+          {type.relationDefs.length === 0 && <li className="text-slate-500">还没有关联。</li>}
+        </ul>
+        {isAdmin && (
+          <form
+            className="grid items-end gap-2 sm:grid-cols-[1fr_10rem_6rem_auto]"
+            onSubmit={submit((data) => {
+              const name = text(data, "name");
+              if (!name) return null;
+              return mutators.relationDef.create({
+                id: newId(),
+                fromTypeId: typeId,
+                toTypeId: text(data, "toTypeId"),
+                name,
+                cardinality: text(data, "cardinality") === "one" ? "one" : "many",
+              });
+            })}
+          >
+            <Label className="flex flex-col gap-1.5">
+              新关联名称
+              <Input name="name" placeholder="如：关联 SKU" />
+            </Label>
+            <Label className="flex flex-col gap-1.5">
+              关联到
+              <select name="toTypeId" className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm">
+                {type.space?.workItemTypes.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </Label>
+            <Label className="flex flex-col gap-1.5">
+              数量
+              <select name="cardinality" className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm">
+                <option value="many">多个</option>
+                <option value="one">单个</option>
+              </select>
+            </Label>
+            <Button type="submit" variant="outline">
+              添加关联
             </Button>
           </form>
         )}

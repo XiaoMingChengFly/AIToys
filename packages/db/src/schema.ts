@@ -539,6 +539,8 @@ export const workItemTypeRelations = relations(workItemType, ({ one, many }) => 
   roles: many(roleDef),
   flowTemplates: many(flowTemplate),
   workItems: many(workItem),
+  /** 从这个类型出发的自定义关联。 */
+  relationDefs: many(relationDef, { relationName: "fromType" }),
 }));
 
 export const fieldDefRelations = relations(fieldDef, ({ one }) => ({
@@ -550,8 +552,12 @@ export const roleDefRelations = relations(roleDef, ({ one }) => ({
 }));
 
 export const relationDefRelations = relations(relationDef, ({ one }) => ({
-  fromType: one(workItemType, { fields: [relationDef.fromTypeId], references: [workItemType.id] }),
-  toType: one(workItemType, { fields: [relationDef.toTypeId], references: [workItemType.id] }),
+  fromType: one(workItemType, {
+    fields: [relationDef.fromTypeId],
+    references: [workItemType.id],
+    relationName: "fromType",
+  }),
+  toType: one(workItemType, { fields: [relationDef.toTypeId], references: [workItemType.id], relationName: "toType" }),
 }));
 
 export const flowTemplateRelations = relations(flowTemplate, ({ one, many }) => ({
