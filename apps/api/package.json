@@ -7,12 +7,20 @@
     "dev": "node --watch src/server.ts",
     "start": "node src/server.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@fp/db": "workspace:*",
     "@fp/engine": "workspace:*",
+    "@fp/sync": "workspace:*",
     "@hono/node-server": "1.19.5",
-    "hono": "4.9.10"
+    "@rocicorp/zero": "1.10.0",
+    "better-auth": "1.7.7",
+    "drizzle-orm": "0.45.4",
+    "hono": "4.9.10",
+    "postgres": "3.4.9",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@types/node": "24.7.0",

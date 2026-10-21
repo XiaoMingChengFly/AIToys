@@ -13,6 +13,10 @@ x-app: &app
     DATABASE_URL: postgresql://feishu:feishu@postgres:5432/feishu
     TEMPORAL_ADDRESS: temporal:7233
     TEMPORAL_TASK_QUEUE: fp-events
+    # 部署时务必换成随机长字符串：openssl rand -base64 32
+    BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-only-secret-change-me-in-production}
+    BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+    WEB_ORIGINS: ${WEB_ORIGINS:-http://localhost:5173}
 
 services:
   postgres:

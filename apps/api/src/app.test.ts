@@ -1,6 +1,11 @@
 import { oemV289 } from "@fp/engine";
-import { describe, expect, it } from "vitest";
-import { app } from "./app.ts";
+import { afterAll, describe, expect, it } from "vitest";
+import { createApp, createServices } from "./app.ts";
+
+// 这里的接口不碰数据库；连接是懒建立的，所以给一个不存在的地址也没关系
+const services = createServices("postgresql://unused:unused@localhost:1/unused");
+const app = createApp(services);
+afterAll(() => services.database.close());
 
 describe("api", () => {
   it("validates the OEM flow", async () => {

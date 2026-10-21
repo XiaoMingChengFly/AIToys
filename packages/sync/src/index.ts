@@ -1,2 +1,5 @@
-/** Zero 同步层的 schema。表和列由 drizzle-zero 从 @fp/db 的 Drizzle schema 生成，不手写。 */
+/** Zero 同步层：schema（由 drizzle-zero 从 @fp/db 生成）、查询和 mutator。前端和服务端共用。 */
+export * from "./context.ts";
+export * from "./mutators.ts";
+export * from "./queries.ts";
 export * from "./schema.gen.ts";

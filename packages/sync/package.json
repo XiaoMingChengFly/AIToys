@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@fp/db": "workspace:*",
-    "@rocicorp/zero": "1.10.0"
+    "@rocicorp/zero": "1.10.0",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "drizzle-orm": "0.45.4",
