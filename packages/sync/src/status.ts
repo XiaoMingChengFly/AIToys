@@ -1,6 +1,7 @@
 import { isFinal, type StatusEvent, StatusFlow, statusFlowOf } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
+import { requireWriter } from "./access.ts";
 import { zql } from "./schema.gen.ts";
 
 export const transitionArgs = z.object({ workItemId: z.string(), to: z.string() });
@@ -27,13 +28,13 @@ export async function transitionStatus(
   if (item.status === "terminated") throw new Error("工作项已终止。");
   const definition = statusFlowOf(item.flowVersion?.definition);
   if (!definition) throw new Error("这个工作项不是状态流。");
-  const member = await tx.run(zql.spaceMember.where("spaceId", item.spaceId).where("userId", userID).one());
+  const { isAdmin } = await requireWriter(tx, item.spaceId, userID);
 
   const flow = new StatusFlow(definition);
   const events = flow.transition(
     item.flowStatus ?? flow.initial.key,
     args.to,
-    { userId: userID, roles: item.roleMembers.map((m) => m.roleKey), isAdmin: member?.isAdmin === true },
+    { userId: userID, roles: item.roleMembers.map((m) => m.roleKey), isAdmin },
     Object.fromEntries(item.fieldValues.map((f) => [f.fieldKey, f.value])),
   );
   const target = flow.status(args.to);

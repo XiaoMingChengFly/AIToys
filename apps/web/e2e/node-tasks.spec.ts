@@ -16,7 +16,7 @@ test("a node's tasks and completion form gate its confirm", async ({ page }) => 
   await page.getByLabel("新字段名称").fill("版本号");
   await page.locator("select[name=dataType]").selectOption("text");
   await page.getByRole("button", { name: "添加字段" }).click();
-  await expect(page.getByRole("cell", { name: "版本号" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "版本号", exact: true })).toBeVisible();
   await page.getByLabel("新模板名称").fill("默认流程");
   await page.getByRole("button", { name: "新建模板" }).click();
   await page.getByRole("link", { name: "默认流程" }).click();

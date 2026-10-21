@@ -54,7 +54,7 @@ describe("login + Zero mutators", () => {
       .select()
       .from(schema.spaceMember)
       .where(eq(schema.spaceMember.spaceId, spaceId));
-    expect(member).toMatchObject({ userId: owner.userId, isAdmin: true });
+    expect(member).toMatchObject({ userId: owner.userId, role: "admin" });
   });
 
   it("fieldValue.set writes the value and its event in one transaction", async () => {
@@ -1356,5 +1356,139 @@ describe("status-flow work items", () => {
       ["statusChanged", { from: "resolved", to: "fixing", by: admin.userId }],
       ["workItemReopened", {}],
     ]);
+  });
+});
+
+describe("permissions", () => {
+  const spaceId = randomUUID();
+  const typeId = `${spaceId}/req`;
+  const templateId = `${typeId}/default`;
+  let admin: { cookie: string; userId: string };
+  let dev: { cookie: string; userId: string };
+  let other: { cookie: string; userId: string };
+  let guest: { cookie: string; userId: string };
+  let itemId: string;
+  const run = (name: string, args: unknown, userId = admin.userId) => services.zero.run(name, args, userId);
+  const viewers = async () =>
+    (await services.database.db.select().from(schema.fieldViewer).where(eq(schema.fieldViewer.workItemId, itemId)))
+      .map((v) => `${v.fieldKey}:${v.userId}`)
+      .sort();
+  const value = async (fieldKey: string) =>
+    (
+      await services.database.db
+        .select()
+        .from(schema.fieldValue)
+        .where(and(eq(schema.fieldValue.workItemId, itemId), eq(schema.fieldValue.fieldKey, fieldKey)))
+    )[0];
+
+  beforeAll(async () => {
+    admin = await signUp(`pm-admin-${spaceId}@example.com`);
+    dev = await signUp(`pm-dev-${spaceId}@example.com`);
+    other = await signUp(`pm-other-${spaceId}@example.com`);
+    guest = await signUp(`pm-guest-${spaceId}@example.com`);
+    await run("space.create", { id: spaceId, name: "权限" });
+    await services.database.db.insert(schema.spaceMember).values([
+      { spaceId, userId: dev.userId },
+      { spaceId, userId: other.userId },
+      { spaceId, userId: guest.userId, role: "guest" },
+    ]);
+    await run("workItemType.create", { id: typeId, spaceId, key: "req", name: "需求" });
+    await run("roleDef.create", { id: `${typeId}/role/dev`, typeId, key: "dev", name: "开发" });
+    await run("roleDef.create", { id: `${typeId}/role/qa`, typeId, key: "qa", name: "测试" });
+    for (const key of ["报价", "备注"])
+      await run("fieldDef.create", { id: `${typeId}/field/${key}`, typeId, key, name: key, dataType: "text" });
+    await run("flowTemplate.create", { id: templateId, typeId, key: "default", name: "流程" });
+    await run("flowTemplate.saveDraft", {
+      templateId,
+      definition: {
+        key: "default",
+        version: 0,
+        nodes: [
+          { key: "start", name: "开始", completion: "auto", ownerRoles: [] },
+          { key: "dev", name: "开发", completion: "singleConfirm", ownerRoles: ["dev"], operatorRoles: ["qa"] },
+        ],
+        edges: [{ from: "start", to: "dev" }],
+      },
+    });
+    await run("flowTemplate.publish", { versionId: `${templateId}/v1` });
+    itemId = randomUUID();
+    await run("workItem.create", { id: itemId, typeId, name: "导出", roles: { dev: [dev.userId] } });
+  });
+
+  it("only admins change member roles, and the last admin stays", async () => {
+    await expect(
+      run("space.setMemberRole", { spaceId, userId: other.userId, role: "admin" }, dev.userId),
+    ).rejects.toThrow("只有空间管理员可以修改成员角色");
+    await expect(run("space.setMemberRole", { spaceId, userId: admin.userId, role: "member" })).rejects.toThrow(
+      "至少要有一个管理员",
+    );
+    await expect(run("space.removeMember", { spaceId, userId: admin.userId })).rejects.toThrow("至少要有一个管理员");
+  });
+
+  it("guests can read and comment but not change work items", async () => {
+    await expect(
+      run("fieldValue.set", { workItemId: itemId, fieldKey: "备注", value: "x" }, guest.userId),
+    ).rejects.toThrow("访客只能查看和评论");
+    await expect(run("workItem.create", { id: randomUUID(), typeId, name: "访客建的" }, guest.userId)).rejects.toThrow(
+      "访客只能查看和评论",
+    );
+    await expect(run("node.confirm", { workItemId: itemId, nodeKey: "dev" }, guest.userId)).rejects.toThrow(
+      "访客只能查看和评论",
+    );
+    await expect(run("role.set", { workItemId: itemId, roleKey: "qa", userIds: [guest.userId] })).rejects.toThrow(
+      "访客不能担任角色",
+    );
+    await run("comment.create", { id: randomUUID(), workItemId: itemId, body: "看过了", mentions: [] }, guest.userId);
+  });
+
+  it("restricts editing a field to its edit roles", async () => {
+    await run("fieldDef.setAccess", { id: `${typeId}/field/备注`, viewRoles: [], editRoles: ["dev"] });
+    await expect(
+      run("fieldValue.set", { workItemId: itemId, fieldKey: "备注", value: "y" }, other.userId),
+    ).rejects.toThrow("你没有权限修改「备注」");
+    await run("fieldValue.set", { workItemId: itemId, fieldKey: "备注", value: "y" }, dev.userId);
+    await run("fieldValue.set", { workItemId: itemId, fieldKey: "备注", value: "z" }, admin.userId);
+    expect((await value("备注"))?.restricted).toBe(false);
+  });
+
+  it("keeps restricted field values' viewer list in step with roles and field access", async () => {
+    await run("fieldValue.set", { workItemId: itemId, fieldKey: "报价", value: "100" });
+    expect((await value("报价"))?.restricted).toBe(false);
+
+    await run("fieldDef.setAccess", { id: `${typeId}/field/报价`, viewRoles: ["qa"], editRoles: ["dev"] });
+    expect((await value("报价"))?.restricted).toBe(true);
+    expect(await viewers()).toEqual([`报价:${dev.userId}`]);
+
+    await run("role.set", { workItemId: itemId, roleKey: "qa", userIds: [other.userId] });
+    expect(await viewers()).toEqual([`报价:${dev.userId}`, `报价:${other.userId}`].sort());
+
+    await run("fieldDef.setAccess", { id: `${typeId}/field/报价`, viewRoles: [], editRoles: [] });
+    expect((await value("报价"))?.restricted).toBe(false);
+    expect(await viewers()).toEqual([]);
+  });
+
+  it("filters restricted values in the synced query", async () => {
+    const body = JSON.stringify(["transform", [{ id: "q1", name: "workItems.byId", args: [{ id: itemId }] }]]);
+    const res = await app.request("/api/zero/query?schema=zero_0&appID=zero", {
+      method: "POST",
+      body,
+      headers: { cookie: dev.cookie },
+    });
+    const ast = JSON.stringify(((await res.json()) as { queries: { ast: unknown }[] }).queries[0]?.ast);
+    expect(ast).toContain("restricted");
+    expect(ast).toContain("field_viewer");
+  });
+
+  it("lets operator roles roll back and re-plan a node, not just its owners", async () => {
+    // other 现在是“测试”，节点“开发”的可操作角色
+    await run(
+      "node.setPlan",
+      { workItemId: itemId, nodeKey: "dev", start: "2026-11-02", end: "2026-11-03" },
+      other.userId,
+    );
+    await run("role.set", { workItemId: itemId, roleKey: "qa", userIds: [] });
+    await expect(run("node.setPlan", { workItemId: itemId, nodeKey: "dev" }, other.userId)).rejects.toThrow(
+      "只有节点负责人、可操作角色或空间管理员可以调整排期",
+    );
   });
 });

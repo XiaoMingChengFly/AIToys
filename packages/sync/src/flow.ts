@@ -13,9 +13,10 @@ import {
 } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
+import { requireWriter, syncFieldAccess } from "./access.ts";
 import { type NodePlan, planNodes } from "./planning.ts";
 import { zql } from "./schema.gen.ts";
-import { assertSpaceMembers, nodeInstanceId } from "./work-items.ts";
+import { assertRoleMembers, nodeInstanceId } from "./work-items.ts";
 
 export const nodeActionArgs = z.object({ workItemId: z.string(), nodeKey: z.string() });
 export type NodeActionArgs = z.output<typeof nodeActionArgs>;
@@ -50,6 +51,8 @@ interface LoadedFlow {
   fields: Record<string, unknown>;
   /** 空间管理员按引擎里的“超管”处理：可以确认任何节点、手动完成自动节点。 */
   isAdmin: boolean;
+  /** 当前用户在这个工作项上担任的角色。 */
+  roles: string[];
   terminated: boolean;
 }
 
@@ -63,15 +66,16 @@ async function loadFlow(tx: Transaction, workItemId: string, userID: string): Pr
       .related("flowVersion")
       .related("fieldValues")
       .related("nodes", (n) => n.related("confirmations"))
+      .related("roleMembers", (r) => r.where("userId", userID))
       .one(),
   );
   if (!item) throw new Error("工作项不存在或没有权限。");
+  const { isAdmin } = await requireWriter(tx, item.spaceId, userID);
   const definition = nodeFlowOf(item.flowVersion?.definition);
   if (!definition) return null;
   const timeZone = item.space?.timezone ?? "Asia/Shanghai";
   const toDay = (ms: number | null | undefined) => (ms == null ? null : dayFromDate(ms));
 
-  const member = await tx.run(zql.spaceMember.where("spaceId", item.spaceId).where("userId", userID).one());
   const state: WorkItemState = {
     status: item.status === "completed" ? "completed" : "inProgress",
     stage: item.stage ?? null,
@@ -106,7 +110,8 @@ async function loadFlow(tx: Transaction, workItemId: string, userID: string): Pr
     engine: new FlowEngine(definition),
     state,
     fields: Object.fromEntries(item.fieldValues.map((f) => [f.fieldKey, f.value])),
-    isAdmin: member?.isAdmin === true,
+    isAdmin,
+    roles: item.roleMembers.map((m) => m.roleKey),
     terminated: item.status === "terminated",
   };
 }
@@ -213,6 +218,7 @@ export async function confirmNode(
     flow.fields[fieldKey] = value;
     fieldChanges.push({ fieldKey, from, to: value });
   }
+  if (fieldChanges.length > 0) await syncFieldAccess(tx, args.workItemId);
   const events = fieldChanges.length > 0 ? flow.engine.onFieldsChanged(flow.state, flow.fields) : [];
 
   const openTasks = await tx.run(
@@ -226,11 +232,24 @@ export async function confirmNode(
   return { spaceId: flow.spaceId, events, fieldChanges };
 }
 
-/** 回滚到某个已到达的节点：它之后已开始或完成的节点打回未开始。节点负责人或空间管理员可以操作。 */
+/**
+ * 节点的回滚、改排期：节点负责人、担任节点“可操作角色”的人和空间管理员可以做。
+ */
+export function canOperateNode(
+  flow: Pick<LoadedFlow, "isAdmin" | "roles" | "engine" | "state">,
+  nodeKey: string,
+  userID: string,
+) {
+  if (flow.isAdmin) return true;
+  if (flow.state.nodes[nodeKey]?.owners.includes(userID)) return true;
+  const operators = flow.engine.graph.node(nodeKey).operatorRoles ?? [];
+  return operators.some((r) => flow.roles.includes(r));
+}
+
+/** 回滚到某个已到达的节点：它之后已开始或完成的节点打回未开始。 */
 export async function rollbackNode(tx: Transaction, args: NodeActionArgs, userID: string): Promise<FlowChange> {
   const flow = await loadForAction(tx, args.workItemId, userID);
-  const owners = flow.state.nodes[args.nodeKey]?.owners ?? [];
-  if (!flow.isAdmin && !owners.includes(userID)) throw new Error("只有节点负责人或空间管理员可以回滚。");
+  if (!canOperateNode(flow, args.nodeKey, userID)) throw new Error("只有节点负责人、可操作角色或空间管理员可以回滚。");
   const before = structuredClone(flow.state);
   const events = flow.engine.rollback(flow.state, args.nodeKey, { userId: userID }, flow.fields);
   await saveFlow(tx, flow, before);
@@ -264,8 +283,9 @@ export async function setRoleMembers(
       .one(),
   );
   if (!item) throw new Error("工作项不存在或没有权限。");
+  await requireWriter(tx, item.spaceId, userID);
   const to = [...new Set(args.userIds)];
-  await assertSpaceMembers(tx, item.spaceId, to);
+  await assertRoleMembers(tx, item.spaceId, to);
 
   const from = item.roleMembers.filter((m) => m.roleKey === args.roleKey).map((m) => m.userId);
   for (const userId of from)
@@ -299,19 +319,21 @@ export async function setRoleMembers(
     }
     await saveFlow(tx, flow, before);
   }
+  await syncFieldAccess(tx, args.workItemId);
   return { spaceId: item.spaceId, from, to };
 }
 
 /**
  * 手动调整节点的计划日期。调整过的节点之后自动排期不再改它，后续节点从它的结束日期往后排；
- * 不传日期表示取消手动调整。节点负责人或空间管理员可以操作。
+ * 不传日期表示取消手动调整。
  */
 export async function setNodePlan(tx: Transaction, args: SetPlanArgs, userID: string): Promise<{ spaceId: string }> {
   const flow = await loadForAction(tx, args.workItemId, userID);
   const runtime = flow.state.nodes[args.nodeKey];
   const plan = flow.plans[args.nodeKey];
   if (!runtime || !plan) throw new Error("节点不存在。");
-  if (!flow.isAdmin && !runtime.owners.includes(userID)) throw new Error("只有节点负责人或空间管理员可以调整排期。");
+  if (!canOperateNode(flow, args.nodeKey, userID))
+    throw new Error("只有节点负责人、可操作角色或空间管理员可以调整排期。");
   if (runtime.state === "skipped") throw new Error("跳过的节点没有排期。");
 
   if (args.start && args.end) {

@@ -108,7 +108,7 @@ function Editor({ template, type }: { template: Template; type: TypeConfig }) {
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState<{ kind: "error" | "info"; text: string } | null>(null);
 
-  const isAdmin = type.space?.members.some((m) => m.isAdmin) ?? false;
+  const isAdmin = type.space?.members.some((m) => m.role === "admin") ?? false;
   const definition = toDefinition(base, nodes, edges);
   const validation = validateFlow(definition);
   const errors = [
@@ -417,6 +417,29 @@ function NodePanel({
                 </Label>
               ))}
               {type.roles.length === 0 && <span className="text-sm text-fg-muted">类型里还没有角色。</span>}
+            </div>
+          </fieldset>
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="text-sm font-medium text-fg">可操作角色</legend>
+            <p className="text-xs text-fg-subtle">除负责人和空间管理员外，还能回滚到这个节点、调整它排期的角色。</p>
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              {type.roles.map((r) => {
+                const operators = data.operatorRoles ?? [];
+                return (
+                  <Label key={r.key} className="flex items-center gap-1.5 font-normal">
+                    <input
+                      type="checkbox"
+                      aria-label={`可操作：${r.name}`}
+                      checked={operators.includes(r.key)}
+                      onChange={(e) => {
+                        const next = e.target.checked ? [...operators, r.key] : operators.filter((k) => k !== r.key);
+                        onChange({ operatorRoles: next.length > 0 ? next : undefined });
+                      }}
+                    />
+                    {r.name}
+                  </Label>
+                );
+              })}
             </div>
           </fieldset>
           <Label className="flex flex-col gap-1.5">

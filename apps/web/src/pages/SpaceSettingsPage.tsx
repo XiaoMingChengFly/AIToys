@@ -1,4 +1,4 @@
-import { mutators, queries } from "@fp/sync";
+import { mutators, queries, SPACE_ROLE_LABEL, type SpaceRole, spaceRoles } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
@@ -30,7 +30,7 @@ export function SpaceSettingsPage() {
     return (
       <p className="p-6 text-sm text-fg-subtle">{result.type === "complete" ? "空间不存在或没有权限。" : "加载中…"}</p>
     );
-  const isAdmin = space.members.some((m) => m.userId === zero.userID && m.isAdmin);
+  const isAdmin = space.members.some((m) => m.userId === zero.userID && m.role === "admin");
 
   return (
     <>
@@ -45,19 +45,29 @@ export function SpaceSettingsPage() {
 }
 
 function MembersCard({ space, canManage }: { space: Space; canManage: boolean }) {
+  const zero = useZero();
   const [error, setError] = useState<string | null>(null);
+
+  async function run(request: Parameters<typeof zero.mutate>[0]) {
+    setError(null);
+    const { client, server } = zero.mutate(request);
+    for (const outcome of [await client, await server])
+      if (outcome.type === "error") return setError(outcome.error.message);
+  }
 
   async function add(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
-    const email = String(new FormData(form).get("email") ?? "").trim();
+    const data = new FormData(form);
+    const email = String(data.get("email") ?? "").trim();
+    const role = String(data.get("role") ?? "member");
     if (!email) return;
     setError(null);
     const res = await fetch(`${env.apiUrl}/api/spaces/${space.id}/members`, {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, role }),
     });
     if (!res.ok) return setError(((await res.json()) as { error: string }).error);
     form.reset();
@@ -67,7 +77,7 @@ function MembersCard({ space, canManage }: { space: Space; canManage: boolean })
     <Card>
       <CardHeader>
         <CardTitle>成员</CardTitle>
-        <CardDescription>空间成员可以查看和处理这里的工作项，管理员可以修改配置。</CardDescription>
+        <CardDescription>管理员可以修改配置和管理成员；成员可以新建、处理工作项；访客只能查看和评论。</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <ul aria-label="成员列表" className="flex flex-col divide-y divide-line-subtle">
@@ -80,9 +90,40 @@ function MembersCard({ space, canManage }: { space: Space; canManage: boolean })
                   <span>{name}</span>
                   {m.user?.email && <span className="text-xs text-fg-subtle">{m.user.email}</span>}
                 </span>
-                {m.isAdmin && (
-                  <Tag tone="brand" className="ml-auto">
-                    管理员
+                {canManage ? (
+                  <span className="ml-auto flex items-center gap-2">
+                    <Select
+                      aria-label={`${name}的空间角色`}
+                      value={m.role ?? "member"}
+                      onChange={(e) =>
+                        run(
+                          mutators.space.setMemberRole({
+                            spaceId: space.id,
+                            userId: m.userId,
+                            role: e.target.value as SpaceRole,
+                          }),
+                        )
+                      }
+                      className="w-24"
+                    >
+                      {spaceRoles.map((r) => (
+                        <option key={r} value={r}>
+                          {SPACE_ROLE_LABEL[r]}
+                        </option>
+                      ))}
+                    </Select>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`移除${name}`}
+                      onClick={() => run(mutators.space.removeMember({ spaceId: space.id, userId: m.userId }))}
+                    >
+                      移除
+                    </Button>
+                  </span>
+                ) : (
+                  <Tag tone={m.role === "admin" ? "brand" : "neutral"} className="ml-auto">
+                    {SPACE_ROLE_LABEL[m.role ?? "member"]}
                   </Tag>
                 )}
               </li>
@@ -98,6 +139,13 @@ function MembersCard({ space, canManage }: { space: Space; canManage: boolean })
               placeholder="按邮箱添加成员（对方注册时用的邮箱）"
               className="flex-1"
             />
+            <Select name="role" aria-label="新成员的空间角色" defaultValue="member" className="w-24">
+              {spaceRoles.map((r) => (
+                <option key={r} value={r}>
+                  {SPACE_ROLE_LABEL[r]}
+                </option>
+              ))}
+            </Select>
             <Button type="submit" variant="outline">
               添加
             </Button>

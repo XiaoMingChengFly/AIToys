@@ -1,6 +1,7 @@
 import { dayFromIso, dayToTimestamp, nodeFlowOf } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
+import { requireWriter } from "./access.ts";
 import { isoDate } from "./flow.ts";
 import { zql } from "./schema.gen.ts";
 import { assertSpaceMembers, nodeInstanceId } from "./work-items.ts";
@@ -38,6 +39,7 @@ async function editableNode(tx: Transaction, workItemId: string, nodeKey: string
       .one(),
   );
   if (!item) throw new Error("工作项不存在或没有权限。");
+  await requireWriter(tx, item.spaceId, userID);
   if (item.status === "terminated") throw new Error("工作项已终止。");
   const node = nodeFlowOf(item.flowVersion?.definition)?.nodes.find((n) => n.key === nodeKey);
   if (!node) throw new Error("节点不存在。");

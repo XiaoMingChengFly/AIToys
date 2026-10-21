@@ -75,7 +75,8 @@ export function SpacePage() {
         {spaceResult.type === "complete" ? "空间不存在或没有权限。" : "加载中…"}
       </p>
     );
-  const isAdmin = space.members.some((m) => m.userId === zero.userID && m.isAdmin);
+  const myRole = space.members.find((m) => m.userId === zero.userID)?.role;
+  const isAdmin = myRole === "admin";
   const members: PickerMember[] = space.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId }));
   const current = typeId ? space.workItemTypes.find((t) => t.id === typeId) : undefined;
   const ready = space.workItemTypes.filter((t) => t.flowTemplates.some((f) => f.currentVersionId));
@@ -86,10 +87,11 @@ export function SpacePage() {
         title={current?.name ?? "全部工作项"}
         breadcrumb={space.name}
         actions={
-          ready.length > 0 && (
+          ready.length > 0 &&
+          myRole !== "guest" && (
             <CreateWorkItem
               types={current ? ready.filter((t) => t.id === current.id) : ready}
-              members={members}
+              members={members.filter((m) => space.members.find((x) => x.userId === m.userId)?.role !== "guest")}
               label={current ? `新建${current.name}` : "新建工作项"}
             />
           )

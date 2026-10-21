@@ -29,7 +29,7 @@ export function TypePage() {
     return (
       <p className="p-6 text-sm text-fg-muted">{result.type === "complete" ? "类型不存在或没有权限。" : "加载中…"}</p>
     );
-  const isAdmin = type.space?.members.some((m) => m.isAdmin) ?? false;
+  const isAdmin = type.space?.members.some((m) => m.role === "admin") ?? false;
 
   /** 提交表单：先在浏览器里乐观执行，出错时显示原因；成功后清空表单。 */
   function submit(build: (data: FormData) => Parameters<typeof zero.mutate>[0] | null) {
@@ -199,13 +199,18 @@ export function TypePage() {
           <table className="w-full text-sm">
             <tbody>
               {type.fields.map((f) => (
-                <tr key={f.id} className="border-b border-line-subtle">
-                  <td className="py-1.5 pr-4">{f.name}</td>
-                  <td className="py-1.5 pr-4 text-fg-muted">
-                    {DATA_TYPES.find((d) => d.value === f.dataType)?.label ?? f.dataType}
-                  </td>
-                  <td className="py-1.5 text-fg-muted">{f.options?.map((o) => o.label).join(" / ")}</td>
-                </tr>
+                <FieldRow
+                  key={f.id}
+                  field={f}
+                  roles={type.roles}
+                  canManage={isAdmin}
+                  onAccess={async (viewRoles, editRoles) => {
+                    setError(null);
+                    const outcome = await zero.mutate(mutators.fieldDef.setAccess({ id: f.id, viewRoles, editRoles }))
+                      .client;
+                    if (outcome.type === "error") setError(outcome.error.message);
+                  }}
+                />
               ))}
             </tbody>
           </table>
@@ -268,5 +273,98 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-3">{children}</CardContent>
     </Card>
+  );
+}
+
+type FieldDef = {
+  id: string;
+  name: string;
+  dataType: string;
+  options: readonly { label: string }[] | null;
+  viewRoles: readonly string[] | null;
+  editRoles: readonly string[] | null;
+};
+
+/** 字段一行：名称、类型、选项、权限。管理员展开后按角色设置谁能看、谁能改。 */
+function FieldRow({
+  field,
+  roles,
+  canManage,
+  onAccess,
+}: {
+  field: FieldDef;
+  roles: readonly { key: string; name: string }[];
+  canManage: boolean;
+  onAccess: (viewRoles: string[], editRoles: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const view = [...(field.viewRoles ?? [])];
+  const edit = [...(field.editRoles ?? [])];
+  const names = (keys: string[]) => keys.map((k) => roles.find((r) => r.key === k)?.name ?? k).join("、");
+  const summary = `${view.length ? `可见：${names(view)}` : "所有人可见"} · ${edit.length ? `可改：${names(edit)}` : "所有人可改"}`;
+  const toggle = (list: string[], key: string) => (list.includes(key) ? list.filter((k) => k !== key) : [...list, key]);
+  const chips = (label: string, list: string[], onChange: (next: string[]) => void) => (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="w-16 text-fg-muted">{label}</span>
+      {roles.map((r) => {
+        const on = list.includes(r.key);
+        return (
+          <button
+            key={r.key}
+            type="button"
+            aria-pressed={on}
+            aria-label={`${field.name}${label}：${r.name}`}
+            className={
+              on
+                ? "h-6 rounded-full border border-brand-500 bg-brand-50 px-2.5 text-xs text-brand-500"
+                : "h-6 rounded-full border border-line px-2.5 text-xs text-fg-muted hover:bg-hover"
+            }
+            onClick={() => onChange(toggle(list, r.key))}
+          >
+            {r.name}
+          </button>
+        );
+      })}
+      {list.length === 0 && <span className="text-xs text-fg-subtle">（不限制）</span>}
+    </div>
+  );
+  return (
+    <>
+      <tr className="border-b border-line-subtle">
+        <td className="py-1.5 pr-4">{field.name}</td>
+        <td className="py-1.5 pr-4 text-fg-muted">
+          {DATA_TYPES.find((d) => d.value === field.dataType)?.label ?? field.dataType}
+        </td>
+        <td className="py-1.5 pr-4 text-fg-muted">{field.options?.map((o) => o.label).join(" / ")}</td>
+        <td className="py-1.5 text-xs text-fg-muted">
+          {summary}
+          {canManage && (
+            <Button
+              variant="link"
+              size="sm"
+              className="ml-2"
+              aria-expanded={open}
+              aria-label={`设置${field.name}的权限`}
+              onClick={() => setOpen(!open)}
+            >
+              {open ? "收起" : "权限"}
+            </Button>
+          )}
+        </td>
+      </tr>
+      {open && (
+        <tr className="border-b border-line-subtle bg-canvas">
+          <td colSpan={4} className="px-3 py-2">
+            <div className="flex flex-col gap-2">
+              {chips("可见角色", view, (next) => onAccess(next, edit))}
+              {chips("可改角色", edit, (next) => onAccess(view, next))}
+              <p className="text-xs text-fg-subtle">
+                不选表示不限制。配了可见角色后，只有担任这些角色（或可改角色）的人和空间管理员能看到这个字段的值。
+              </p>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

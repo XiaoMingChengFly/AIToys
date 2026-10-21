@@ -79,7 +79,7 @@ export function AutomationsPage() {
         {spaceResult.type === "complete" ? "空间不存在或没有权限。" : "加载中…"}
       </p>
     );
-  const isAdmin = space.members.some((m) => m.userId === zero.userID && m.isAdmin);
+  const isAdmin = space.members.some((m) => m.userId === zero.userID && m.role === "admin");
   const types = [...space.workItemTypes];
   const members = new Map(space.members.map((m) => [m.userId, m.user?.name ?? m.userId]));
 

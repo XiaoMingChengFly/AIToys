@@ -1,4 +1,5 @@
 /** Zero 同步层：schema（由 drizzle-zero 从 @fp/db 生成）、查询和 mutator。前端和服务端共用。 */
+export * from "./access.ts";
 export * from "./automations.ts";
 export * from "./comments.ts";
 export * from "./context.ts";

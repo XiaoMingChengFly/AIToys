@@ -1,6 +1,7 @@
 import { nodeFlowOf } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
+import { requireWriter } from "./access.ts";
 import { zql } from "./schema.gen.ts";
 import { createWorkItem, nodeInstanceId } from "./work-items.ts";
 
@@ -25,6 +26,7 @@ export async function createSubItem(tx: Transaction, args: z.output<typeof creat
       .one(),
   );
   if (!parent) throw new Error("工作项不存在或没有权限。");
+  await requireWriter(tx, parent.spaceId, userID);
   const definition = nodeFlowOf(parent.flowVersion?.definition);
   const node = definition?.nodes.find((n) => n.key === args.nodeKey);
   if (node?.completion !== "subItemDriven") throw new Error("这个节点不是由子工作项驱动的。");

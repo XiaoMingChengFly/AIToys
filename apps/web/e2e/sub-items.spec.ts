@@ -28,7 +28,7 @@ test("a sub-item-driven node completes once its sub-items are done", async ({ pa
   await page.locator(".react-flow__node", { hasText: "开始" }).click();
   await page.getByRole("button", { name: "添加节点" }).click();
   await panel.getByLabel("节点名称").fill("处理");
-  await panel.getByLabel("处理人").check();
+  await panel.getByLabel("处理人", { exact: true }).check();
   await page.getByRole("button", { name: "发布" }).click();
   await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
   await openItems(page);
