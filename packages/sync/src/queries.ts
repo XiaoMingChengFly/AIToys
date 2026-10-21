@@ -116,7 +116,14 @@ export const queries = defineQueries({
         .related("fieldValues")
         .related("roleMembers", (r) => r.related("user"))
         .related("nodes", (n) => n.related("confirmations"))
+        .related("comments", (c) => c.related("author").orderBy("createdAt", "asc"))
         .one(),
+    ),
+  },
+  notifications: {
+    /** 自己最近的通知。 */
+    mine: defineQuery(({ ctx }) =>
+      zql.notification.where("userId", ctx.userID).related("workItem").orderBy("createdAt", "desc").limit(50),
     ),
   },
 });

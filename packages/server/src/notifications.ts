@@ -1,0 +1,73 @@
+import { type Database, schema } from "@fp/db";
+import type { FlowDefinition } from "@fp/engine";
+import { and, eq, inArray } from "drizzle-orm";
+
+interface NewNotification {
+  userId: string;
+  kind: "mentioned" | "nodeAssigned";
+  text: string;
+}
+
+/**
+ * 按一条事件生成站内通知：评论里被提及、节点开始时轮到的负责人。
+ * 通知 id 由事件和收件人决定，重试时插入同一行，不会重复。操作者自己不收通知。
+ */
+export async function notify(database: Database, eventId: number): Promise<number> {
+  const { db } = database;
+  const event = await db.query.eventLog.findFirst({ where: eq(schema.eventLog.id, eventId) });
+  if (!event?.workItemId) return 0;
+  const item = await db.query.workItem.findFirst({ where: eq(schema.workItem.id, event.workItemId) });
+  if (!item) return 0;
+  const payload = event.payload as Record<string, unknown>;
+
+  const notifications: NewNotification[] = [];
+  if (event.kind === "commentAdded") {
+    const mentions = (payload.mentions as string[] | undefined) ?? [];
+    const author = event.actor ? await db.query.user.findFirst({ where: eq(schema.user.id, event.actor) }) : null;
+    for (const userId of mentions)
+      notifications.push({
+        userId,
+        kind: "mentioned",
+        text: `${author?.name ?? "有人"} 在「${item.name}」的评论里提到了你`,
+      });
+  } else if (event.kind === "nodeStarted" && typeof payload.node === "string") {
+    const node = await db.query.nodeInstance.findFirst({
+      where: eq(schema.nodeInstance.id, `${item.id}/${payload.node}`),
+    });
+    const version = item.flowVersionId
+      ? await db.query.flowVersion.findFirst({ where: eq(schema.flowVersion.id, item.flowVersionId) })
+      : null;
+    const definition = version?.definition as FlowDefinition | undefined;
+    const name = definition?.nodes.find((n) => n.key === payload.node)?.name ?? payload.node;
+    for (const userId of node?.owners ?? [])
+      notifications.push({ userId, kind: "nodeAssigned", text: `「${item.name}」的节点「${name}」轮到你了` });
+  }
+
+  const recipients = notifications.filter((n) => n.userId !== event.actor);
+  if (recipients.length === 0) return 0;
+  // 只通知仍在空间里的人
+  const members = await db.query.spaceMember.findMany({
+    where: and(
+      eq(schema.spaceMember.spaceId, item.spaceId),
+      inArray(
+        schema.spaceMember.userId,
+        recipients.map((n) => n.userId),
+      ),
+    ),
+  });
+  const inSpace = new Set(members.map((m) => m.userId));
+  const rows = recipients
+    .filter((n) => inSpace.has(n.userId))
+    .map((n) => ({
+      id: `${eventId}:${n.userId}`,
+      userId: n.userId,
+      spaceId: item.spaceId,
+      workItemId: item.id,
+      kind: n.kind,
+      text: n.text,
+      eventId,
+    }));
+  if (rows.length === 0) return 0;
+  await db.insert(schema.notification).values(rows).onConflictDoNothing();
+  return rows.length;
+}

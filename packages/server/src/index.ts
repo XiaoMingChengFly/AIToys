@@ -7,6 +7,7 @@ import { serverMutators } from "./mutators.ts";
 
 export { matchRules, runRule } from "./automation.ts";
 export { drizzleTx, serverMutators } from "./mutators.ts";
+export { notify } from "./notifications.ts";
 
 /** 服务端执行 mutator：API 处理浏览器的写请求，worker 执行自动化动作，都走这里。 */
 export function createMutatorRunner(database: Database) {

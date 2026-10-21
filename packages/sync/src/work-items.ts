@@ -25,13 +25,18 @@ export const createWorkItemArgs = z.object({
 export type CreateWorkItemArgs = z.output<typeof createWorkItemArgs>;
 
 /** 角色成员必须是空间成员。 */
-export async function assertSpaceMembers(tx: Transaction, spaceId: string, userIds: string[]) {
+export async function assertSpaceMembers(
+  tx: Transaction,
+  spaceId: string,
+  userIds: string[],
+  message = "角色成员必须是空间成员。",
+) {
   const wanted = [...new Set(userIds)];
   if (wanted.length === 0) return;
   const members = await tx.run(zql.spaceMember.where("spaceId", spaceId).where("userId", "IN", wanted));
   const found = new Set(members.map((m) => m.userId));
   const missing = wanted.filter((u) => !found.has(u));
-  if (missing.length > 0) throw new Error("角色成员必须是空间成员。");
+  if (missing.length > 0) throw new Error(message);
 }
 
 /** 节点实例的 id 由工作项和节点键决定，浏览器乐观执行和服务端执行写出的是同一行。 */

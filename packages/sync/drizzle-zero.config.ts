@@ -21,6 +21,8 @@ export default drizzleZeroConfig(schema, {
     flowVersion: true,
     automationRule: true,
     savedView: true,
+    comment: true,
+    notification: true,
     workItem: true,
     fieldValue: true,
     roleMember: true,

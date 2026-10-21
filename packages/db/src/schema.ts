@@ -394,6 +394,49 @@ export const nodeConfirmation = pgTable(
   (t) => [primaryKey({ columns: [t.nodeInstanceId, t.userId] })],
 );
 
+/** 工作项下的评论。提及的人会收到通知（由事件流里的通知 activity 生成）。 */
+export const comment = pgTable(
+  "comment",
+  {
+    id: text("id").primaryKey(),
+    workItemId: text("work_item_id")
+      .notNull()
+      .references(() => workItem.id, { onDelete: "cascade" }),
+    authorId: text("author_id")
+      .notNull()
+      .references(() => user.id),
+    body: text("body").notNull(),
+    mentions: jsonb("mentions").$type<string[]>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("comment_work_item").on(t.workItemId, t.createdAt)],
+);
+
+/** 站内通知。每条事件给每个人最多一条，重试不会重复。 */
+export const notification = pgTable(
+  "notification",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    spaceId: text("space_id")
+      .notNull()
+      .references(() => space.id, { onDelete: "cascade" }),
+    workItemId: text("work_item_id").references(() => workItem.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"mentioned" | "nodeAssigned">().notNull(),
+    /** 列表里显示的一句话，生成时写好，避免前端再拼。 */
+    text: text("text").notNull(),
+    eventId: bigint("event_id", { mode: "number" }).notNull(),
+    createdAt: createdAt(),
+    readAt: timestamp("read_at", { withTimezone: true, mode: "date" }),
+  },
+  (t) => [
+    uniqueIndex("notification_event_user").on(t.eventId, t.userId),
+    index("notification_user").on(t.userId, t.createdAt),
+  ],
+);
+
 /** 所有状态变化的流水。只追加不修改；审计、动态、自动化、Webhook 都从这里取事件。 */
 export const eventLog = pgTable(
   "event_log",
@@ -548,6 +591,17 @@ export const workItemRelations = relations(workItem, ({ one, many }) => ({
   outgoing: many(relation, { relationName: "from" }),
   incoming: many(relation, { relationName: "to" }),
   events: many(eventLog),
+  comments: many(comment),
+}));
+
+export const commentRelations = relations(comment, ({ one }) => ({
+  workItem: one(workItem, { fields: [comment.workItemId], references: [workItem.id] }),
+  author: one(user, { fields: [comment.authorId], references: [user.id] }),
+}));
+
+export const notificationRelations = relations(notification, ({ one }) => ({
+  user: one(user, { fields: [notification.userId], references: [user.id] }),
+  workItem: one(workItem, { fields: [notification.workItemId], references: [workItem.id] }),
 }));
 
 export const fieldValueRelations = relations(fieldValue, ({ one }) => ({
