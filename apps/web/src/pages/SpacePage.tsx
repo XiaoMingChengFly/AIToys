@@ -3,9 +3,10 @@ import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
-import { GanttChartSquare, List, Plus } from "lucide-react";
+import { Columns3, GanttChartSquare, List, Plus } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
+import { Board } from "@/components/Board";
 import { FilterBar } from "@/components/FilterBar";
 import { type PickerMember, RolePicker, toggled } from "@/components/RolePicker";
 import { SpaceGantt } from "@/components/SpaceGantt";
@@ -142,7 +143,12 @@ function WorkItems({
 }) {
   const [filter, setFilter] = useState<WorkItemFilterArgs>(typeId ? { typeIds: [typeId] } : {});
   const [items, result] = useQuery(queries.workItems.bySpace({ spaceId: space.id, filter }));
-  const [view, setView] = useState<"table" | "gantt">("table");
+  const [view, setView] = useState<"table" | "board" | "gantt">("table");
+  const types = space.workItemTypes.map((t) => ({
+    id: t.id,
+    name: t.name,
+    definitions: t.flowTemplates.flatMap((f) => (f.currentVersion ? [f.currentVersion.definition] : [])),
+  }));
 
   const rows = useMemo<Row[]>(
     () =>
@@ -165,11 +171,7 @@ function WorkItems({
           spaceId={space.id}
           filter={filter}
           onChange={setFilter}
-          types={space.workItemTypes.map((t) => ({
-            id: t.id,
-            name: t.name,
-            definitions: t.flowTemplates.flatMap((f) => (f.currentVersion ? [f.currentVersion.definition] : [])),
-          }))}
+          types={types}
           members={members.map((m) => ({ id: m.userId, name: m.name }))}
           views={space.views.map((v) => ({ ...v, filter: v.filter ?? {} }))}
           isAdmin={isAdmin}
@@ -187,6 +189,13 @@ function WorkItems({
                   </>,
                 ],
                 [
+                  "board",
+                  <>
+                    <Columns3 />
+                    看板
+                  </>,
+                ],
+                [
                   "gantt",
                   <>
                     <GanttChartSquare />
@@ -198,7 +207,9 @@ function WorkItems({
           }
         />
       </div>
-      {view === "gantt" ? (
+      {view === "board" ? (
+        <Board spaceId={space.id} filter={filter} types={types} />
+      ) : view === "gantt" ? (
         <div className="p-4">
           <SpaceGantt
             spaceId={space.id}
