@@ -1,5 +1,5 @@
 import type { Database } from "@fp/db";
-import { createMutatorRunner, matchRules, runRule } from "@fp/server";
+import { createMutatorRunner, matchRules, notify, runRule } from "@fp/server";
 import { Context } from "@temporalio/activity";
 
 export interface ProcessEventResult {
@@ -16,8 +16,9 @@ export function createActivities(database: Database) {
   const runner = createMutatorRunner(database);
 
   return {
-    /** 读一条事件，找出它触发的自动化规则。只读，可以随意重试。 */
+    /** 处理一条事件：生成通知，找出它触发的自动化规则。两步都可以安全重试。 */
     async processEvent(eventId: number): Promise<ProcessEventResult> {
+      await notify(database, eventId);
       return { eventId, matchedRuleIds: await matchRules(database, eventId) };
     },
 

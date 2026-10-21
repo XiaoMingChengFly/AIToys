@@ -3,6 +3,8 @@ import type { FlowEvent } from "@fp/engine";
 import type { ZeroContext } from "@fp/sync";
 import {
   confirmNode,
+  createComment,
+  createCommentArgs,
   createWorkItem,
   createWorkItemArgs,
   mutators,
@@ -50,6 +52,20 @@ function flowEvents(spaceId: string, workItemId: string, events: FlowEvent[]): N
  * 事件经 Outbox 中继交给 Temporal，流程推进和自动化都从那里开始。
  */
 export const serverMutators = defineMutators(mutators, {
+  comment: {
+    create: defineMutator(createCommentArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, mentions } = await createComment(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        {
+          spaceId,
+          workItemId: args.workItemId,
+          kind: "commentAdded",
+          payload: { commentId: args.id, mentions },
+          actor: ctx.userID,
+        },
+      ]);
+    }),
+  },
   space: {
     setCalendar: defineMutator(setCalendarArgs, async ({ tx, args, ctx }) => {
       const { from, to } = await setSpaceCalendar(tx, args, ctx.userID);

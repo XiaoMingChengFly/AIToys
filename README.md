@@ -20,7 +20,7 @@
 
 前端通过 Zero 读写。读：只能用 `packages/sync/src/queries.ts` 里的命名查询，zero-cache 把它转给 `/api/zero/query`，
 服务端按登录用户展开成带权限过滤的查询（只看得到自己所在空间的数据）。写：调用 `packages/sync/src/mutators.ts` 里的 mutator，
-浏览器先乐观执行，zero-cache 再转给 `/api/zero/mutate`，由 `apps/api/src/zero/server-mutators.ts` 权威执行一遍，并在同一个事务里追加事件。
+浏览器先乐观执行，zero-cache 再转给 `/api/zero/mutate`，由 `packages/server/src/mutators.ts` 权威执行一遍，并在同一个事务里追加事件。
 
 ## 事件怎么流转
 

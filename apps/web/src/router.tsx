@@ -1,4 +1,5 @@
 import { createRootRoute, createRoute, createRouter, Link, Navigate, Outlet } from "@tanstack/react-router";
+import { NotificationsBell } from "@/components/NotificationsBell";
 import { Button } from "@/components/ui/button";
 import { FlowDemo } from "@/flow-demo/FlowDemo";
 import { authClient } from "@/lib/auth";
@@ -33,6 +34,7 @@ function AppLayout() {
             飞书项目复刻
           </Link>
           <div className="flex items-center gap-3">
+            <NotificationsBell />
             <span className="text-slate-500">{session.user.name}</span>
             <Button variant="ghost" size="sm" onClick={() => authClient.signOut()}>
               退出

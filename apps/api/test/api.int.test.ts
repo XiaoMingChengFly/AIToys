@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { schema } from "@fp/db";
 import { createTestDatabase } from "@fp/db/testing";
 import { dayInTimeZone, dayToIso, oemV289 } from "@fp/engine";
-import { createMutatorRunner, matchRules, runRule } from "@fp/server";
+import { createMutatorRunner, matchRules, notify, runRule } from "@fp/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp, createServices, type Services } from "../src/app.ts";
@@ -709,5 +709,88 @@ describe("saved views", () => {
     await services.zero.run("view.delete", { id: mine?.id as string }, admin.userId);
     await services.zero.run("view.delete", { id }, admin.userId);
     expect(await viewsOf()).toEqual([]);
+  });
+});
+
+describe("comments and notifications", () => {
+  const spaceId = randomUUID();
+  let admin: { cookie: string; userId: string };
+  let member: { cookie: string; userId: string };
+  let itemId: string;
+  const { F } = oemV289;
+
+  beforeAll(async () => {
+    admin = await signUp(`note-admin-${spaceId}@example.com`);
+    member = await signUp(`note-member-${spaceId}@example.com`);
+    await services.zero.run("space.create", { id: spaceId, name: "通知" }, admin.userId);
+    await services.database.db.insert(schema.spaceMember).values({ spaceId, userId: member.userId });
+    const { typeId } = await importOemTemplate(services.database.db, spaceId);
+    itemId = randomUUID();
+    await services.zero.run(
+      "workItem.create",
+      { id: itemId, typeId, name: "新品 N", fields: { [F.needPhaseOut]: "是" }, roles: { NPD: [member.userId] } },
+      admin.userId,
+    );
+  });
+
+  const eventsOf = () =>
+    services.database.db
+      .select()
+      .from(schema.eventLog)
+      .where(eq(schema.eventLog.workItemId, itemId))
+      .orderBy(schema.eventLog.id);
+  const inbox = (userId: string) =>
+    services.database.db.select().from(schema.notification).where(eq(schema.notification.userId, userId));
+
+  it("tells a node's owners when it starts", async () => {
+    const started = (await eventsOf()).find((e) => e.kind === "nodeStarted" && e.payload.node === "doing");
+    expect(await notify(services.database, started?.id as number)).toBeGreaterThan(0);
+    expect(await inbox(member.userId)).toMatchObject([
+      { kind: "nodeAssigned", workItemId: itemId, text: "「新品 N」的节点「需求立项提案」轮到你了", readAt: null },
+    ]);
+  });
+
+  it("posts a comment, notifies the people it mentions once, and only space members can be mentioned", async () => {
+    const outsider = await signUp(`note-outsider-${randomUUID()}@example.com`);
+    await expect(
+      services.zero.run(
+        "comment.create",
+        { id: randomUUID(), workItemId: itemId, body: "看一下", mentions: [outsider.userId] },
+        admin.userId,
+      ),
+    ).rejects.toThrow("只能提及空间成员");
+    await expect(
+      services.zero.run(
+        "comment.create",
+        { id: randomUUID(), workItemId: itemId, body: "x", mentions: [] },
+        outsider.userId,
+      ),
+    ).rejects.toThrow("没有权限");
+
+    const id = randomUUID();
+    await services.zero.run(
+      "comment.create",
+      { id, workItemId: itemId, body: "@成员 看一下配方", mentions: [member.userId, admin.userId] },
+      admin.userId,
+    );
+    const [saved] = await services.database.db.select().from(schema.comment).where(eq(schema.comment.id, id));
+    expect(saved).toMatchObject({ authorId: admin.userId, mentions: [member.userId] });
+    const event = (await eventsOf()).at(-1);
+    expect(event).toMatchObject({ kind: "commentAdded", payload: { commentId: id, mentions: [member.userId] } });
+
+    await notify(services.database, event?.id as number);
+    await notify(services.database, event?.id as number);
+    const mentioned = (await inbox(member.userId)).filter((n) => n.kind === "mentioned");
+    expect(mentioned).toHaveLength(1);
+    expect(mentioned[0]?.text).toContain("评论里提到了你");
+    expect(await inbox(admin.userId)).toEqual([]);
+  });
+
+  it("marks only your own notifications read", async () => {
+    const ids = (await inbox(member.userId)).map((n) => n.id);
+    await services.zero.run("notification.markRead", { ids }, admin.userId);
+    expect((await inbox(member.userId)).every((n) => n.readAt === null)).toBe(true);
+    await services.zero.run("notification.markRead", { ids }, member.userId);
+    expect((await inbox(member.userId)).every((n) => n.readAt !== null)).toBe(true);
   });
 });

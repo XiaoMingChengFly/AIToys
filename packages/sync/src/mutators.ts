@@ -8,6 +8,7 @@ import {
   updateAutomation,
   updateAutomationArgs,
 } from "./automations.ts";
+import { createComment, createCommentArgs, markNotificationsRead, markReadArgs } from "./comments.ts";
 import {
   confirmNode,
   nodeActionArgs,
@@ -102,6 +103,14 @@ export const mutators = defineMutators({
     create: defineMutator(createAutomationArgs, ({ tx, args, ctx }) => createAutomation(tx, args, ctx.userID)),
     update: defineMutator(updateAutomationArgs, ({ tx, args, ctx }) => updateAutomation(tx, args, ctx.userID)),
     delete: defineMutator(deleteAutomationArgs, ({ tx, args, ctx }) => deleteAutomation(tx, args, ctx.userID)),
+  },
+  comment: {
+    create: defineMutator(createCommentArgs, async ({ tx, args, ctx }) => {
+      await createComment(tx, args, ctx.userID);
+    }),
+  },
+  notification: {
+    markRead: defineMutator(markReadArgs, ({ tx, args, ctx }) => markNotificationsRead(tx, args, ctx.userID)),
   },
   view: {
     create: defineMutator(createViewArgs, ({ tx, args, ctx }) => createView(tx, args, ctx.userID)),

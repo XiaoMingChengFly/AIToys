@@ -14,6 +14,7 @@ import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
 import { Background, Controls, type Edge, MarkerType, type Node, ReactFlow } from "@xyflow/react";
 import { useMemo, useState } from "react";
+import { CommentsCard } from "@/components/CommentsCard";
 import { GanttChart } from "@/components/GanttChart";
 import { RolePicker, toggled } from "@/components/RolePicker";
 import { Button } from "@/components/ui/button";
@@ -223,6 +224,12 @@ export function WorkItemPage() {
           <FieldsCard
             item={item}
             onSet={(fieldKey, value) => run(mutators.fieldValue.set({ workItemId: item.id, fieldKey, value }))}
+          />
+
+          <CommentsCard
+            workItemId={item.id}
+            comments={item.comments}
+            members={space?.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId })) ?? []}
           />
         </aside>
       </div>
