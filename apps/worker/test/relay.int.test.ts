@@ -1,4 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
+import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { appendEvents, connect, type Database, schema } from "@fp/db";
 import { createTestDatabase } from "@fp/db/testing";
 import { Client, Connection } from "@temporalio/client";
@@ -142,5 +144,115 @@ describe("outbox relay → Temporal", () => {
       [a1, 1, "Temporal 不可用"],
       [a2, 0, null],
     ]);
+  });
+});
+
+describe("webhooks", () => {
+  const w3Id = `w3-${run}`;
+  const secret = "s".repeat(40);
+  const received: { headers: IncomingHttpHeaders; body: string }[] = [];
+  let status = 200;
+  let server: Server;
+  let url: string;
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        received.push({ headers: req.headers, body });
+        res.statusCode = status;
+        res.end();
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/hook`;
+    await database.db
+      .insert(schema.workItem)
+      .values({ id: w3Id, spaceId: "s1", typeId: "t1", name: "推送", createdBy: "u1" });
+    await database.db.insert(schema.webhook).values([
+      { id: `h1-${run}`, spaceId: "s1", name: "节点开始", url, secret, events: ["nodeStarted"], createdBy: "u1" },
+      { id: `h2-${run}`, spaceId: "s1", name: "停用的", url, secret, enabled: false, createdBy: "u1" },
+    ]);
+  });
+  afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  it("signs and delivers subscribed events from the stream workflow", async () => {
+    await database.db.update(schema.outbox).set({ dispatchedAt: new Date() });
+    const taskQueue = `test-${randomUUID()}`;
+    const nativeConnection = await NativeConnection.connect({ address: temporalAddress });
+    const worker = await Worker.create({
+      connection: nativeConnection,
+      taskQueue,
+      workflowsPath,
+      activities: createActivities(database, { allowPrivate: true }),
+    });
+    const relay = new OutboxRelay(database, client, { taskQueue, log: () => {} });
+    const started = await append(w3Id, "nodeStarted");
+    await append(w3Id, "fieldChanged");
+    const handle = client.workflow.getHandle(streamWorkflowId(`work_item:${w3Id}`));
+    onTestFinished(() =>
+      handle.terminate("test done").then(
+        () => {},
+        () => {},
+      ),
+    );
+
+    await worker.runUntil(async () => {
+      expect(await relay.dispatchBatch()).toBe(2);
+      await expect.poll(() => received.length, { timeout: 30_000 }).toBe(1);
+      await expect
+        .poll(
+          async () =>
+            (
+              await database.db
+                .select()
+                .from(schema.webhookDelivery)
+                .where(eq(schema.webhookDelivery.id, `h1-${run}:${started}`))
+            )[0]?.status,
+          { timeout: 10_000 },
+        )
+        .toBe("succeeded");
+    });
+    await nativeConnection.close();
+
+    const [request] = received;
+    const body = JSON.parse(request?.body ?? "{}");
+    expect(body).toMatchObject({ id: started, event: "nodeStarted", workItem: { id: w3Id, name: "推送" } });
+    expect(request?.headers["x-fp-event"]).toBe("nodeStarted");
+    expect(request?.headers["x-fp-delivery"]).toBe(`h1-${run}:${started}`);
+    const expected = createHmac("sha256", secret)
+      .update(`${request?.headers["x-fp-timestamp"]}.${request?.body}`)
+      .digest("hex");
+    expect(request?.headers["x-fp-signature"]).toBe(`sha256=${expected}`);
+    // 没订阅的事件和停用的 Webhook 不推送
+    const deliveries = await database.db.select().from(schema.webhookDelivery);
+    expect(deliveries.map((d) => d.id)).toEqual([`h1-${run}:${started}`]);
+  });
+
+  it("records failures, and refuses private addresses unless allowed", async () => {
+    const eventId = await append(w3Id, "nodeStarted");
+    await database.db
+      .insert(schema.webhookDelivery)
+      .values({ id: `h1-${run}:${eventId}`, webhookId: `h1-${run}`, eventId, kind: "nodeStarted" });
+    const activities = createActivities(database, { allowPrivate: true });
+    status = 503;
+    await expect(activities.deliverWebhook(`h1-${run}`, eventId)).rejects.toThrow("HTTP 503");
+    await activities.failWebhook(`h1-${run}`, eventId);
+    const [failed] = await database.db
+      .select()
+      .from(schema.webhookDelivery)
+      .where(eq(schema.webhookDelivery.id, `h1-${run}:${eventId}`));
+    expect(failed).toMatchObject({ status: "failed", attempts: 1, responseStatus: 503 });
+
+    const strict = createActivities(database, { allowPrivate: false });
+    await expect(strict.deliverWebhook(`h1-${run}`, eventId)).rejects.toMatchObject({
+      type: "WebhookBlocked",
+      nonRetryable: true,
+    });
+    // 停用的不推送
+    expect(await activities.deliverWebhook(`h2-${run}`, eventId)).toBe("skipped");
   });
 });

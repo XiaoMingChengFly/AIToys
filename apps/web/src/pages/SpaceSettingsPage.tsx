@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input, Select } from "@/components/ui/input";
 import { PageBody, PageHeader } from "@/components/ui/page";
 import { Tag } from "@/components/ui/tag";
+import { WebhooksCard } from "@/components/WebhooksCard";
 import { env } from "@/lib/env";
 import { newId } from "@/lib/utils";
 
@@ -19,7 +20,7 @@ const NO_CALENDAR = { holidays: [], extraWorkdays: [] };
 
 type Space = NonNullable<QueryResultType<ReturnType<typeof queries.spaces.byId>>>;
 
-/** 空间设置：成员、工作项类型、工作日历。只有管理员能改，成员只读。 */
+/** 空间设置：成员、工作项类型、工作日历、Webhook（只给管理员）。只有管理员能改，成员只读。 */
 export function SpaceSettingsPage() {
   const { spaceId } = useParams({ from: "/app/spaces/$spaceId/settings" });
   const zero = useZero();
@@ -39,6 +40,7 @@ export function SpaceSettingsPage() {
         <MembersCard space={space} canManage={isAdmin} />
         <TypesCard space={space} canManage={isAdmin} />
         <CalendarCard spaceId={spaceId} calendar={space.calendar ?? NO_CALENDAR} canManage={isAdmin} />
+        {isAdmin && <WebhooksCard spaceId={spaceId} />}
       </PageBody>
     </>
   );

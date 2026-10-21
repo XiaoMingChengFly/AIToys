@@ -21,3 +21,12 @@ export interface StreamWorkflowInput {
 export function streamWorkflowId(stream: string): string {
   return `stream:${stream}`;
 }
+
+export interface WebhookWorkflowInput {
+  webhookId: string;
+  eventId: number;
+}
+
+export function webhookWorkflowId({ webhookId, eventId }: WebhookWorkflowInput): string {
+  return `webhook:${webhookId}:${eventId}`;
+}

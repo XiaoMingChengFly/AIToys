@@ -2061,3 +2061,39 @@ describe("open API", () => {
     );
   });
 });
+
+describe("webhook config", () => {
+  const spaceId = randomUUID();
+  let admin: { cookie: string; userId: string };
+  let member: { cookie: string; userId: string };
+  const run = (name: string, args: unknown, userId = admin.userId) => services.zero.run(name, args, userId);
+  const secret = "x".repeat(40);
+
+  beforeAll(async () => {
+    admin = await signUp(`hook-admin-${spaceId}@example.com`);
+    member = await signUp(`hook-member-${spaceId}@example.com`);
+    await run("space.create", { id: spaceId, name: "Webhook" });
+    await services.database.db.insert(schema.spaceMember).values({ spaceId, userId: member.userId });
+  });
+
+  it("lets admins create, change and delete webhooks with valid addresses", async () => {
+    const id = randomUUID();
+    const hook = { id, spaceId, name: "ERP", url: "https://erp.example.com/hook", secret };
+    await expect(run("webhook.create", hook, member.userId)).rejects.toThrow("只有空间管理员");
+    await expect(run("webhook.create", { ...hook, url: "ftp://erp.example.com" })).rejects.toThrow();
+    await expect(run("webhook.create", { ...hook, url: "https://u:p@erp.example.com" })).rejects.toThrow();
+    await expect(run("webhook.create", { ...hook, secret: "short" })).rejects.toThrow();
+    await expect(run("webhook.create", { ...hook, events: ["nope"] })).rejects.toThrow();
+
+    await run("webhook.create", { ...hook, events: ["statusChanged", "statusChanged"] });
+    const stored = async () =>
+      (await services.database.db.select().from(schema.webhook).where(eq(schema.webhook.id, id)))[0];
+    expect(await stored()).toMatchObject({ events: ["statusChanged"], enabled: true, createdBy: admin.userId });
+    await expect(run("webhook.update", { id, enabled: false }, member.userId)).rejects.toThrow("只有空间管理员");
+    await run("webhook.update", { id, enabled: false, events: [] });
+    expect(await stored()).toMatchObject({ events: null, enabled: false, url: hook.url });
+
+    await run("webhook.delete", { id });
+    expect(await stored()).toBeUndefined();
+  });
+});
