@@ -1,4 +1,4 @@
-import type { FlowDefinition } from "@fp/engine";
+import { nodeFlowOf, statusFlowOf } from "@fp/engine";
 import { mutators, type WorkItemFilterArgs } from "@fp/sync";
 import { useZero } from "@rocicorp/zero/react";
 import { Bookmark, X } from "lucide-react";
@@ -47,7 +47,8 @@ export function FilterBar({
   spaceId: string;
   filter: WorkItemFilterArgs;
   onChange: (filter: WorkItemFilterArgs) => void;
-  types: (Option & { definitions: FlowDefinition[] })[];
+  /** definitions：类型已发布的流程定义（节点流或状态流），用来列出可筛的阶段。 */
+  types: (Option & { definitions: unknown[] })[];
   members: Option[];
   views: readonly View[];
   isAdmin: boolean;
@@ -60,7 +61,12 @@ export function FilterBar({
     ...new Set(
       types
         .filter((t) => !filter.typeIds?.length || filter.typeIds.includes(t.id))
-        .flatMap((t) => t.definitions.flatMap((d) => d.nodes.map((n) => n.stageOnArrival)))
+        .flatMap((t) =>
+          t.definitions.flatMap((d) => [
+            ...(nodeFlowOf(d)?.nodes.map((n) => n.stageOnArrival) ?? []),
+            ...(statusFlowOf(d)?.statuses.map((s) => s.name) ?? []),
+          ]),
+        )
         .filter((s): s is string => !!s),
     ),
   ];

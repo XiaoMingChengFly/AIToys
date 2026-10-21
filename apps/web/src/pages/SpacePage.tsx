@@ -1,4 +1,3 @@
-import type { FlowDefinition } from "@fp/engine";
 import { mutators, queries, type WorkItemFilterArgs } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
@@ -167,9 +166,7 @@ function WorkItems({
           types={space.workItemTypes.map((t) => ({
             id: t.id,
             name: t.name,
-            definitions: t.flowTemplates.flatMap((f) =>
-              f.currentVersion ? [f.currentVersion.definition as FlowDefinition] : [],
-            ),
+            definitions: t.flowTemplates.flatMap((f) => (f.currentVersion ? [f.currentVersion.definition] : [])),
           }))}
           members={members.map((m) => ({ id: m.userId, name: m.name }))}
           views={space.views.map((v) => ({ ...v, filter: v.filter ?? {} }))}

@@ -3,8 +3,8 @@ import {
   type Day,
   dayInTimeZone,
   dayToIso,
-  type FlowDefinition,
   FlowGraph,
+  nodeFlowOf,
   WorkCalendar,
 } from "@fp/engine";
 import { mutators, queries, type WorkItemFilterArgs } from "@fp/sync";
@@ -40,9 +40,12 @@ export function SpaceGantt({
   // 同一个流程版本的工作项共用一张图
   const graphs = useMemo(() => {
     const map = new Map<string, FlowGraph>();
-    for (const item of items)
-      if (item.flowVersion && !map.has(item.flowVersion.id))
-        map.set(item.flowVersion.id, new FlowGraph(item.flowVersion.definition as FlowDefinition));
+    for (const item of items) {
+      // 状态流工作项没有节点和排期，不上甘特图
+      const definition = nodeFlowOf(item.flowVersion?.definition);
+      if (item.flowVersion && definition && !map.has(item.flowVersion.id))
+        map.set(item.flowVersion.id, new FlowGraph(definition));
+    }
     return map;
   }, [items]);
 

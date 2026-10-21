@@ -1,4 +1,10 @@
-import type { AutomationAction, AutomationTrigger, Condition, FlowDefinition } from "@fp/engine";
+import {
+  type AutomationAction,
+  type AutomationTrigger,
+  type Condition,
+  type FlowDefinition,
+  nodeFlowOf,
+} from "@fp/engine";
 import { mutators, queries } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
@@ -31,7 +37,7 @@ const RUN_LABEL: Record<string, string> = { succeeded: "成功", failed: "失败
 /** 类型当前发布的流程（取第一个有发布版本的模板）。 */
 function flowOf(type: ItemType | undefined): FlowDefinition | null {
   const version = type?.flowTemplates.find((t) => t.currentVersion)?.currentVersion;
-  return (version?.definition as FlowDefinition | undefined) ?? null;
+  return nodeFlowOf(version?.definition);
 }
 
 /** 规则的一句话描述，列表里用。 */

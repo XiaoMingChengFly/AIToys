@@ -9,7 +9,7 @@ import { CalendarCard } from "@/components/CalendarCard";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { PageBody, PageHeader } from "@/components/ui/page";
 import { Tag } from "@/components/ui/tag";
 import { env } from "@/lib/env";
@@ -117,11 +117,14 @@ function TypesCard({ space, canManage }: { space: Space; canManage: boolean }) {
   async function add(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
-    const name = String(new FormData(form).get("name") ?? "").trim();
+    const data = new FormData(form);
+    const name = String(data.get("name") ?? "").trim();
     if (!name) return;
+    const flowMode = data.get("flowMode") === "state" ? "state" : "node";
     setError(null);
-    const result = await zero.mutate(mutators.workItemType.create({ id: newId(), spaceId: space.id, key: name, name }))
-      .client;
+    const result = await zero.mutate(
+      mutators.workItemType.create({ id: newId(), spaceId: space.id, key: name, name, flowMode }),
+    ).client;
     if (result.type === "error") return setError(result.error.message);
     form.reset();
   }
@@ -146,7 +149,8 @@ function TypesCard({ space, canManage }: { space: Space; canManage: boolean }) {
                   >
                     <span className="font-medium">{t.name}</span>
                     <span className="text-xs text-fg-subtle">
-                      {t.roles.length} 个角色 · {t.fields.length} 个字段 · {published} 个已发布流程
+                      {t.flowMode === "state" ? "状态流" : "节点流"} · {t.roles.length} 个角色 · {t.fields.length}{" "}
+                      个字段 · {published} 个已发布流程
                     </span>
                     <ChevronRight className="ml-auto size-4 text-fg-subtle" />
                   </Link>
@@ -158,6 +162,10 @@ function TypesCard({ space, canManage }: { space: Space; canManage: boolean }) {
         {canManage && (
           <form className="flex items-center gap-2" onSubmit={add}>
             <Input name="name" aria-label="新类型名称" placeholder="新类型名称，例如：缺陷、需求" className="flex-1" />
+            <Select name="flowMode" aria-label="流程方式" defaultValue="node" className="w-44">
+              <option value="node">节点流（多角色协作）</option>
+              <option value="state">状态流（缺陷、工单）</option>
+            </Select>
             <Button type="submit" variant="outline">
               新建类型
             </Button>
