@@ -4,6 +4,7 @@ import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { type FormEvent, useMemo, useState } from "react";
+import { type PickerMember, RolePicker, toggled } from "@/components/RolePicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
@@ -39,6 +40,7 @@ const columns = [
 
 export function SpacePage() {
   const { spaceId } = useParams({ from: "/app/spaces/$spaceId" });
+  const zero = useZero();
   const [space, spaceResult] = useQuery(queries.spaces.byId({ id: spaceId }));
   const [items] = useQuery(queries.workItems.bySpace({ spaceId }));
 
@@ -63,6 +65,7 @@ export function SpacePage() {
       </p>
     );
   const projectType = space.workItemTypes.find((t) => t.key === "project");
+  const members: PickerMember[] = space.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId }));
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
@@ -74,8 +77,18 @@ export function SpacePage() {
         <h1 className="text-xl font-semibold">{space.name}</h1>
       </div>
 
+      <MembersCard
+        spaceId={spaceId}
+        members={members}
+        canManage={space.members.some((m) => m.userId === zero.userID && m.isAdmin)}
+      />
+
       {projectType ? (
-        <CreateProject typeId={projectType.id} roleKeys={projectType.roles.map((r) => r.key)} />
+        <CreateProject
+          typeId={projectType.id}
+          roles={projectType.roles.map((r) => ({ key: r.key, name: r.name }))}
+          members={members}
+        />
       ) : (
         <ImportOem spaceId={spaceId} />
       )}
@@ -148,20 +161,30 @@ const SWITCHES = [
   { field: F.needFiling, label: "需要备案" },
 ];
 
-function CreateProject({ typeId, roleKeys }: { typeId: string; roleKeys: string[] }) {
+function CreateProject({
+  typeId,
+  roles,
+  members,
+}: {
+  typeId: string;
+  roles: { key: string; name: string }[];
+  members: PickerMember[];
+}) {
   const zero = useZero();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [switches, setSwitches] = useState<Record<string, boolean>>({ [F.needPhaseOut]: true, [F.needVideo]: true });
+  // 默认所有角色都由创建人担任，可以在下面改
+  const [assigned, setAssigned] = useState<Record<string, string[]>>(() =>
+    Object.fromEntries(roles.map((r) => [r.key, [String(zero.userID)]])),
+  );
 
   async function create(event: FormEvent) {
     event.preventDefault();
     if (!name.trim()) return;
     const id = newId();
-    // 演示：所有角色先都由创建人担任，人员配置界面做好后再改
-    const roles = Object.fromEntries(roleKeys.map((key) => [key, [String(zero.userID)]]));
     const fields = Object.fromEntries(SWITCHES.map((s) => [s.field, switches[s.field] ? "是" : "否"]));
-    zero.mutate(mutators.workItem.create({ id, typeId, name: name.trim(), fields, roles }));
+    zero.mutate(mutators.workItem.create({ id, typeId, name: name.trim(), fields, roles: assigned }));
     await navigate({ to: "/items/$itemId", params: { itemId: id } });
   }
 
@@ -188,10 +211,80 @@ function CreateProject({ typeId, roleKeys }: { typeId: string; roleKeys: string[
               </Label>
             ))}
           </div>
+          <details>
+            <summary className="cursor-pointer text-sm text-slate-600">角色和负责人（默认都是你）</summary>
+            <div className="pt-3">
+              <RolePicker
+                roles={roles}
+                members={members}
+                value={assigned}
+                onToggle={(roleKey, userId, selected) =>
+                  setAssigned((prev) => ({ ...prev, [roleKey]: toggled(prev[roleKey], userId, selected) }))
+                }
+              />
+            </div>
+          </details>
           <div>
             <Button type="submit">创建</Button>
           </div>
         </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MembersCard({
+  spaceId,
+  members,
+  canManage,
+}: {
+  spaceId: string;
+  members: PickerMember[];
+  canManage: boolean;
+}) {
+  const [error, setError] = useState<string | null>(null);
+
+  async function add(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const email = String(new FormData(form).get("email") ?? "").trim();
+    if (!email) return;
+    setError(null);
+    const res = await fetch(`${env.apiUrl}/api/spaces/${spaceId}/members`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) return setError(((await res.json()) as { error: string }).error);
+    form.reset();
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>成员</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <ul className="flex flex-wrap gap-2 text-sm">
+          {members.map((m) => (
+            <li key={m.userId} className="rounded-full bg-slate-100 px-2.5 py-0.5">
+              {m.name}
+            </li>
+          ))}
+        </ul>
+        {canManage && (
+          <form className="flex items-end gap-2" onSubmit={add}>
+            <Label className="flex flex-1 flex-col gap-1.5">
+              按邮箱添加成员
+              <Input name="email" type="email" placeholder="对方注册时用的邮箱" />
+            </Label>
+            <Button type="submit" variant="outline">
+              添加
+            </Button>
+          </form>
+        )}
+        {error && <p className="text-sm text-red-600">{error}</p>}
       </CardContent>
     </Card>
   );

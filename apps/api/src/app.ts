@@ -31,6 +31,14 @@ export function createApp({ database, auth, zero }: Services) {
     return session?.user.id ?? null;
   }
 
+  async function isSpaceAdmin(spaceId: string, userId: string): Promise<boolean> {
+    const [member] = await database.db
+      .select()
+      .from(schema.spaceMember)
+      .where(and(eq(schema.spaceMember.spaceId, spaceId), eq(schema.spaceMember.userId, userId)));
+    return member?.isAdmin === true;
+  }
+
   return (
     new Hono()
       .use("/api/*", cors({ origin: config.webOrigins, credentials: true }))
@@ -51,14 +59,31 @@ export function createApp({ database, auth, zero }: Services) {
         const id = await userID(c.req.raw.headers);
         if (!id) return c.json({ error: "未登录。" }, 401);
         const spaceId = c.req.param("spaceId");
-        const [member] = await database.db
-          .select()
-          .from(schema.spaceMember)
-          .where(and(eq(schema.spaceMember.spaceId, spaceId), eq(schema.spaceMember.userId, id)));
-        if (!member?.isAdmin) return c.json({ error: "只有空间管理员可以导入模板。" }, 403);
+        if (!(await isSpaceAdmin(spaceId, id))) return c.json({ error: "只有空间管理员可以导入模板。" }, 403);
         const existing = await database.db.$count(schema.workItemType, eq(schema.workItemType.spaceId, spaceId));
         if (existing > 0) return c.json({ error: "这个空间已经有工作项类型了。" }, 409);
         return c.json(await importOemTemplate(database.db, spaceId));
+      })
+      // 按邮箱把已注册的用户加进空间。查用户要看全站的用户表，所以不走 Zero（浏览器拿不到别人的邮箱）。
+      .post("/api/spaces/:spaceId/members", async (c) => {
+        const id = await userID(c.req.raw.headers);
+        if (!id) return c.json({ error: "未登录。" }, 401);
+        const spaceId = c.req.param("spaceId");
+        if (!(await isSpaceAdmin(spaceId, id))) return c.json({ error: "只有空间管理员可以添加成员。" }, 403);
+        const body = await c.req.json<{ email?: unknown; isAdmin?: unknown }>().catch(() => ({}) as never);
+        if (typeof body?.email !== "string" || !body.email.includes("@")) return c.json({ error: "请填写邮箱。" }, 400);
+        const [found] = await database.db
+          .select({ id: schema.user.id, name: schema.user.name })
+          .from(schema.user)
+          .where(eq(schema.user.email, body.email.trim().toLowerCase()));
+        if (!found) return c.json({ error: "这个邮箱还没有注册。" }, 404);
+        const added = await database.db
+          .insert(schema.spaceMember)
+          .values({ spaceId, userId: found.id, isAdmin: body.isAdmin === true })
+          .onConflictDoNothing()
+          .returning();
+        if (added.length === 0) return c.json({ error: "已经是空间成员了。" }, 409);
+        return c.json({ userId: found.id, name: found.name });
       })
       .post("/api/flows/validate", async (c) => {
         const definition = await c.req.json<FlowDefinition>();

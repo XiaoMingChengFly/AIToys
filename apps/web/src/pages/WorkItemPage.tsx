@@ -5,6 +5,7 @@ import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
 import { Background, Controls, type Edge, MarkerType, type Node, ReactFlow } from "@xyflow/react";
 import { useMemo, useState } from "react";
+import { RolePicker, toggled } from "@/components/RolePicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
@@ -28,6 +29,8 @@ export function WorkItemPage() {
   const { itemId } = useParams({ from: "/app/items/$itemId" });
   const zero = useZero();
   const [item, result] = useQuery(queries.workItems.byId({ id: itemId }));
+  // 空间成员和角色定义：改角色成员时用
+  const [space] = useQuery(item ? queries.spaces.byId({ id: item.spaceId }) : undefined);
   const definition = item?.flowVersion?.definition as FlowDefinition | undefined;
   const graph = useMemo(() => (definition ? new FlowGraph(definition) : null), [definition]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -44,6 +47,8 @@ export function WorkItemPage() {
   const isAdmin = item.space?.members.some((m) => m.isAdmin) ?? false;
   const states = new Map(item.nodes.map((n) => [n.nodeKey, n]));
   const users = new Map(item.roleMembers.map((m) => [m.userId, m.user?.name ?? m.userId]));
+  const roleUsers: Record<string, string[]> = {};
+  for (const m of item.roleMembers) roleUsers[m.roleKey] = [...(roleUsers[m.roleKey] ?? []), m.userId];
   const inProgress = graph?.nodes.filter((n) => states.get(n.key)?.state === "inProgress") ?? [];
   const selectedNode = selected ? graph?.nodes.find((n) => n.key === selected) : undefined;
 
@@ -131,6 +136,30 @@ export function WorkItemPage() {
                     </Button>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {space && (
+            <Card>
+              <CardHeader>
+                <CardTitle>角色</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <RolePicker
+                  roles={space.workItemTypes.find((t) => t.id === item.typeId)?.roles ?? []}
+                  members={space.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId }))}
+                  value={roleUsers}
+                  onToggle={(roleKey, userId, selected) =>
+                    run(
+                      mutators.role.set({
+                        workItemId: item.id,
+                        roleKey,
+                        userIds: toggled(roleUsers[roleKey], userId, selected),
+                      }),
+                    )
+                  }
+                />
               </CardContent>
             </Card>
           )}

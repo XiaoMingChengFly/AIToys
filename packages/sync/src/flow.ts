@@ -1,11 +1,14 @@
-import { type FlowDefinition, FlowEngine, type FlowEvent, type WorkItemState } from "@fp/engine";
+import { type FlowDefinition, FlowEngine, type FlowEvent, resolveOwners, type WorkItemState } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { zql } from "./schema.gen.ts";
-import { nodeInstanceId } from "./work-items.ts";
+import { assertSpaceMembers, nodeInstanceId } from "./work-items.ts";
 
 export const nodeActionArgs = z.object({ workItemId: z.string(), nodeKey: z.string() });
 export type NodeActionArgs = z.output<typeof nodeActionArgs>;
+
+export const setRoleArgs = z.object({ workItemId: z.string(), roleKey: z.string(), userIds: z.array(z.string()) });
+export type SetRoleArgs = z.output<typeof setRoleArgs>;
 
 /** 一个工作项在数据库里的流程现状，还原成引擎能用的 WorkItemState。 */
 interface LoadedFlow {
@@ -63,6 +66,8 @@ async function saveFlow(tx: Transaction, workItemId: string, before: WorkItemSta
   for (const [nodeKey, next] of Object.entries(after.nodes)) {
     const prev = before.nodes[nodeKey];
     const id = nodeInstanceId(workItemId, nodeKey);
+    if (prev && (prev.owners.length !== next.owners.length || prev.owners.some((o, i) => o !== next.owners[i])))
+      await tx.mutate.nodeInstance.update({ id, owners: next.owners, updatedAt: now });
     if (prev?.state !== next.state) {
       const times: { actualStart?: number | null; actualEnd?: number | null } = {};
       if (next.state === "inProgress") {
@@ -133,4 +138,59 @@ export async function recomputeFlow(tx: Transaction, workItemId: string, userID:
   const events = flow.engine.onFieldsChanged(flow.state, flow.fields);
   await saveFlow(tx, workItemId, before, flow.state);
   return events;
+}
+
+/**
+ * 改一个角色的成员。还没完成的节点（未开始、进行中）的负责人按新的角色成员重新计算，
+ * 被换掉的人在会签里的确认作废；已完成和已跳过的节点保留当时的负责人。
+ */
+export async function setRoleMembers(
+  tx: Transaction,
+  args: SetRoleArgs,
+  userID: string,
+): Promise<{ spaceId: string; from: string[]; to: string[] }> {
+  const item = await tx.run(
+    zql.workItem
+      .where("id", args.workItemId)
+      .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", userID)))
+      .related("roleMembers")
+      .one(),
+  );
+  if (!item) throw new Error("工作项不存在或没有权限。");
+  const to = [...new Set(args.userIds)];
+  await assertSpaceMembers(tx, item.spaceId, to);
+
+  const from = item.roleMembers.filter((m) => m.roleKey === args.roleKey).map((m) => m.userId);
+  for (const userId of from)
+    if (!to.includes(userId))
+      await tx.mutate.roleMember.delete({ workItemId: args.workItemId, roleKey: args.roleKey, userId });
+  for (const userId of to)
+    if (!from.includes(userId))
+      await tx.mutate.roleMember.insert({
+        workItemId: args.workItemId,
+        roleKey: args.roleKey,
+        userId,
+        source: "manual",
+      });
+
+  const flow = await loadFlow(tx, args.workItemId, userID);
+  if (flow && !flow.terminated) {
+    const roles: Record<string, string[]> = {};
+    for (const m of item.roleMembers) {
+      if (m.roleKey === args.roleKey) continue;
+      roles[m.roleKey] = [...(roles[m.roleKey] ?? []), m.userId];
+    }
+    roles[args.roleKey] = to;
+    const owners = resolveOwners(flow.engine.graph.definition, roles);
+    const before = structuredClone(flow.state);
+    for (const node of flow.engine.graph.nodes) {
+      const runtime = flow.state.nodes[node.key];
+      if (!runtime || !node.ownerRoles.includes(args.roleKey)) continue;
+      if (runtime.state !== "notStarted" && runtime.state !== "inProgress") continue;
+      runtime.owners = owners[node.key] ?? [];
+      runtime.confirmations = runtime.confirmations.filter((u) => runtime.owners.includes(u));
+    }
+    await saveFlow(tx, args.workItemId, before, flow.state);
+  }
+  return { spaceId: item.spaceId, from, to };
 }

@@ -262,6 +262,33 @@ describe("workItem.create with OEM v289", () => {
     expect(now.events.at(-1)?.kind).toBe("nodeRolledBack");
   });
 
+  it("changing a role re-assigns the open nodes it owns and drops the replaced owner's confirmation", async () => {
+    const { id } = await create({ ...fields, [F.linkedSku]: "SKU-001" });
+    await services.zero.run("node.confirm", { workItemId: id, nodeKey: "doing" }, finance.userId);
+    await services.zero.run("node.confirm", { workItemId: id, nodeKey: "doing" }, dev.userId);
+
+    // 开发换成 NPD 本人：需求立项提案的负责人变成 NPD 和财务，开发的确认作废
+    await services.zero.run("role.set", { workItemId: id, roleKey: "开发", userIds: [npd.userId] }, npd.userId);
+    const now = await reload(id);
+    expect(now.node("doing")?.owners).toEqual([npd.userId, finance.userId]);
+    expect(now.confirmedBy("doing")).toEqual([finance.userId]);
+    expect(now.events.at(-1)).toMatchObject({
+      kind: "roleChanged",
+      payload: { roleKey: "开发", from: [dev.userId], to: [npd.userId] },
+    });
+
+    await services.zero.run("node.confirm", { workItemId: id, nodeKey: "doing" }, npd.userId);
+    expect((await reload(id)).node("doing")?.state).toBe("completed");
+  });
+
+  it("only accepts space members in roles", async () => {
+    const stranger = await signUp(`role-${randomUUID()}@example.com`);
+    const { id } = await create(fields);
+    await expect(
+      services.zero.run("role.set", { workItemId: id, roleKey: "开发", userIds: [stranger.userId] }, npd.userId),
+    ).rejects.toThrow("空间成员");
+  });
+
   it("re-evaluates node visibility when a switch field changes", async () => {
     const { id } = await create(fields);
     expect((await reload(id)).node("state_53")?.state).toBe("notStarted");
@@ -272,6 +299,28 @@ describe("workItem.create with OEM v289", () => {
     const changed = now.events.findIndex((e) => e.kind === "fieldChanged");
     const skipped = now.events.slice(changed + 1).map((e) => [e.kind, (e.payload as { node: string }).node]);
     expect(skipped).toContainEqual(["nodeSkipped", "state_53"]);
+  });
+});
+
+describe("POST /api/spaces/:spaceId/members", () => {
+  it("lets the space admin add a registered user by email", async () => {
+    const spaceId = randomUUID();
+    const admin = await signUp(`admin-${spaceId}@example.com`);
+    const colleague = await signUp(`colleague-${spaceId}@example.com`);
+    await services.zero.run("space.create", { id: spaceId, name: "成员" }, admin.userId);
+    const add = (cookie: string, email: string) =>
+      app.request(`/api/spaces/${spaceId}/members`, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+
+    expect((await add(colleague.cookie, `colleague-${spaceId}@example.com`)).status).toBe(403);
+    expect((await add(admin.cookie, "nobody@example.com")).status).toBe(404);
+    const ok = await add(admin.cookie, `Colleague-${spaceId}@example.com`);
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ userId: colleague.userId, name: `colleague-${spaceId}` });
+    expect((await add(admin.cookie, `colleague-${spaceId}@example.com`)).status).toBe(409);
   });
 });
 

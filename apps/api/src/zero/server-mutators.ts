@@ -9,6 +9,8 @@ import {
   rollbackNode,
   setFieldArgs,
   setFieldValue,
+  setRoleArgs,
+  setRoleMembers,
 } from "@fp/sync";
 import { defineMutator, defineMutators } from "@rocicorp/zero";
 import type { DrizzleTransaction } from "@rocicorp/zero/server/adapters/drizzle";
@@ -59,6 +61,20 @@ export const serverMutators = defineMutators(mutators, {
     rollback: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
       const { spaceId, events } = await rollbackNode(tx, args, ctx.userID);
       await appendEvents(drizzleTx(tx), flowEvents(spaceId, args.workItemId, events));
+    }),
+  },
+  role: {
+    set: defineMutator(setRoleArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, from, to } = await setRoleMembers(tx, args, ctx.userID);
+      await appendEvents(drizzleTx(tx), [
+        {
+          spaceId,
+          workItemId: args.workItemId,
+          kind: "roleChanged",
+          payload: { roleKey: args.roleKey, from, to },
+          actor: ctx.userID,
+        },
+      ]);
     }),
   },
   fieldValue: {
