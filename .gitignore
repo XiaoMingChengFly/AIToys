@@ -19,3 +19,5 @@ dist/
 # Playwright
 test-results/
 playwright-report/
+deploy/.env
+backups/

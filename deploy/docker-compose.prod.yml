@@ -1,0 +1,66 @@
+# 上线部署：叠加在根目录的 docker-compose.yml 上使用，步骤见 deploy/README.md。
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml --env-file deploy/.env --profile app up -d --build
+# 和本地开发的区别：
+# - 只有 Caddy 对外（80/443，自动 HTTPS），Postgres、Temporal、zero-cache、API 的端口都不再暴露
+# - 密钥和数据库密码必须在 deploy/.env 里设置，没设置会直接报错
+# - 前端构建成静态文件，由 Caddy 托管，和 API、Zero 同一个域名
+
+x-prod-env: &prod-env
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?在 deploy/.env 里设置 BETTER_AUTH_SECRET}
+  BETTER_AUTH_URL: ${PUBLIC_URL:-https://${DOMAIN:?在 deploy/.env 里设置 DOMAIN}}
+  WEB_ORIGINS: ${PUBLIC_URL:-https://${DOMAIN}}
+
+services:
+  postgres:
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?在 deploy/.env 里设置 POSTGRES_PASSWORD}
+  temporal:
+    ports: !reset []
+  temporal-ui:
+    # 需要看 workflow 时用 SSH 隧道：ssh -L 8080:localhost:8080 服务器，然后打开 http://localhost:8080
+    ports: !override ["127.0.0.1:8080:8080"]
+  zero-cache:
+    ports: !reset []
+    environment:
+      ZERO_QUERY_URL: http://api:3000/api/zero/query
+      ZERO_MUTATE_URL: http://api:3000/api/zero/mutate
+      ZERO_ADMIN_PASSWORD: ${ZERO_ADMIN_PASSWORD:?在 deploy/.env 里设置 ZERO_ADMIN_PASSWORD}
+  migrate:
+    environment:
+      <<: *prod-env
+  api:
+    ports: !reset []
+    environment:
+      <<: *prod-env
+  worker:
+    environment:
+      <<: *prod-env
+  relay:
+    environment:
+      <<: *prod-env
+
+  web:
+    build:
+      # 相对路径按第一个 compose 文件（仓库根目录）算
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    image: feishu-project/web
+    restart: unless-stopped
+    profiles: [app]
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-${DOMAIN}}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - zero-cache
+
+volumes:
+  caddy_data:
+  caddy_config:

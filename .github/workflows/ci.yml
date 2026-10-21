@@ -19,6 +19,15 @@ jobs:
       - run: pnpm check
       - run: pnpm typecheck
       - run: pnpm test
+      - name: Production compose config and web image
+        env:
+          DOMAIN: feishu.example.com
+          BETTER_AUTH_SECRET: ci
+          POSTGRES_PASSWORD: ci
+          ZERO_ADMIN_PASSWORD: ci
+        run: |
+          docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml --profile app config -q
+          docker build -f deploy/web.Dockerfile -t feishu-project/web .
       - name: Start Postgres and Temporal
         run: |
           docker compose up -d --wait postgres temporal
