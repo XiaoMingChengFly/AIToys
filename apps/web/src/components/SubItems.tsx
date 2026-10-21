@@ -3,7 +3,8 @@ import { useZero } from "@rocicorp/zero/react";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
+import { StatusTag } from "@/components/ui/tag";
 import { newId } from "@/lib/utils";
 
 const STATUS_LABEL = { inProgress: "进行中", completed: "已完成", terminated: "已终止" } as const;
@@ -62,34 +63,34 @@ export function SubItems({
       <ul aria-label={`${nodeName}的子工作项`} className="flex flex-col gap-1">
         {items.map((c) => (
           <li key={c.id} className="flex items-center justify-between gap-2">
-            <Link to="/items/$itemId" params={{ itemId: c.id }} className="truncate text-sky-700 hover:underline">
+            <Link
+              to="/items/$itemId"
+              params={{ itemId: c.id }}
+              className="truncate text-brand-500 hover:text-brand-600"
+            >
               {c.name}
             </Link>
-            <span className="shrink-0 text-xs text-slate-500">{STATUS_LABEL[c.status ?? "inProgress"]}</span>
+            <StatusTag status={c.status} />
           </li>
         ))}
-        {items.length === 0 && <li className="text-slate-500">还没有子工作项，全部完成后节点自动完成。</li>}
+        {items.length === 0 && <li className="text-fg-subtle">还没有子工作项，全部完成后节点自动完成。</li>}
       </ul>
       {canCreate && (
-        <form className="flex items-center gap-1.5" onSubmit={create}>
-          <select
-            name="typeId"
-            aria-label="子工作项类型"
-            className="h-8 rounded-md border border-slate-300 bg-white px-1.5 text-sm"
-          >
+        <form className="flex items-center gap-1.5 bg-surface" onSubmit={create}>
+          <Select name="typeId" aria-label="子工作项类型" className="w-28">
             {types.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>
             ))}
-          </select>
+          </Select>
           <Input name="name" aria-label="子工作项名称" placeholder="子工作项名称" className="h-8 min-w-0 flex-1" />
           <Button type="submit" size="sm" variant="outline">
             新建
           </Button>
         </form>
       )}
-      {error && <p className="text-red-600">{error}</p>}
+      {error && <p className="text-danger-600">{error}</p>}
     </div>
   );
 }

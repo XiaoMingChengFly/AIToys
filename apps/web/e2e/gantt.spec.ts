@@ -1,22 +1,11 @@
 import { dayFromIso, dayInTimeZone, dayToIso, WorkCalendar } from "@fp/engine";
 import { expect, test } from "@playwright/test";
+import { createItem, oemSpace } from "./helpers";
 
 test("plan nodes on the gantt chart: auto schedule, set dates by hand, drag a bar, back to auto", async ({ page }) => {
   const suffix = `${Date.now()}`;
-  await page.goto("/login");
-  await page.getByRole("button", { name: "没有账号？注册" }).click();
-  await page.getByLabel("姓名").fill("Pascal");
-  await page.getByLabel("邮箱").fill(`gantt-${suffix}@example.com`);
-  await page.getByLabel("密码").fill("correct-horse-battery");
-  await page.getByRole("button", { name: "注册并登录" }).click();
-  await page.getByLabel("空间名称").fill(`排期 ${suffix}`);
-  await page.getByRole("button", { name: "创建" }).click();
-  await page.getByText(`排期 ${suffix}`).click();
-  await expect(page.getByRole("listitem").filter({ hasText: "Pascal" })).toBeVisible();
-  await page.getByRole("button", { name: "导入 OEM 模板" }).click();
-  await page.getByLabel("项目名称").fill("新品 C");
-  await page.getByRole("button", { name: "创建" }).click();
-  await expect(page.getByRole("heading", { name: "新品 C" })).toBeVisible();
+  await oemSpace(page, "Pascal", `gantt-${suffix}@example.com`, `排期 ${suffix}`);
+  await createItem(page, "新品 C");
 
   await page.getByRole("tab", { name: "甘特图" }).click();
   const row = (name: string) => page.getByRole("row", { name, exact: true });

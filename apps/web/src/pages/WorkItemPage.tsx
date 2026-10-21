@@ -12,24 +12,38 @@ import { mutators, queries } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
-import { Background, Controls, type Edge, MarkerType, type Node, ReactFlow } from "@xyflow/react";
-import { useMemo, useState } from "react";
+import { Background, Controls, type Edge, MarkerType, type Node, Position, ReactFlow } from "@xyflow/react";
+import { Check, ChevronRight, CircleCheck, CircleDashed, CircleDot, Undo2 } from "lucide-react";
+import { type ReactNode, useMemo, useState } from "react";
+import { useActiveSpace } from "@/components/AppShell";
 import { CommentsCard } from "@/components/CommentsCard";
 import { GanttChart } from "@/components/GanttChart";
 import { RelationsCard } from "@/components/RelationsCard";
 import { RolePicker, toggled } from "@/components/RolePicker";
 import { SubItems } from "@/components/SubItems";
+import { UserChip } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input, Label } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
+import { ErrorBanner, Panel } from "@/components/ui/page";
+import { Tabs } from "@/components/ui/tabs";
+import { StageTag, StatusTag, Tag } from "@/components/ui/tag";
 import { layoutByDepth } from "@/flow-demo/layout";
 import { nodeGanttRows } from "@/lib/gantt";
+import { cn } from "@/lib/utils";
 
+/** 流程图节点的样式：进行中蓝色描边，已完成绿色，未开始灰色，被裁剪的虚线。 */
 const STATE_STYLE: Record<NodeState, string> = {
-  notStarted: "bg-white border-slate-300 text-slate-500",
-  inProgress: "bg-sky-50 border-sky-500 text-sky-900 ring-2 ring-sky-200",
-  completed: "bg-emerald-50 border-emerald-500 text-emerald-900",
-  skipped: "bg-slate-100 border-dashed border-slate-300 text-slate-400 line-through",
+  notStarted: "!border-line",
+  inProgress: "!border-brand-500 !ring-3 !ring-brand-100",
+  completed: "!border-success-500/50",
+  skipped: "!border-dashed !border-line !bg-canvas !text-fg-subtle",
+};
+
+const STATE_ICON: Record<NodeState, ReactNode> = {
+  notStarted: <CircleDashed className="size-4 shrink-0 text-fg-subtle" />,
+  inProgress: <CircleDot className="size-4 shrink-0 text-brand-500" />,
+  completed: <CircleCheck className="size-4 shrink-0 text-success-600" />,
+  skipped: <CircleDashed className="size-4 shrink-0 text-fg-disabled" />,
 };
 
 const STATE_LABEL: Record<NodeState, string> = {
@@ -52,10 +66,12 @@ export function WorkItemPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState<"flow" | "gantt">("flow");
   const [error, setError] = useState<string | null>(null);
+  const [rolesOpen, setRolesOpen] = useState(false);
+  useActiveSpace(item?.spaceId);
 
   if (!item)
     return (
-      <p className="p-6 text-sm text-slate-500">
+      <p className="p-6 text-sm text-fg-subtle">
         {result.type === "complete" ? "工作项不存在或没有权限。" : "加载中…"}
       </p>
     );
@@ -99,77 +115,84 @@ export function WorkItemPage() {
   const confirm = (nodeKey: string) => run(mutators.node.confirm({ workItemId: item.id, nodeKey }));
   const rollback = (nodeKey: string) => run(mutators.node.rollback({ workItemId: item.id, nodeKey }));
 
+  const members = space?.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId })) ?? [];
+  const nameOf = (userId: string) => members.find((m) => m.userId === userId)?.name ?? users.get(userId) ?? userId;
+  const typeName = space?.workItemTypes.find((t) => t.id === item.typeId)?.name;
+  // 进行中节点的负责角色排在前面，其余的默认收起
+  const activeRoles = new Set(inProgress.flatMap((n) => n.ownerRoles));
+  const typeRoles = [...(space?.workItemTypes.find((t) => t.id === item.typeId)?.roles ?? [])].sort(
+    (a, b) => Number(activeRoles.has(b.key)) - Number(activeRoles.has(a.key)),
+  );
+
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-4 border-b border-slate-200 bg-white px-6 py-3">
-        <Link
-          to="/spaces/$spaceId"
-          params={{ spaceId: item.spaceId }}
-          className="text-sm text-slate-500 hover:underline"
-        >
-          返回空间
-        </Link>
-        <h1 className="text-lg font-semibold">{item.name}</h1>
-        <span className="rounded bg-slate-100 px-2 py-0.5 text-sm">{item.stage ?? "—"}</span>
-        <span className="text-sm text-slate-500">
-          {{ completed: "已完成", terminated: "已终止", inProgress: "进行中" }[item.status ?? "inProgress"]}
-        </span>
-        {parent && (
-          <Link
-            to="/items/$itemId"
-            params={{ itemId: parent.id }}
-            className="ml-auto text-sm text-slate-500 hover:underline"
-          >
-            上级工作项：{parent.name}
+      <header className="flex flex-col gap-1 border-b border-line-subtle bg-surface px-6 pt-4">
+        <nav aria-label="位置" className="flex items-center gap-1 text-xs text-fg-subtle">
+          <Link to="/spaces/$spaceId" params={{ spaceId: item.spaceId }} className="hover:text-brand-500">
+            {space?.name ?? "空间"}
           </Link>
-        )}
+          {typeName && (
+            <>
+              <ChevronRight className="size-3" />
+              <Link
+                to="/spaces/$spaceId"
+                params={{ spaceId: item.spaceId }}
+                search={{ type: item.typeId }}
+                className="hover:text-brand-500"
+              >
+                {typeName}
+              </Link>
+            </>
+          )}
+          {parent && (
+            <>
+              <ChevronRight className="size-3" />
+              <Link to="/items/$itemId" params={{ itemId: parent.id }} className="hover:text-brand-500">
+                上级工作项：{parent.name}
+              </Link>
+            </>
+          )}
+        </nav>
+        <div className="flex min-h-8 items-center gap-2.5">
+          <h1 className="truncate text-xl font-semibold">{item.name}</h1>
+          <StatusTag status={item.status} />
+          {item.stage && <StageTag stage={item.stage} />}
+        </div>
+        <Tabs
+          className="mt-1 border-b-0"
+          label="工作项视图"
+          value={view}
+          onChange={setView}
+          items={[
+            ["flow", "节点流程"],
+            ["gantt", "甘特图"],
+          ]}
+        />
       </header>
       <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div role="tablist" className="flex gap-1 border-b border-slate-200 bg-white px-4">
-            {(
-              [
-                ["flow", "流程图"],
-                ["gantt", "甘特图"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={view === key}
-                onClick={() => setView(key)}
-                className={`border-b-2 px-3 py-2 text-sm ${view === key ? "border-sky-600 text-sky-700" : "border-transparent text-slate-500"}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="min-h-0 flex-1">
-            {graph && view === "flow" && <Diagram graph={graph} states={states} onSelect={setSelected} />}
-            {graph && view === "gantt" && (
-              <Schedule
-                graph={graph}
-                nodes={item.nodes}
-                timeZone={item.space?.timezone ?? "Asia/Shanghai"}
-                calendar={calendar}
-                canPlan={canPlan}
-                onPlan={setPlan}
-              />
-            )}
-          </div>
-        </div>
-        <aside className="flex w-96 flex-col gap-4 overflow-y-auto border-l border-slate-200 bg-slate-50 p-4">
-          {error && (
-            <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-              {error}
-            </p>
+        <div className="min-w-0 flex-1">
+          {graph && view === "flow" && (
+            <Diagram graph={graph} states={states} selected={selected} onSelect={setSelected} />
           )}
-          <Card>
-            <CardHeader>
-              <CardTitle>进行中的节点</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
+          {graph && view === "gantt" && (
+            <Schedule
+              graph={graph}
+              nodes={item.nodes}
+              timeZone={item.space?.timezone ?? "Asia/Shanghai"}
+              calendar={calendar}
+              canPlan={canPlan}
+              onPlan={setPlan}
+            />
+          )}
+        </div>
+        <aside className="flex w-[400px] shrink-0 flex-col overflow-y-auto border-l border-line-subtle bg-surface">
+          {error && (
+            <div className="px-5 pt-4">
+              <ErrorBanner>{error}</ErrorBanner>
+            </div>
+          )}
+          <Panel title="当前节点">
+            <div className="flex flex-col gap-3">
               {inProgress.map((node) => {
                 const runtime = states.get(node.key);
                 const owners = runtime?.owners ?? [];
@@ -180,12 +203,25 @@ export function WorkItemPage() {
                   ? isAdmin && !owners.includes(me)
                   : (owners.includes(me) && !confirmed.has(me)) || (isAdmin && !owners.includes(me));
                 return (
-                  <section key={node.key} aria-label={node.name} className="flex flex-col gap-1 text-sm">
-                    <div className="font-medium">{node.name}</div>
-                    <div className="text-slate-500">
-                      负责人：
-                      {owners.map((u) => `${users.get(u) ?? u}${confirmed.has(u) ? "（已确认）" : ""}`).join("、") ||
-                        "无（自动）"}
+                  <section
+                    key={node.key}
+                    aria-label={node.name}
+                    className="flex flex-col gap-2.5 rounded-lg border border-brand-200 bg-brand-50/40 p-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="size-2 rounded-full bg-brand-500" />
+                      <span className="font-medium">{node.name}</span>
+                      <span className="ml-auto text-xs text-fg-subtle">{COMPLETION_LABEL[node.completion]}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="text-fg-muted">负责人：</span>
+                      {owners.length === 0 && <span className="text-fg-subtle">无（自动）</span>}
+                      {owners.map((u) => (
+                        <span key={u} className="inline-flex items-center gap-1">
+                          <UserChip id={u} name={nameOf(u)} />
+                          {confirmed.has(u) && <Check aria-label="已确认" className="size-3.5 text-success-600" />}
+                        </span>
+                      ))}
                     </div>
                     {bySubItems && (
                       <SubItems
@@ -207,17 +243,19 @@ export function WorkItemPage() {
                   </section>
                 );
               })}
-              {inProgress.length === 0 && <p className="text-sm text-slate-500">没有进行中的节点。</p>}
-            </CardContent>
-          </Card>
+              {inProgress.length === 0 && (
+                <p className="text-fg-subtle">{item.status === "completed" ? "流程已走完。" : "没有进行中的节点。"}</p>
+              )}
+            </div>
+          </Panel>
 
           {selectedNode && (
-            <Card>
-              <CardHeader>
-                <CardTitle>{selectedNode.name}</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-2 text-sm">
-                <div>状态：{STATE_LABEL[states.get(selectedNode.key)?.state ?? "notStarted"]}</div>
+            <Panel title={selectedNode.name} aria-label="选中的节点">
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-fg-muted">状态：</span>
+                  <NodeStateTag state={states.get(selectedNode.key)?.state ?? "notStarted"} />
+                </div>
                 {selectedNode.completion === "subItemDriven" &&
                   states.get(selectedNode.key)?.state !== "inProgress" && (
                     <SubItems
@@ -232,39 +270,16 @@ export function WorkItemPage() {
                 {canRollback(selectedNode.key) && (
                   <div>
                     <Button size="sm" variant="outline" onClick={() => rollback(selectedNode.key)}>
+                      <Undo2 />
                       回滚到此节点
                     </Button>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </Panel>
           )}
 
-          {space && (
-            <Card>
-              <CardHeader>
-                <CardTitle>角色</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <RolePicker
-                  roles={space.workItemTypes.find((t) => t.id === item.typeId)?.roles ?? []}
-                  members={space.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId }))}
-                  value={roleUsers}
-                  onToggle={(roleKey, userId, selected) =>
-                    run(
-                      mutators.role.set({
-                        workItemId: item.id,
-                        roleKey,
-                        userIds: toggled(roleUsers[roleKey], userId, selected),
-                      }),
-                    )
-                  }
-                />
-              </CardContent>
-            </Card>
-          )}
-
-          <FieldsCard
+          <FieldsPanel
             item={item}
             onSet={(fieldKey, value) => run(mutators.fieldValue.set({ workItemId: item.id, fieldKey, value }))}
           />
@@ -277,15 +292,56 @@ export function WorkItemPage() {
             incoming={item.incoming.map((r) => ({ ...r, item: r.from }))}
           />
 
-          <CommentsCard
-            workItemId={item.id}
-            comments={item.comments}
-            members={space?.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId })) ?? []}
-          />
+          {space && (
+            <Panel
+              title={`角色 ${typeRoles.length}`}
+              actions={
+                typeRoles.length > ROLES_FOLDED && (
+                  <Button variant="link" size="sm" onClick={() => setRolesOpen(!rolesOpen)} aria-expanded={rolesOpen}>
+                    {rolesOpen ? "收起" : "展开全部"}
+                  </Button>
+                )
+              }
+            >
+              <RolePicker
+                roles={rolesOpen ? typeRoles : typeRoles.slice(0, ROLES_FOLDED)}
+                members={members}
+                value={roleUsers}
+                onToggle={(roleKey, userId, selected) =>
+                  run(
+                    mutators.role.set({
+                      workItemId: item.id,
+                      roleKey,
+                      userIds: toggled(roleUsers[roleKey], userId, selected),
+                    }),
+                  )
+                }
+              />
+            </Panel>
+          )}
+
+          <CommentsCard workItemId={item.id} comments={item.comments} members={members} />
         </aside>
       </div>
     </div>
   );
+}
+
+/** 角色多的类型（如 OEM 有 16 个）默认只显示前几个。 */
+const ROLES_FOLDED = 5;
+
+const COMPLETION_LABEL: Record<string, string> = {
+  auto: "自动完成",
+  singleConfirm: "单人确认",
+  allConfirm: "会签",
+  subItemDriven: "子工作项驱动",
+};
+
+function NodeStateTag({ state }: { state: NodeState }) {
+  const tone = ({ notStarted: "neutral", inProgress: "brand", completed: "success", skipped: "neutral" } as const)[
+    state
+  ];
+  return <Tag tone={tone}>{STATE_LABEL[state]}</Tag>;
 }
 
 type NodeRow = Item["nodes"][number];
@@ -310,32 +366,39 @@ function Schedule({
   const { rows, deps } = nodeGanttRows(graph, nodes, { timeZone, canPlan: (n) => canPlan(n.nodeKey) });
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-surface">
       <div className="min-h-0 flex-[3]">
         <GanttChart rows={rows} deps={deps} calendar={calendar} today={today} onChange={onPlan} />
       </div>
-      <details open className="min-h-0 flex-[2] overflow-auto border-t border-slate-200 bg-white">
-        <summary className="cursor-pointer px-4 py-2 text-sm font-medium">排期明细</summary>
+      <details open className="min-h-0 flex-[2] overflow-auto border-t border-line-subtle">
+        <summary className="cursor-pointer px-4 py-2.5 text-sm font-semibold select-none">排期明细</summary>
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-slate-500">
-              <th className="px-4 py-1 font-medium">节点</th>
-              <th className="py-1 font-medium">计划开始</th>
-              <th className="py-1 font-medium">计划结束</th>
-              <th className="py-1 font-medium">实际</th>
-              <th className="py-1" />
+            <tr className="border-y border-line-subtle bg-canvas/60 text-left text-xs text-fg-muted">
+              <th className="h-8 px-4 font-normal">节点</th>
+              <th className="font-normal">计划开始</th>
+              <th className="font-normal">计划结束</th>
+              <th className="font-normal">实际</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.key} aria-label={row.label} className="border-t border-slate-100">
-                <td className="px-4 py-1">{row.label}</td>
+              <tr key={row.key} aria-label={row.label} className="border-b border-line-subtle hover:bg-hover/50">
+                <td className="h-10 px-4">
+                  {row.label}
+                  {row.pinned && (
+                    <Tag tone="warning" className="ml-2">
+                      手动
+                    </Tag>
+                  )}
+                </td>
                 {(["start", "end"] as const).map((side) => (
-                  <td key={side} className="py-1">
-                    <input
+                  <td key={side}>
+                    <Input
                       type="date"
                       aria-label={side === "start" ? "计划开始" : "计划结束"}
-                      className="rounded border border-slate-200 px-1 disabled:border-transparent disabled:bg-transparent"
+                      className="h-7 w-36 disabled:border-transparent disabled:bg-transparent disabled:text-fg"
                       value={dayToIso(row[side])}
                       disabled={!row.editable}
                       onChange={(e) => {
@@ -348,11 +411,11 @@ function Schedule({
                     />
                   </td>
                 ))}
-                <td className="py-1 text-slate-500">
+                <td className="text-fg-muted tabular-nums">
                   {row.actualStart !== null ? dayToIso(row.actualStart) : ""}
                   {row.actualEnd !== null ? ` → ${dayToIso(row.actualEnd)}` : ""}
                 </td>
-                <td className="py-1 pr-4 text-right">
+                <td className="pr-4 text-right">
                   {row.pinned && row.editable && (
                     <Button variant="ghost" size="sm" onClick={() => onPlan(row.key)}>
                       恢复自动
@@ -370,90 +433,104 @@ function Schedule({
 
 type Item = NonNullable<QueryResultType<ReturnType<typeof queries.workItems.byId>>>;
 
-/** 工作项字段。选项字段用下拉，其它先用文本框，失焦时保存。 */
-function FieldsCard({ item, onSet }: { item: Item; onSet: (fieldKey: string, value: string | null) => void }) {
+/** 工作项字段：左边字段名，右边值。选项字段用下拉，其它先用文本框，失焦时保存。 */
+function FieldsPanel({ item, onSet }: { item: Item; onSet: (fieldKey: string, value: string | null) => void }) {
   const values = new Map(item.fieldValues.map((f) => [f.fieldKey, f.value]));
+  const fields = item.type?.fields ?? [];
+  if (fields.length === 0) return null;
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>字段</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {(item.type?.fields ?? []).map((field) => {
+    <Panel title="字段">
+      <div className="flex flex-col gap-2">
+        {fields.map((field) => {
           const value = values.get(field.key);
           const text = value === null || value === undefined ? "" : String(value);
           return (
-            <Label key={field.key} className="flex flex-col gap-1.5 font-normal">
-              {field.name}
+            // biome-ignore lint/a11y/noLabelWithoutControl: 控件嵌在标签里
+            <label key={field.key} className="grid grid-cols-[7rem_1fr] items-center gap-3">
+              <span className="truncate text-fg-muted" title={field.name}>
+                {field.name}
+              </span>
               {field.options ? (
-                <select
-                  className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm"
-                  value={text}
-                  onChange={(e) => onSet(field.key, e.target.value || null)}
-                >
-                  <option value="">—</option>
+                <Select value={text} onChange={(e) => onSet(field.key, e.target.value || null)}>
+                  <option value="">未选择</option>
                   {field.options.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               ) : (
                 <Input
                   key={text}
                   defaultValue={text}
+                  placeholder="未填写"
                   onBlur={(e) => {
                     if (e.target.value !== text) onSet(field.key, e.target.value.trim() || null);
                   }}
                 />
               )}
-            </Label>
+            </label>
           );
         })}
-      </CardContent>
-    </Card>
+      </div>
+    </Panel>
   );
 }
 
+/** 节点流程图：从左到右，进行中的节点放在视野左侧。点节点在右侧看详情、回滚。 */
 function Diagram({
   graph,
   states,
+  selected,
   onSelect,
 }: {
   graph: FlowGraph;
   states: Map<string, { state: NodeState | null }>;
+  selected: string | null;
   onSelect: (nodeKey: string) => void;
 }) {
   const positions = useMemo(() => layoutByDepth(graph), [graph]);
   // 流程图很宽，缩到一屏放不下。打开时以第一个进行中的节点为准，放在左侧偏上
   const [viewport] = useState(() => {
-    const zoom = 0.8;
+    const zoom = 0.9;
     const current = graph.nodes.find((n) => states.get(n.key)?.state === "inProgress");
     const at = (current && positions.get(current.key)) ?? { x: 0, y: 0 };
-    return { x: 160 - at.x * zoom, y: 120 - at.y * zoom, zoom };
+    return { x: 240 - at.x * zoom, y: 120 - at.y * zoom, zoom };
   });
   const nodes: Node[] = graph.nodes.map((n) => {
     const state = states.get(n.key)?.state ?? "notStarted";
     return {
       id: n.key,
       position: positions.get(n.key) ?? { x: 0, y: 0 },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
       data: {
         label: (
-          <div title={STATE_LABEL[state]}>
-            <div className="text-xs font-medium">{n.name}</div>
-            <div className="text-[10px] opacity-70">{STATE_LABEL[state]}</div>
+          <div className="flex items-center gap-2 text-left" title={`${n.name}（${STATE_LABEL[state]}）`}>
+            {STATE_ICON[state]}
+            <span className={cn("min-w-0 flex-1 truncate", state === "skipped" && "line-through")}>{n.name}</span>
+            <span className="sr-only">{STATE_LABEL[state]}</span>
           </div>
         ),
       },
-      className: `!w-[190px] !rounded-md !border !px-2 !py-1.5 ${STATE_STYLE[state]}`,
+      className: cn(
+        "!w-[184px] !rounded-lg !border !bg-surface !px-3 !py-2 !text-[13px] !text-fg !shadow-card",
+        STATE_STYLE[state],
+        selected === n.key && "!border-brand-500",
+      ),
     };
   });
-  const edges: Edge[] = graph.definition.edges.map((e) => ({
-    id: `${e.from}->${e.to}`,
-    source: e.from,
-    target: e.to,
-    markerEnd: { type: MarkerType.ArrowClosed },
-  }));
+  const edges: Edge[] = graph.definition.edges.map((e) => {
+    const done = states.get(e.from)?.state === "completed";
+    return {
+      id: `${e.from}->${e.to}`,
+      source: e.from,
+      target: e.to,
+      type: "smoothstep",
+      style: { stroke: done ? "#34c724" : "#bbbfc4", strokeWidth: 1.5 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: done ? "#34c724" : "#bbbfc4" },
+    };
+  });
   return (
     <ReactFlow
       nodes={nodes}
@@ -463,8 +540,10 @@ function Diagram({
       nodesDraggable={false}
       nodesConnectable={false}
       onNodeClick={(_, node) => onSelect(node.id)}
+      proOptions={{ hideAttribution: true }}
+      className="readonly bg-canvas"
     >
-      <Background />
+      <Background color="#dee0e3" gap={20} />
       <Controls showInteractive={false} />
     </ReactFlow>
   );

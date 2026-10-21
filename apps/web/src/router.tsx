@@ -1,12 +1,12 @@
-import { createRootRoute, createRoute, createRouter, Link, Navigate, Outlet } from "@tanstack/react-router";
-import { NotificationsBell } from "@/components/NotificationsBell";
-import { Button } from "@/components/ui/button";
+import { createRootRoute, createRoute, createRouter, Navigate, Outlet } from "@tanstack/react-router";
+import { AppShell } from "@/components/AppShell";
 import { FlowDemo } from "@/flow-demo/FlowDemo";
 import { authClient } from "@/lib/auth";
 import { ZeroRoot } from "@/lib/zero";
 import { AutomationsPage } from "@/pages/AutomationsPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { SpacePage } from "@/pages/SpacePage";
+import { SpaceSettingsPage } from "@/pages/SpaceSettingsPage";
 import { SpacesPage } from "@/pages/SpacesPage";
 import { TemplateEditorPage } from "@/pages/TemplateEditorPage";
 import { TypePage } from "@/pages/TypePage";
@@ -24,33 +24,31 @@ const appRoute = createRoute({ getParentRoute: () => rootRoute, id: "app", compo
 
 function AppLayout() {
   const { data: session, isPending } = authClient.useSession();
-  if (isPending) return <p className="p-6 text-sm text-slate-500">加载中…</p>;
+  if (isPending) return <p className="p-6 text-sm text-fg-subtle">加载中…</p>;
   if (!session) return <Navigate to="/login" />;
   return (
     <ZeroRoot userID={session.user.id}>
-      <div className="flex h-screen flex-col bg-slate-50">
-        <nav className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-2 text-sm">
-          <Link to="/" className="font-semibold">
-            飞书项目复刻
-          </Link>
-          <div className="flex items-center gap-3">
-            <NotificationsBell />
-            <span className="text-slate-500">{session.user.name}</span>
-            <Button variant="ghost" size="sm" onClick={() => authClient.signOut()}>
-              退出
-            </Button>
-          </div>
-        </nav>
-        <main className="min-h-0 flex-1 overflow-auto">
-          <Outlet />
-        </main>
-      </div>
+      <AppShell user={session.user}>
+        <Outlet />
+      </AppShell>
     </ZeroRoot>
   );
 }
 
 const spacesRoute = createRoute({ getParentRoute: () => appRoute, path: "/", component: SpacesPage });
-const spaceRoute = createRoute({ getParentRoute: () => appRoute, path: "/spaces/$spaceId", component: SpacePage });
+/** 空间的工作项列表；?type= 只看一种类型（左侧导航里的类型入口）。 */
+const spaceRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/spaces/$spaceId",
+  component: SpacePage,
+  validateSearch: (search: Record<string, unknown>): { type?: string } =>
+    typeof search.type === "string" ? { type: search.type } : {},
+});
+const settingsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/spaces/$spaceId/settings",
+  component: SpaceSettingsPage,
+});
 const automationsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/spaces/$spaceId/automations",
@@ -67,7 +65,7 @@ const templateRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   demoRoute,
-  appRoute.addChildren([spacesRoute, spaceRoute, automationsRoute, itemRoute, typeRoute, templateRoute]),
+  appRoute.addChildren([spacesRoute, spaceRoute, settingsRoute, automationsRoute, itemRoute, typeRoute, templateRoute]),
 ]);
 
 export const router = createRouter({ routeTree });

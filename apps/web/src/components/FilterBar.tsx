@@ -1,10 +1,11 @@
 import type { FlowDefinition } from "@fp/engine";
 import { mutators, type WorkItemFilterArgs } from "@fp/sync";
 import { useZero } from "@rocicorp/zero/react";
-import { type FormEvent, useState } from "react";
+import { Bookmark, X } from "lucide-react";
+import { type FormEvent, type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { newId } from "@/lib/utils";
+import { Input, Select } from "@/components/ui/input";
+import { cn, newId } from "@/lib/utils";
 
 const STATUS_OPTIONS = [
   ["inProgress", "进行中"],
@@ -22,8 +23,6 @@ interface View {
   filter: WorkItemFilterArgs;
   createdBy: string;
 }
-
-const selectClass = "h-8 rounded-md border border-slate-300 bg-white px-2 text-sm";
 
 /** 是否和当前筛选条件相同（按有值的条件比较）。 */
 function same(a: WorkItemFilterArgs, b: WorkItemFilterArgs) {
@@ -43,6 +42,7 @@ export function FilterBar({
   members,
   views,
   isAdmin,
+  actions,
 }: {
   spaceId: string;
   filter: WorkItemFilterArgs;
@@ -51,6 +51,8 @@ export function FilterBar({
   members: Option[];
   views: readonly View[];
   isAdmin: boolean;
+  /** 视图页签右边的操作，如切换列表和甘特图。 */
+  actions?: ReactNode;
 }) {
   const zero = useZero();
   const [error, setError] = useState<string | null>(null);
@@ -85,53 +87,52 @@ export function FilterBar({
     if (name && (await run(mutators.view.create({ id: newId(), spaceId, name, filter })))) form.reset();
   }
 
+  const tab = (active: boolean) =>
+    cn(
+      "inline-flex h-7 cursor-pointer items-center rounded-md px-2.5 text-sm transition-colors",
+      active ? "bg-brand-50 font-medium text-brand-500" : "text-fg-muted hover:bg-hover hover:text-fg",
+    );
+
   return (
     <div className="flex flex-col gap-3">
-      <div role="tablist" aria-label="视图" className="flex flex-wrap items-center gap-1.5 text-sm">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={empty}
-          onClick={() => onChange({})}
-          className={`rounded-full px-3 py-0.5 ${empty ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-        >
-          全部
-        </button>
-        {views.map((view) => {
-          const active = !empty && same(view.filter, filter);
-          return (
-            <span
-              key={view.id}
-              className={`flex items-center rounded-full ${active ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600"}`}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => onChange(view.filter)}
-                className="rounded-full py-0.5 pl-3 pr-1 hover:underline"
-              >
-                {view.name}
-              </button>
-              {(isAdmin || view.createdBy === zero.userID) && (
+      <div className="flex items-center gap-3">
+        <div role="tablist" aria-label="视图" className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+          <button type="button" role="tab" aria-selected={empty} onClick={() => onChange({})} className={tab(empty)}>
+            全部
+          </button>
+          {views.map((view) => {
+            const active = !empty && same(view.filter, filter);
+            return (
+              <span key={view.id} className={cn(tab(active), "group gap-1 pr-1")}>
                 <button
                   type="button"
-                  aria-label={`删除视图 ${view.name}`}
-                  onClick={() => run(mutators.view.delete({ id: view.id }))}
-                  className="rounded-full px-1.5 text-slate-400 hover:text-slate-700"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => onChange(view.filter)}
+                  className="cursor-pointer"
                 >
-                  ×
+                  {view.name}
                 </button>
-              )}
-            </span>
-          );
-        })}
+                {(isAdmin || view.createdBy === zero.userID) && (
+                  <button
+                    type="button"
+                    aria-label={`删除视图 ${view.name}`}
+                    onClick={() => run(mutators.view.delete({ id: view.id }))}
+                    className="cursor-pointer rounded p-0.5 text-fg-subtle opacity-0 group-hover:opacity-100 hover:bg-pressed hover:text-fg focus-visible:opacity-100"
+                  >
+                    <X className="size-3" />
+                  </button>
+                )}
+              </span>
+            );
+          })}
+        </div>
+        {actions}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <select
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
           aria-label="按类型筛选"
-          className={selectClass}
           value={filter.typeIds?.[0] ?? ""}
           onChange={(e) =>
             onChange({ ...filter, typeIds: e.target.value ? [e.target.value] : undefined, stages: undefined })
@@ -143,10 +144,9 @@ export function FilterBar({
               {t.name}
             </option>
           ))}
-        </select>
-        <select
+        </Select>
+        <Select
           aria-label="按阶段筛选"
-          className={selectClass}
           value={filter.stages?.[0] ?? ""}
           onChange={(e) => pick("stages", e.target.value)}
         >
@@ -156,10 +156,9 @@ export function FilterBar({
               {s}
             </option>
           ))}
-        </select>
-        <select
+        </Select>
+        <Select
           aria-label="按状态筛选"
-          className={selectClass}
           value={filter.statuses?.[0] ?? ""}
           onChange={(e) => pick("statuses", e.target.value)}
         >
@@ -169,10 +168,9 @@ export function FilterBar({
               {label}
             </option>
           ))}
-        </select>
-        <select
+        </Select>
+        <Select
           aria-label="按参与人筛选"
-          className={selectClass}
           value={filter.memberIds?.[0] ?? ""}
           onChange={(e) => pick("memberIds", e.target.value)}
         >
@@ -182,17 +180,23 @@ export function FilterBar({
               {m.name}
             </option>
           ))}
-        </select>
+        </Select>
         {!empty && (
-          <form className="ml-auto flex items-center gap-2" onSubmit={save}>
-            <Input name="name" aria-label="视图名称" placeholder="视图名称" className="h-8 w-36" />
-            <Button type="submit" variant="outline" className="h-8">
-              保存为视图
+          <>
+            <Button variant="ghost" onClick={() => onChange({})}>
+              清空
             </Button>
-          </form>
+            <form className="ml-auto flex items-center gap-2" onSubmit={save}>
+              <Input name="name" aria-label="视图名称" placeholder="视图名称" className="w-36" />
+              <Button type="submit" variant="outline">
+                <Bookmark />
+                保存为视图
+              </Button>
+            </form>
+          </>
         )}
       </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-danger-600">{error}</p>}
     </div>
   );
 }

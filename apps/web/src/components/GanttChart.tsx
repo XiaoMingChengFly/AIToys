@@ -30,18 +30,18 @@ const DAY_WIDTH = 26;
 const HANDLE = 6;
 
 const COLORS = {
-  grid: "#e2e8f0",
-  weekend: "#f1f5f9",
-  text: "#334155",
-  muted: "#94a3b8",
-  today: "#ef4444",
-  dep: "#94a3b8",
-  actual: "#059669",
-  bar: { notStarted: "#cbd5e1", inProgress: "#0ea5e9", completed: "#10b981", skipped: "#e2e8f0" } as Record<
+  grid: "#eff0f1",
+  weekend: "#f5f6f7",
+  text: "#1f2329",
+  muted: "#8f959e",
+  today: "#f54a45",
+  dep: "#bbbfc4",
+  actual: "#2ea121",
+  bar: { notStarted: "#bbbfc4", inProgress: "#3370ff", completed: "#34c724", skipped: "#eff0f1" } as Record<
     NodeState,
     string
   >,
-  pinned: "#0f172a",
+  pinned: "#1f2329",
 };
 
 type Drag = { key: string; mode: "move" | "resize"; originX: number; delta: number };
@@ -256,9 +256,9 @@ export function GanttChart({
     <div ref={scroller} className="h-full overflow-auto">
       {/* 用 flex 而不是 grid：grid 单元格会把 sticky 限制在本列里，横向滚动时名称列会被滚走 */}
       <div style={{ width: LABEL_WIDTH + width }}>
-        <div className="sticky top-0 z-20 flex bg-white">
+        <div className="sticky top-0 z-20 flex bg-surface">
           <div
-            className="sticky left-0 z-30 flex shrink-0 items-end border-r border-b border-slate-200 bg-white px-3 pb-2 text-xs text-slate-500"
+            className="sticky left-0 z-30 flex shrink-0 items-end border-r border-b border-line-subtle bg-surface px-3 pb-2 text-xs text-fg-muted"
             style={{ width: LABEL_WIDTH, height: HEADER }}
           >
             {labelTitle}
@@ -266,11 +266,14 @@ export function GanttChart({
           <canvas ref={header} className="shrink-0" />
         </div>
         <div className="flex">
-          <ol className="sticky left-0 z-10 shrink-0 border-r border-slate-200 bg-white" style={{ width: LABEL_WIDTH }}>
+          <ol
+            className="sticky left-0 z-10 shrink-0 border-r border-line-subtle bg-surface"
+            style={{ width: LABEL_WIDTH }}
+          >
             {rows.map((row) => (
               <li
                 key={row.key}
-                className="flex items-center gap-1 truncate border-b border-slate-100 pr-3 text-xs"
+                className="flex items-center gap-1 truncate border-b border-line-subtle pr-3 text-xs"
                 style={{ height: ROW, paddingLeft: 12 + (row.depth ?? 0) * 16 }}
                 title={row.label}
               >
@@ -278,16 +281,16 @@ export function GanttChart({
                   <button
                     type="button"
                     aria-expanded={row.expanded ?? false}
-                    className="flex min-w-0 items-center gap-1 font-medium hover:text-sky-700"
+                    className="flex min-w-0 items-center gap-1 font-medium hover:text-brand-600"
                     onClick={() => onToggle(row.key)}
                   >
-                    <span className="w-3 shrink-0 text-slate-400">{row.expanded ? "▾" : "▸"}</span>
+                    <span className="w-3 shrink-0 text-fg-subtle">{row.expanded ? "▾" : "▸"}</span>
                     <span className="truncate">{row.label}</span>
                   </button>
                 ) : (
                   <span className="truncate">{row.label}</span>
                 )}
-                {row.pinned && <span className="shrink-0 text-[10px] text-slate-400">手动</span>}
+                {row.pinned && <span className="shrink-0 text-[10px] text-fg-subtle">手动</span>}
               </li>
             ))}
           </ol>

@@ -1,15 +1,55 @@
 import { mutators, queries } from "@fp/sync";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { useActiveSpace } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+import { Field, Input } from "@/components/ui/input";
+import { EmptyState, PageBody, PageHeader } from "@/components/ui/page";
 import { newId } from "@/lib/utils";
 
 export function SpacesPage() {
+  const [spaces, result] = useQuery(queries.spaces.mine());
+  useActiveSpace(null);
+
+  return (
+    <>
+      <PageHeader title="我的空间" actions={<CreateSpace />} />
+      <PageBody>
+        {spaces.length === 0 && result.type === "complete" ? (
+          <EmptyState
+            title="还没有空间"
+            description="空间是一个团队协作的地方：里面有工作项类型、流程和成员。先建一个。"
+            action={<CreateSpace />}
+          />
+        ) : (
+          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {spaces.map((space) => (
+              <li key={space.id}>
+                <Link
+                  to="/spaces/$spaceId"
+                  params={{ spaceId: space.id }}
+                  className="flex items-center gap-3 rounded-lg border border-line-subtle bg-surface p-4 shadow-card transition-colors hover:border-brand-300"
+                >
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-base font-semibold text-violet-600">
+                    {space.name.slice(0, 1)}
+                  </span>
+                  <span className="truncate font-medium">{space.name}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PageBody>
+    </>
+  );
+}
+
+function CreateSpace() {
   const zero = useZero();
-  const [spaces] = useQuery(queries.spaces.mine());
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
 
   function create(event: FormEvent) {
@@ -17,39 +57,30 @@ export function SpacesPage() {
     if (!name.trim()) return;
     zero.mutate(mutators.space.create({ id: newId(), name: name.trim() }));
     setName("");
+    setOpen(false);
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
-      <h1 className="text-xl font-semibold">我的空间</h1>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {spaces.map((space) => (
-          <Link key={space.id} to="/spaces/$spaceId" params={{ spaceId: space.id }}>
-            <Card className="transition-colors hover:border-sky-400">
-              <CardHeader>
-                <CardTitle>{space.name}</CardTitle>
-              </CardHeader>
-            </Card>
-          </Link>
-        ))}
-        {spaces.length === 0 && <p className="text-sm text-slate-500">还没有空间，先建一个。</p>}
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>新建空间</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form className="flex gap-2" onSubmit={create}>
-            <Input
-              aria-label="空间名称"
-              placeholder="空间名称"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button>
+          <Plus />
+          新建空间
+        </Button>
+      </DialogTrigger>
+      <DialogContent title="新建空间">
+        <form className="flex flex-col gap-5" onSubmit={create}>
+          <Field label="空间名称">
+            <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              取消
+            </Button>
             <Button type="submit">创建</Button>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

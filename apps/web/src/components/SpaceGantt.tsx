@@ -100,11 +100,11 @@ export function SpaceGantt({
 
   return (
     <div className="flex flex-col gap-2">
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-danger-600">{error}</p>}
       {rows.length === 0 ? (
-        <p className="py-4 text-sm text-slate-500">还没有排期的工作项。</p>
+        <p className="py-4 text-sm text-fg-muted">还没有排期的工作项。</p>
       ) : (
-        <div className="h-[480px] rounded-md border border-slate-200">
+        <div className="h-[480px] rounded-md border border-line-subtle">
           <GanttChart
             rows={rows}
             deps={deps}

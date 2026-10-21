@@ -1,8 +1,10 @@
 import { mutators, queries } from "@fp/sync";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link } from "@tanstack/react-router";
+import { X } from "lucide-react";
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select } from "@/components/ui/input";
+import { Panel } from "@/components/ui/page";
 import { newId } from "@/lib/utils";
 
 interface ItemRef {
@@ -52,11 +54,8 @@ export function RelationsCard({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>关联</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 text-sm">
+    <Panel title="关联">
+      <div className="flex flex-col gap-4">
         {defs.map((def) => (
           <RelationGroup
             key={def.id}
@@ -72,20 +71,20 @@ export function RelationsCard({
         ))}
         {backlinks.length > 0 && (
           <section aria-label="被关联" className="flex flex-col gap-1">
-            <div className="font-medium">被关联</div>
+            <div className="text-fg-muted">被关联</div>
             <ul className="flex flex-col gap-1">
               {backlinks.map((r) => (
                 <li key={r.id}>
                   <ItemLink item={r.item as ItemRef} />
-                  <span className="text-slate-500">（{r.def?.name}）</span>
+                  <span className="text-fg-subtle">（{r.def?.name}）</span>
                 </li>
               ))}
             </ul>
           </section>
         )}
-        {error && <p className="text-red-600">{error}</p>}
-      </CardContent>
-    </Card>
+        {error && <p className="text-danger-600">{error}</p>}
+      </div>
+    </Panel>
   );
 }
 
@@ -111,9 +110,9 @@ function RelationGroup({
 
   return (
     <section aria-label={def.name} className="flex flex-col gap-1">
-      <div className="font-medium">
+      <div className="text-fg-muted">
         {def.name}
-        <span className="ml-1 font-normal text-slate-400">{def.cardinality === "one" ? "单个" : "多个"}</span>
+        <span className="ml-1 text-xs text-fg-subtle">{def.cardinality === "one" ? "单个" : "多个"}</span>
       </div>
       <ul className="flex flex-col gap-1">
         {linked.map(
@@ -124,35 +123,30 @@ function RelationGroup({
                 <button
                   type="button"
                   aria-label={`取消关联 ${r.item.name}`}
-                  className="text-slate-400 hover:text-red-600"
+                  className="cursor-pointer rounded p-0.5 text-fg-subtle hover:bg-hover hover:text-danger-600"
                   onClick={() => onRemove(r.id)}
                 >
-                  ×
+                  <X className="size-3.5" />
                 </button>
               </li>
             ),
         )}
       </ul>
-      <select
-        aria-label={`添加${def.name}`}
-        value=""
-        onChange={(e) => e.target.value && onAdd(e.target.value)}
-        className="h-8 rounded-md border border-slate-300 bg-white px-1.5 text-sm text-slate-600"
-      >
+      <Select aria-label={`添加${def.name}`} value="" onChange={(e) => e.target.value && onAdd(e.target.value)}>
         <option value="">{def.cardinality === "one" && linked.length > 0 ? "更换为…" : "添加…"}</option>
         {options.map((c) => (
           <option key={c.id} value={c.id}>
             {c.name}
           </option>
         ))}
-      </select>
+      </Select>
     </section>
   );
 }
 
 function ItemLink({ item }: { item: ItemRef }) {
   return (
-    <Link to="/items/$itemId" params={{ itemId: item.id }} className="truncate text-sky-700 hover:underline">
+    <Link to="/items/$itemId" params={{ itemId: item.id }} className="truncate text-brand-500 hover:text-brand-600">
       {item.name}
     </Link>
   );
