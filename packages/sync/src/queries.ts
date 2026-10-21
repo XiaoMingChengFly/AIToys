@@ -1,7 +1,7 @@
 import { fieldIndex } from "@fp/engine";
-import { defineQueries, defineQuery } from "@rocicorp/zero";
+import { defineQueries, defineQuery, type ExpressionBuilder } from "@rocicorp/zero";
 import { z } from "zod";
-import { zql } from "./schema.gen.ts";
+import { type Schema, zql } from "./schema.gen.ts";
 import { workItemFilter } from "./views.ts";
 
 /*
@@ -70,6 +70,18 @@ function visibleFieldValues(userID: string) {
     );
 }
 
+/**
+ * 事件的可见范围：改受限字段的事件（fieldChanged）跟字段值一样，只给能看到这个字段的人；
+ * 其余事件随工作项可见。
+ */
+function visibleEvent(userID: string) {
+  return ({ or, cmp, exists }: ExpressionBuilder<"eventLog", Schema>) =>
+    or(
+      cmp("fieldKey", "IS", null),
+      exists("fieldValue", (v) => visibleFieldValues(userID)(v)),
+    );
+}
+
 export const queries = defineQueries({
   spaces: {
     mine: defineQuery(({ ctx }) =>
@@ -102,7 +114,7 @@ export const queries = defineQueries({
           r
             .orderBy("id", "desc")
             .limit(10)
-            .related("event", (e) => e.related("workItem")),
+            .related("event", (e) => e.where(visibleEvent(ctx.userID)).related("workItem")),
         )
         .orderBy("createdAt", "asc"),
     ),
@@ -188,6 +200,20 @@ export const queries = defineQueries({
         .related("outgoing", (r) => r.related("to").related("def"))
         .related("incoming", (r) => r.related("from").related("def"))
         .one(),
+    ),
+    /** 工作项动态：最近的事件，新的在前。受限字段的改动只给能看到这个字段的人。 */
+    activity: defineQuery(
+      z.object({ workItemId: z.string(), limit: z.number().int().min(1).max(500) }),
+      ({ args, ctx }) =>
+        zql.eventLog
+          .where("workItemId", args.workItemId)
+          .whereExists("workItem", (w) =>
+            w.whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID))),
+          )
+          .where(visibleEvent(ctx.userID))
+          .related("actorUser")
+          .orderBy("id", "desc")
+          .limit(args.limit),
     ),
   },
   myWork: {

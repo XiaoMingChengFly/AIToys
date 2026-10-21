@@ -539,6 +539,8 @@ export const eventLog = pgTable(
     workItemId: text("work_item_id").references(() => workItem.id),
     kind: text("kind").notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    /** fieldChanged 事件改的字段：动态按它对上字段值的可见范围，受限字段的改动只给能看的人。 */
+    fieldKey: text("field_key"),
     /** 操作人；系统和自动化写入时为空。 */
     actor: text("actor"),
     /** 引发本事件的上游事件，用于追踪自动化连锁和做循环保护。 */
@@ -749,6 +751,11 @@ export const nodeConfirmationRelations = relations(nodeConfirmation, ({ one }) =
 
 export const eventLogRelations = relations(eventLog, ({ one }) => ({
   workItem: one(workItem, { fields: [eventLog.workItemId], references: [workItem.id] }),
+  actorUser: one(user, { fields: [eventLog.actor], references: [user.id] }),
+  fieldValue: one(fieldValue, {
+    fields: [eventLog.workItemId, eventLog.fieldKey],
+    references: [fieldValue.workItemId, fieldValue.fieldKey],
+  }),
 }));
 
 export const automationRunRelations = relations(automationRun, ({ one }) => ({

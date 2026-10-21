@@ -20,6 +20,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { Background, Controls, type Edge, MarkerType, type Node, Position, ReactFlow } from "@xyflow/react";
 import { Check, ChevronRight, CircleCheck, CircleDashed, CircleDot, Undo2 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
+import { ActivityCard } from "@/components/ActivityCard";
 import { useActiveSpace } from "@/components/AppShell";
 import { CommentsCard } from "@/components/CommentsCard";
 import { CompleteNodeDialog } from "@/components/CompleteNodeDialog";
@@ -80,6 +81,8 @@ export function WorkItemPage() {
   const [rolesOpen, setRolesOpen] = useState(false);
   /** 正在填完成表单的节点。 */
   const [completing, setCompleting] = useState<string | null>(null);
+  /** 侧栏底部：评论还是动态。 */
+  const [discussion, setDiscussion] = useState<"comments" | "activity">("comments");
   useActiveSpace(item?.spaceId);
 
   if (!item)
@@ -402,7 +405,35 @@ export function WorkItemPage() {
             )}
           </fieldset>
 
-          <CommentsCard workItemId={item.id} comments={item.comments} members={members} />
+          <section aria-label="评论和动态" className="flex flex-col gap-3 px-5 pb-4">
+            <Tabs
+              label="评论和动态"
+              value={discussion}
+              onChange={setDiscussion}
+              items={[
+                ["comments", `评论${item.comments.length ? ` ${item.comments.length}` : ""}`],
+                ["activity", "动态"],
+              ]}
+            />
+            {discussion === "comments" ? (
+              <CommentsCard workItemId={item.id} comments={item.comments} members={members} />
+            ) : (
+              <ActivityCard
+                workItemId={item.id}
+                context={{
+                  nodeName: (key) => graph?.nodes.find((n) => n.key === key)?.name ?? key,
+                  statusName: (key) => statusDefinition?.statuses.find((s) => s.key === key)?.name ?? key,
+                  fields: item.type?.fields ?? [],
+                  roles: typeRoles,
+                  relationDefs: item.type?.relationDefs ?? [],
+                  userName: nameOf,
+                  itemName: (id) =>
+                    item.outgoing.find((r) => r.toId === id)?.to?.name ??
+                    item.incoming.find((r) => r.fromId === id)?.from?.name,
+                }}
+              />
+            )}
+          </section>
         </aside>
         {completingNode && (
           <CompleteNodeDialog

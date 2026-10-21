@@ -33,6 +33,7 @@ export async function appendEvents(tx: Tx, events: NewEvent[]): Promise<number[]
         workItemId: e.workItemId ?? null,
         kind: e.kind,
         payload: e.payload,
+        fieldKey: e.kind === "fieldChanged" && typeof e.payload.fieldKey === "string" ? e.payload.fieldKey : null,
         actor: e.actor ?? null,
         causedBy: e.causedBy ?? null,
       })),
