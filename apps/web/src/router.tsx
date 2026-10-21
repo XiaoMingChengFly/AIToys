@@ -5,6 +5,7 @@ import { authClient } from "@/lib/auth";
 import { ZeroRoot } from "@/lib/zero";
 import { AutomationsPage } from "@/pages/AutomationsPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { MyWorkPage } from "@/pages/MyWorkPage";
 import { SpacePage } from "@/pages/SpacePage";
 import { SpaceSettingsPage } from "@/pages/SpaceSettingsPage";
 import { SpacesPage } from "@/pages/SpacesPage";
@@ -54,6 +55,7 @@ const automationsRoute = createRoute({
   path: "/spaces/$spaceId/automations",
   component: AutomationsPage,
 });
+const myWorkRoute = createRoute({ getParentRoute: () => appRoute, path: "/my-work", component: MyWorkPage });
 const itemRoute = createRoute({ getParentRoute: () => appRoute, path: "/items/$itemId", component: WorkItemPage });
 const typeRoute = createRoute({ getParentRoute: () => appRoute, path: "/types/$typeId", component: TypePage });
 const templateRoute = createRoute({
@@ -65,7 +67,16 @@ const templateRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   demoRoute,
-  appRoute.addChildren([spacesRoute, spaceRoute, settingsRoute, automationsRoute, itemRoute, typeRoute, templateRoute]),
+  appRoute.addChildren([
+    spacesRoute,
+    myWorkRoute,
+    spaceRoute,
+    settingsRoute,
+    automationsRoute,
+    itemRoute,
+    typeRoute,
+    templateRoute,
+  ]),
 ]);
 
 export const router = createRouter({ routeTree });

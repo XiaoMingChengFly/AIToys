@@ -130,6 +130,33 @@ export const queries = defineQueries({
         .one(),
     ),
   },
+  myWork: {
+    /**
+     * “我的工作”里的节点：所有空间里我参与的、还在进行中的工作项，带上进行中的节点。
+     * 节点负责人存在 jsonb 数组里，查询过滤不了，由前端挑出负责人里有自己的节点。
+     */
+    nodes: defineQuery(({ ctx }) =>
+      zql.workItem
+        .where("status", "inProgress")
+        .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID)))
+        .whereExists("roleMembers", (r) => r.where("userId", ctx.userID))
+        .whereExists("nodes", (n) => n.where("state", "inProgress"))
+        .related("space")
+        .related("type")
+        .related("flowVersion")
+        .related("nodes", (n) => n.where("state", "inProgress")),
+    ),
+    /** 分给我、还没完成的子任务。 */
+    tasks: defineQuery(({ ctx }) =>
+      zql.nodeTask
+        .where("assigneeId", ctx.userID)
+        .where("done", false)
+        .whereExists("workItem", (w) =>
+          w.whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID))),
+        )
+        .related("workItem", (w) => w.related("space").related("flowVersion")),
+    ),
+  },
   notifications: {
     /** 自己最近的通知。 */
     mine: defineQuery(({ ctx }) =>

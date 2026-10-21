@@ -1,7 +1,7 @@
 import { queries } from "@fp/sync";
 import { useQuery } from "@rocicorp/zero/react";
 import { Link } from "@tanstack/react-router";
-import { ChevronsUpDown, House, LayoutList, LogOut, Settings, Zap } from "lucide-react";
+import { ChevronsUpDown, House, Inbox, LayoutList, LogOut, Settings, Zap } from "lucide-react";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { Avatar } from "@/components/ui/avatar";
@@ -55,6 +55,13 @@ function Sidebar({ spaceId, user }: { spaceId: string | undefined; user: { id: s
           飞
         </span>
         <span className="font-semibold">飞书项目</span>
+      </div>
+
+      <div className="px-3 pb-2">
+        <Link to="/my-work" className={navItem}>
+          <Inbox />
+          我的工作
+        </Link>
       </div>
 
       <div className="px-3 pb-2">
