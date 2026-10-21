@@ -1,0 +1,30 @@
+{
+  "name": "@fp/web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fp/engine": "workspace:*",
+    "@tanstack/react-query": "5.90.2",
+    "@tanstack/react-router": "1.132.47",
+    "@xyflow/react": "12.8.6",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.14",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "globals": "^16.0.0",
+    "tailwindcss": "4.1.14",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5"
+  }
+}
