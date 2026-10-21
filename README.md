@@ -62,8 +62,10 @@ pnpm --filter @fp/api dev   # API http://localhost:3000
 
 ```bash
 docker compose up -d                   # Postgres :5432、Temporal :7233、Temporal UI http://localhost:8080、zero-cache :4848，并跑迁移
-docker compose --profile app up -d     # 再加 API :3000、Temporal worker、Outbox 中继（部署时设 ZERO_API_ORIGIN=http://api:3000）
+docker compose --profile app up -d     # 再加 API :3000、Temporal worker、Outbox 中继（端到端测试时设 ZERO_API_ORIGIN=http://api:3000）
 ```
+
+上线部署（一台服务器、一个域名、自动 HTTPS、备份）见 [deploy/README.md](deploy/README.md)。
 
 集成测试需要真实的 Postgres 和 Temporal：
 
@@ -95,6 +97,7 @@ pnpm db:generate   # 生成迁移，并重新生成 Zero schema
 - [x] 详情页布局：管理员在类型配置里把字段分组、排序、设为不显示，分组可以默认收起；新建表单按同样的顺序
 - [x] 开放接口：账号菜单「开放接口」里创建个人访问令牌，用 `Authorization: Bearer` 调 `/open-api/v1`（空间、工作项查询和详情、新建、改字段、确认节点、状态流转、评论），权限和本人一致；文档在 `/open-api/v1/docs`
 - [x] Webhook：空间设置里配置推送地址和订阅的事件，请求带 HMAC-SHA256 签名，失败按退避重试 5 次，推送记录可查；默认不推送到内网地址（`WEBHOOK_ALLOW_PRIVATE=true` 放开）
+- [x] 上线部署：`deploy/` 下的生产 Compose 配置（Caddy 自动 HTTPS、前端和 API、Zero 同域名、内部端口不暴露、密钥必填）、备份脚本和部署说明
 - [x] 仪表盘：空间里进行中、近 7 天新建和完成、延期数量，阶段和类型分布，最近 8 周新建和完成趋势，延期节点列表和每人负载；可以按类型筛选
 - [x] OEM 流程演示页
 - [ ] 排期引擎（正排、倒排、多参照）

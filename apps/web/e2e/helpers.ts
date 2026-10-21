@@ -5,7 +5,10 @@ export const PASSWORD = "correct-horse-battery";
 
 /** 用接口注册一个同事账号（不影响当前页面的登录态）。 */
 export async function registerColleague(email: string, name: string) {
-  const api = await request.newContext({ baseURL: API_URL, extraHTTPHeaders: { origin: "http://localhost:5173" } });
+  const api = await request.newContext({
+    baseURL: API_URL,
+    extraHTTPHeaders: { origin: process.env.WEB_URL ?? "http://localhost:5173" },
+  });
   const res = await api.post("/api/auth/sign-up/email", { data: { email, password: PASSWORD, name } });
   expect(res.ok()).toBe(true);
 }

@@ -1,0 +1,33 @@
+# 一个域名对外：前端静态文件、API、开放接口、Zero 同步都走这里。
+# SITE_ADDRESS 是域名时 Caddy 自动申请和续期 HTTPS 证书；设成 :80 时只走 HTTP（本机试跑用）。
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	@api path /api/* /open-api/*
+	handle @api {
+		reverse_proxy api:3000
+	}
+
+	# 浏览器连 https://域名/zero，去掉前缀后交给 zero-cache（含 WebSocket）
+	handle_path /zero/* {
+		reverse_proxy zero-cache:4848
+	}
+
+	handle {
+		root * /srv
+		# 带哈希的静态资源长期缓存；其余（index.html 和前端路由）每次都重新取，发版后立刻生效
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@pages not path /assets/*
+		header @pages Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

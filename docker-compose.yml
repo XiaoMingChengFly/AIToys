@@ -1,6 +1,7 @@
 # 本地开发和部署共用。
 #   docker compose up -d                 只起基础设施和迁移：Postgres、Temporal + UI、zero-cache。api/worker/web 用 pnpm dev 在本机跑
-#   docker compose --profile app up -d   连同 api、Temporal worker、Outbox 中继一起起（部署用）
+#   docker compose --profile app up -d   连同 api、Temporal worker、Outbox 中继一起起（端到端测试用）
+# 上线部署见 deploy/README.md：叠加 deploy/docker-compose.prod.yml，加上 HTTPS 和前端，不对外暴露内部端口
 # 端口：Postgres 5432、API 3000、zero-cache 4848、Temporal 7233、Temporal UI 8080
 name: feishu-project
 
@@ -10,7 +11,7 @@ x-app: &app
   restart: unless-stopped
   profiles: [app]
   environment: &app-env
-    DATABASE_URL: postgresql://feishu:feishu@postgres:5432/feishu
+    DATABASE_URL: postgresql://feishu:${POSTGRES_PASSWORD:-feishu}@postgres:5432/feishu
     TEMPORAL_ADDRESS: temporal:7233
     TEMPORAL_TASK_QUEUE: fp-events
     # 部署时务必换成随机长字符串：openssl rand -base64 32
@@ -29,7 +30,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: feishu
-      POSTGRES_PASSWORD: feishu
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-feishu}
       POSTGRES_DB: postgres
     # Zero 依赖逻辑复制
     command: >
@@ -127,9 +128,9 @@ services:
       # publication 由迁移创建
       migrate: { condition: service_completed_successfully }
     environment:
-      ZERO_UPSTREAM_DB: postgresql://feishu:feishu@postgres:5432/feishu
-      ZERO_CVR_DB: postgresql://feishu:feishu@postgres:5432/zero
-      ZERO_CHANGE_DB: postgresql://feishu:feishu@postgres:5432/zero
+      ZERO_UPSTREAM_DB: postgresql://feishu:${POSTGRES_PASSWORD:-feishu}@postgres:5432/feishu
+      ZERO_CVR_DB: postgresql://feishu:${POSTGRES_PASSWORD:-feishu}@postgres:5432/zero
+      ZERO_CHANGE_DB: postgresql://feishu:${POSTGRES_PASSWORD:-feishu}@postgres:5432/zero
       ZERO_REPLICA_FILE: /data/zero.db
       ZERO_APP_PUBLICATIONS: zero_pub
       # 查询和写操作转发给 api。开发时 api 在本机跑；用 --profile app 起时设 ZERO_API_ORIGIN=http://api:3000
@@ -137,7 +138,7 @@ services:
       ZERO_MUTATE_URL: ${ZERO_API_ORIGIN:-http://host.docker.internal:3000}/api/zero/mutate
       ZERO_QUERY_FORWARD_COOKIES: "true"
       ZERO_MUTATE_FORWARD_COOKIES: "true"
-      ZERO_ADMIN_PASSWORD: feishu-dev
+      ZERO_ADMIN_PASSWORD: ${ZERO_ADMIN_PASSWORD:-feishu-dev}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
