@@ -1,0 +1,118 @@
+# 本地开发和部署共用的基础设施：Postgres（应用库 + Temporal 库）、Temporal、zero-cache。
+# 应用进程（api、worker、web）开发时用 pnpm dev 在本机跑。
+name: feishu-project
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg17
+    shm_size: 1g
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: feishu
+      POSTGRES_PASSWORD: feishu
+      POSTGRES_DB: postgres
+    # Zero 依赖逻辑复制
+    command: >
+      postgres
+      -c wal_level=logical
+      -c max_wal_senders=10
+      -c max_replication_slots=10
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U feishu"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  temporal-setup:
+    image: temporalio/admin-tools:1.31.0
+    restart: on-failure:6
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: postgres
+      SQL_PASSWORD: temporal
+    volumes:
+      - ./infra/temporal/scripts:/scripts:ro
+    entrypoint: ["/bin/sh"]
+    command: /scripts/setup-postgres.sh
+
+  temporal:
+    image: temporalio/server:1.31.0
+    restart: unless-stopped
+    depends_on:
+      temporal-setup: { condition: service_completed_successfully }
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: postgres
+      BIND_ON_IP: 0.0.0.0
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    ports:
+      - "7233:7233"
+    volumes:
+      - ./infra/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "7233"]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 60
+
+  temporal-namespace:
+    image: temporalio/admin-tools:1.31.0
+    restart: on-failure:5
+    depends_on:
+      temporal: { condition: service_healthy }
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      DEFAULT_NAMESPACE: default
+    volumes:
+      - ./infra/temporal/scripts:/scripts:ro
+    entrypoint: ["/bin/sh"]
+    command: /scripts/create-namespace.sh
+
+  temporal-ui:
+    image: temporalio/ui:2.49.1
+    restart: unless-stopped
+    depends_on:
+      temporal: { condition: service_healthy }
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "8080:8080"
+
+  zero-cache:
+    image: rocicorp/zero:1.9.0
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      ZERO_UPSTREAM_DB: postgresql://feishu:feishu@postgres:5432/feishu
+      ZERO_REPLICA_FILE: /data/zero.db
+      ZERO_APP_PUBLICATIONS: zero_pub
+      # 查询和写操作都转发给本机跑的 api（开发时）
+      ZERO_QUERY_URL: http://host.docker.internal:3000/api/zero/query
+      ZERO_MUTATE_URL: http://host.docker.internal:3000/api/zero/mutate
+      ZERO_QUERY_FORWARD_COOKIES: "true"
+      ZERO_MUTATE_FORWARD_COOKIES: "true"
+      ZERO_ADMIN_PASSWORD: feishu-dev
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "4848:4848"
+    volumes:
+      - zerodata:/data
+
+volumes:
+  pgdata:
+  zerodata:
