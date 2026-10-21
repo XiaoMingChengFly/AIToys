@@ -669,3 +669,45 @@ describe("automation rules", () => {
     expect(await runsOf(ruleId)).toEqual([]);
   });
 });
+
+describe("saved views", () => {
+  const spaceId = randomUUID();
+  let admin: { cookie: string; userId: string };
+  let member: { cookie: string; userId: string };
+
+  beforeAll(async () => {
+    admin = await signUp(`view-admin-${spaceId}@example.com`);
+    member = await signUp(`view-member-${spaceId}@example.com`);
+    await services.zero.run("space.create", { id: spaceId, name: "视图" }, admin.userId);
+    await services.database.db.insert(schema.spaceMember).values({ spaceId, userId: member.userId });
+  });
+
+  const viewsOf = () =>
+    services.database.db.select().from(schema.savedView).where(eq(schema.savedView.spaceId, spaceId));
+
+  it("lets members save views with only the conditions that have values", async () => {
+    const id = randomUUID();
+    await services.zero.run(
+      "view.create",
+      { id, spaceId, name: "进行中", filter: { statuses: ["inProgress"], typeIds: [] } },
+      member.userId,
+    );
+    expect(await viewsOf()).toMatchObject([{ id, name: "进行中", filter: { statuses: ["inProgress"] } }]);
+    expect((await viewsOf())[0]?.filter).not.toHaveProperty("typeIds");
+  });
+
+  it("refuses outsiders, and only the creator or an admin can delete", async () => {
+    const outsider = await signUp(`view-outsider-${randomUUID()}@example.com`);
+    await expect(
+      services.zero.run("view.create", { id: randomUUID(), spaceId, name: "x", filter: {} }, outsider.userId),
+    ).rejects.toThrow("不是空间成员");
+
+    const id = randomUUID();
+    await services.zero.run("view.create", { id, spaceId, name: "管理员的", filter: {} }, admin.userId);
+    await expect(services.zero.run("view.delete", { id }, member.userId)).rejects.toThrow("创建人或空间管理员");
+    const [mine] = await viewsOf();
+    await services.zero.run("view.delete", { id: mine?.id as string }, admin.userId);
+    await services.zero.run("view.delete", { id }, admin.userId);
+    expect(await viewsOf()).toEqual([]);
+  });
+});

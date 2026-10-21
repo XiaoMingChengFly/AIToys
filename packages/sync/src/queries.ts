@@ -1,11 +1,27 @@
 import { defineQueries, defineQuery } from "@rocicorp/zero";
 import { z } from "zod";
 import { zql } from "./schema.gen.ts";
+import { workItemFilter } from "./views.ts";
 
 /*
  * 前端只能通过这里定义的查询读数据。每个查询都在服务端按登录用户再执行一遍，
  * 所以权限过滤写在查询里：只能看到自己所在空间的数据。
  */
+
+const spaceItemsArgs = z.object({ spaceId: z.string(), filter: workItemFilter.optional() });
+
+/** 空间里当前用户能看到、并且符合筛选条件的工作项。 */
+function spaceItems({ spaceId, filter = {} }: z.output<typeof spaceItemsArgs>, userID: string) {
+  let q = zql.workItem
+    .where("spaceId", spaceId)
+    .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", userID)));
+  if (filter.typeIds?.length) q = q.where("typeId", "IN", filter.typeIds);
+  if (filter.statuses?.length) q = q.where("status", "IN", filter.statuses);
+  if (filter.stages?.length) q = q.where("stage", "IN", filter.stages);
+  const memberIds = filter.memberIds;
+  if (memberIds?.length) q = q.whereExists("roleMembers", (r) => r.where("userId", "IN", memberIds));
+  return q;
+}
 
 export const queries = defineQueries({
   spaces: {
@@ -17,6 +33,7 @@ export const queries = defineQueries({
         .where("id", args.id)
         .whereExists("members", (m) => m.where("userId", ctx.userID))
         .related("members", (m) => m.related("user"))
+        .related("views", (v) => v.orderBy("createdAt", "asc"))
         .related("workItemTypes", (t) =>
           t
             .related("fields")
@@ -75,18 +92,13 @@ export const queries = defineQueries({
     ),
   },
   workItems: {
-    bySpace: defineQuery(z.object({ spaceId: z.string() }), ({ args, ctx }) =>
-      zql.workItem
-        .where("spaceId", args.spaceId)
-        .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID)))
-        .related("type")
-        .orderBy("createdAt", "desc"),
+    /** 空间的工作项列表，按筛选条件过滤（在服务端执行，只同步命中的工作项）。 */
+    bySpace: defineQuery(spaceItemsArgs, ({ args, ctx }) =>
+      spaceItems(args, ctx.userID).related("type").orderBy("createdAt", "desc"),
     ),
     /** 空间甘特图：工作项连同节点排期和流程定义。改排期的 mutator 在前端乐观执行时也要读这些。 */
-    plansBySpace: defineQuery(z.object({ spaceId: z.string() }), ({ args, ctx }) =>
-      zql.workItem
-        .where("spaceId", args.spaceId)
-        .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID)))
+    plansBySpace: defineQuery(spaceItemsArgs, ({ args, ctx }) =>
+      spaceItems(args, ctx.userID)
         .related("flowVersion")
         .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID)))
         .related("fieldValues")

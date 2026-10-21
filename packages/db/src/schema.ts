@@ -257,6 +257,29 @@ export const automationRule = pgTable("automation_rule", {
   updatedAt: updatedAt(),
 });
 
+/** 工作项列表的筛选条件。各项之间是“且”，同一项里的多个值是“或”；为空表示不限。 */
+export interface WorkItemFilter {
+  typeIds?: string[];
+  statuses?: WorkItemStatus[];
+  stages?: string[];
+  /** 在任一角色里的成员。 */
+  memberIds?: string[];
+}
+
+/** 保存下来的工作项视图：空间成员都能看到和使用。 */
+export const savedView = pgTable("saved_view", {
+  id: text("id").primaryKey(),
+  spaceId: text("space_id")
+    .notNull()
+    .references(() => space.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  filter: jsonb("filter").$type<WorkItemFilter>().notNull(),
+  createdBy: text("created_by")
+    .notNull()
+    .references(() => user.id),
+  createdAt: createdAt(),
+});
+
 // ───────────── 实例层 ─────────────
 
 export const workItem = pgTable(
@@ -457,6 +480,7 @@ export const spaceRelations = relations(space, ({ many }) => ({
   workItemTypes: many(workItemType),
   workItems: many(workItem),
   automationRules: many(automationRule),
+  views: many(savedView),
 }));
 
 export const spaceMemberRelations = relations(spaceMember, ({ one }) => ({
@@ -501,6 +525,11 @@ export const flowVersionRelations = relations(flowVersion, ({ one }) => ({
     references: [flowTemplate.id],
     relationName: "versions",
   }),
+}));
+
+export const savedViewRelations = relations(savedView, ({ one }) => ({
+  space: one(space, { fields: [savedView.spaceId], references: [space.id] }),
+  creator: one(user, { fields: [savedView.createdBy], references: [user.id] }),
 }));
 
 export const automationRuleRelations = relations(automationRule, ({ one, many }) => ({

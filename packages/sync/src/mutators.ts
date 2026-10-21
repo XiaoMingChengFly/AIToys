@@ -34,6 +34,7 @@ import {
   saveDraft,
   saveDraftArgs,
 } from "./templates.ts";
+import { createView, createViewArgs, deleteView, deleteViewArgs } from "./views.ts";
 import { createWorkItem, createWorkItemArgs } from "./work-items.ts";
 
 /*
@@ -101,6 +102,10 @@ export const mutators = defineMutators({
     create: defineMutator(createAutomationArgs, ({ tx, args, ctx }) => createAutomation(tx, args, ctx.userID)),
     update: defineMutator(updateAutomationArgs, ({ tx, args, ctx }) => updateAutomation(tx, args, ctx.userID)),
     delete: defineMutator(deleteAutomationArgs, ({ tx, args, ctx }) => deleteAutomation(tx, args, ctx.userID)),
+  },
+  view: {
+    create: defineMutator(createViewArgs, ({ tx, args, ctx }) => createView(tx, args, ctx.userID)),
+    delete: defineMutator(deleteViewArgs, ({ tx, args, ctx }) => deleteView(tx, args, ctx.userID)),
   },
   workItemType: {
     create: defineMutator(createTypeArgs, ({ tx, args, ctx }) => createType(tx, args, ctx.userID)),
