@@ -1,6 +1,14 @@
 import { defineMutator, defineMutators, type Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import {
+  createAutomation,
+  createAutomationArgs,
+  deleteAutomation,
+  deleteAutomationArgs,
+  updateAutomation,
+  updateAutomationArgs,
+} from "./automations.ts";
+import {
   confirmNode,
   nodeActionArgs,
   recomputeFlow,
@@ -88,6 +96,11 @@ export const mutators = defineMutators({
     setCalendar: defineMutator(setCalendarArgs, async ({ tx, args, ctx }) => {
       await setSpaceCalendar(tx, args, ctx.userID);
     }),
+  },
+  automation: {
+    create: defineMutator(createAutomationArgs, ({ tx, args, ctx }) => createAutomation(tx, args, ctx.userID)),
+    update: defineMutator(updateAutomationArgs, ({ tx, args, ctx }) => updateAutomation(tx, args, ctx.userID)),
+    delete: defineMutator(deleteAutomationArgs, ({ tx, args, ctx }) => deleteAutomation(tx, args, ctx.userID)),
   },
   workItemType: {
     create: defineMutator(createTypeArgs, ({ tx, args, ctx }) => createType(tx, args, ctx.userID)),

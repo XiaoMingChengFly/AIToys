@@ -27,7 +27,7 @@ export const createFieldArgs = z.object({
 });
 export const createTemplateArgs = z.object({ id: z.string(), typeId: z.string(), key, name: z.string().min(1) });
 
-const condition: z.ZodType<Condition, Condition> = z.lazy(() =>
+export const condition: z.ZodType<Condition, Condition> = z.lazy(() =>
   z.union([
     z.object({ kind: z.literal("equal"), field: z.string(), value: z.union([z.string(), z.number(), z.boolean()]) }),
     z.object({ kind: z.literal("notEmpty"), field: z.string() }),
@@ -63,7 +63,7 @@ export function flowVersionId(templateId: string, version: number): string {
   return `${templateId}/v${version}`;
 }
 
-async function assertAdmin(tx: Transaction, spaceId: string, userID: string) {
+export async function assertAdmin(tx: Transaction, spaceId: string, userID: string) {
   const member = await tx.run(zql.spaceMember.where("spaceId", spaceId).where("userId", userID).one());
   if (!member?.isAdmin) throw new Error("只有空间管理员可以修改配置。");
 }

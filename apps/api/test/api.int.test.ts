@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { schema } from "@fp/db";
 import { createTestDatabase } from "@fp/db/testing";
 import { dayInTimeZone, dayToIso, oemV289 } from "@fp/engine";
+import { createMutatorRunner, matchRules, runRule } from "@fp/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp, createServices, type Services } from "../src/app.ts";
@@ -530,5 +531,141 @@ describe("configuring a type and its flow template", () => {
       [2, false, ["qa"]],
     ]);
     await expect(run("flowTemplate.publish", { versionId: `${templateId}/v1` })).rejects.toThrow("已经发布过");
+  });
+});
+
+describe("automation rules", () => {
+  const spaceId = randomUUID();
+  let admin: { cookie: string; userId: string };
+  let member: { cookie: string; userId: string };
+  let typeId: string;
+  const { F } = oemV289;
+
+  beforeAll(async () => {
+    admin = await signUp(`auto-admin-${spaceId}@example.com`);
+    member = await signUp(`auto-member-${spaceId}@example.com`);
+    await services.zero.run("space.create", { id: spaceId, name: "自动化" }, admin.userId);
+    await services.database.db.insert(schema.spaceMember).values({ spaceId, userId: member.userId });
+    ({ typeId } = await importOemTemplate(services.database.db, spaceId));
+  });
+
+  async function createItem() {
+    const id = randomUUID();
+    await services.zero.run(
+      "workItem.create",
+      { id, typeId, name: "新品 X", fields: { [F.needPhaseOut]: "是" }, roles: {} },
+      admin.userId,
+    );
+    return id;
+  }
+  const eventsOf = (workItemId: string) =>
+    services.database.db
+      .select()
+      .from(schema.eventLog)
+      .where(eq(schema.eventLog.workItemId, workItemId))
+      .orderBy(schema.eventLog.id);
+  const runsOf = (ruleId: string) =>
+    services.database.db.select().from(schema.automationRun).where(eq(schema.automationRun.ruleId, ruleId));
+
+  it("only lets space admins manage rules", async () => {
+    const rule = {
+      id: randomUUID(),
+      spaceId,
+      name: "x",
+      trigger: { kind: "workItemCreated" },
+      actions: [{ type: "setField", field: F.linkedSku, value: "A" }],
+    };
+    await expect(services.zero.run("automation.create", rule, member.userId)).rejects.toThrow("管理员");
+    await expect(services.zero.run("automation.create", { ...rule, actions: [] }, admin.userId)).rejects.toThrow(
+      "至少要有一个动作",
+    );
+  });
+
+  it("runs a matching rule once, as its creator, and its own writes do not trigger rules again", async () => {
+    const ruleId = randomUUID();
+    await services.zero.run(
+      "automation.create",
+      {
+        id: ruleId,
+        spaceId,
+        name: "需求立项提案开始时填 SKU",
+        trigger: { kind: "nodeStarted", typeId, node: "doing" },
+        condition: { kind: "equal", field: F.needPhaseOut, value: "是" },
+        actions: [{ type: "setField", field: F.linkedSku, value: "SKU-AUTO" }],
+      },
+      admin.userId,
+    );
+    const id = await createItem();
+    const started = (await eventsOf(id)).find((e) => e.kind === "nodeStarted" && e.payload.node === "doing");
+    if (!started) throw new Error("没有 nodeStarted 事件");
+    // 其他事件（比如 workItemCreated）不触发这条规则
+    const created = (await eventsOf(id)).find((e) => e.kind === "workItemCreated");
+    expect(await matchRules(services.database, created?.id as number)).not.toContain(ruleId);
+    expect(await matchRules(services.database, started.id)).toEqual([ruleId]);
+
+    const runner = createMutatorRunner(services.database);
+    expect(await runRule(runner, ruleId, started.id, "wf-1")).toBe("succeeded");
+    const [value] = await services.database.db
+      .select()
+      .from(schema.fieldValue)
+      .where(and(eq(schema.fieldValue.workItemId, id), eq(schema.fieldValue.fieldKey, F.linkedSku)));
+    expect(value?.value).toBe("SKU-AUTO");
+
+    const changed = (await eventsOf(id)).at(-1);
+    expect(changed).toMatchObject({ kind: "fieldChanged", actor: admin.userId, causedBy: started.id });
+    expect(await matchRules(services.database, changed?.id as number)).toEqual([]);
+
+    // 重试不会重复执行
+    expect(await runRule(runner, ruleId, started.id, "wf-1")).toBe("succeeded");
+    expect(await runsOf(ruleId)).toHaveLength(1);
+    expect((await eventsOf(id)).filter((e) => e.kind === "fieldChanged")).toHaveLength(1);
+
+    // 停用后不再匹配
+    await services.zero.run(
+      "automation.update",
+      {
+        id: ruleId,
+        name: "需求立项提案开始时填 SKU",
+        enabled: false,
+        trigger: { kind: "nodeStarted", typeId, node: "doing" },
+        actions: [{ type: "setField", field: F.linkedSku, value: "SKU-AUTO" }],
+      },
+      admin.userId,
+    );
+    expect(await matchRules(services.database, started.id)).toEqual([]);
+  });
+
+  it("records a failed run and rolls back every action when one is refused", async () => {
+    const ruleId = randomUUID();
+    await services.zero.run(
+      "automation.create",
+      {
+        id: ruleId,
+        spaceId,
+        name: "创建后填 SKU 并完成财务分析",
+        trigger: { kind: "workItemCreated" },
+        actions: [
+          { type: "setField", field: F.linkedSku, value: "SKU-ROLLBACK" },
+          { type: "confirmNode", node: "state_51" },
+        ],
+      },
+      admin.userId,
+    );
+    const id = await createItem();
+    const created = (await eventsOf(id)).find((e) => e.kind === "workItemCreated");
+    expect(await matchRules(services.database, created?.id as number)).toContain(ruleId);
+    const runner = createMutatorRunner(services.database);
+    expect(await runRule(runner, ruleId, created?.id as number, "wf-2")).toBe("failed");
+    const [run] = await runsOf(ruleId);
+    expect(run).toMatchObject({ status: "failed", workflowId: "wf-2" });
+    expect(run?.error).toBeTruthy();
+    const values = await services.database.db
+      .select()
+      .from(schema.fieldValue)
+      .where(and(eq(schema.fieldValue.workItemId, id), eq(schema.fieldValue.fieldKey, F.linkedSku)));
+    expect(values).toEqual([]);
+
+    await services.zero.run("automation.delete", { id: ruleId }, admin.userId);
+    expect(await runsOf(ruleId)).toEqual([]);
   });
 });

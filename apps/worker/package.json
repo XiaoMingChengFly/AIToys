@@ -13,6 +13,7 @@
   "dependencies": {
     "@fp/db": "workspace:*",
     "@fp/engine": "workspace:*",
+    "@fp/server": "workspace:*",
     "@temporalio/activity": "1.24.0",
     "@temporalio/client": "1.24.0",
     "@temporalio/worker": "1.24.0",

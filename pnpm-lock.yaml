@@ -26,6 +26,9 @@ importers:
       '@fp/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@fp/server':
+        specifier: workspace:*
+        version: link:../../packages/server
       '@fp/sync':
         specifier: workspace:*
         version: link:../../packages/sync
@@ -142,6 +145,9 @@ importers:
       '@fp/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@fp/server':
+        specifier: workspace:*
+        version: link:../../packages/server
       '@temporalio/activity':
         specifier: 1.24.0
         version: 1.24.0
@@ -198,6 +204,28 @@ importers:
       vitest:
         specifier: 3.2.4
         version: 3.2.4(@types/node@24.7.0)(jiti@2.7.0)(lightningcss@1.30.1)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
+
+  packages/server:
+    dependencies:
+      '@fp/db':
+        specifier: workspace:*
+        version: link:../db
+      '@fp/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@fp/sync':
+        specifier: workspace:*
+        version: link:../sync
+      '@rocicorp/zero':
+        specifier: 1.10.0
+        version: 1.10.0(@opentelemetry/core@2.12.0(@opentelemetry/api@1.10.0))
+      drizzle-orm:
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.15.6)(kysely@0.29.7)(postgres@3.4.9)
+    devDependencies:
+      '@types/node':
+        specifier: 24.7.0
+        version: 24.7.0
 
   packages/sync:
     dependencies:
