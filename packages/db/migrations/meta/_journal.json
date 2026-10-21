@@ -92,6 +92,13 @@
       "when": 1792589023960,
       "tag": "0012_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792590887154,
+      "tag": "0013_attachments",
+      "breakpoints": true
     }
   ]
 }

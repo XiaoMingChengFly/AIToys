@@ -4,7 +4,9 @@ import { spaceRoles } from "@fp/sync";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { attachmentRoutes } from "./attachments.ts";
 import { type Auth, createAuth } from "./auth.ts";
+import { type BlobStore, fileBlobStore } from "./blobs.ts";
 import { config } from "./config.ts";
 import { importOemTemplate } from "./seed/oem.ts";
 import { createZeroHandlers } from "./zero/handlers.ts";
@@ -13,9 +15,10 @@ export interface Services {
   database: Database;
   auth: Auth;
   zero: ReturnType<typeof createZeroHandlers>;
+  blobs: BlobStore;
 }
 
-export function createServices(databaseUrl = config.databaseUrl): Services {
+export function createServices(databaseUrl = config.databaseUrl, filesDir = config.filesDir): Services {
   const database = connect(databaseUrl);
   const auth = createAuth(database, {
     baseUrl: config.baseUrl,
@@ -23,11 +26,11 @@ export function createServices(databaseUrl = config.databaseUrl): Services {
     trustedOrigins: config.webOrigins,
     rateLimit: config.authRateLimit,
   });
-  return { database, auth, zero: createZeroHandlers(database) };
+  return { database, auth, zero: createZeroHandlers(database), blobs: fileBlobStore(filesDir) };
 }
 
 /** HTTP 应用：登录、Zero 的查询和写入转发、引擎能力。oRPC 开放接口后续接入。 */
-export function createApp({ database, auth, zero }: Services) {
+export function createApp({ database, auth, zero, blobs }: Services) {
   async function userID(headers: Headers): Promise<string | null> {
     const session = await auth.api.getSession({ headers });
     return session?.user.id ?? null;
@@ -45,6 +48,7 @@ export function createApp({ database, auth, zero }: Services) {
     new Hono()
       .use("/api/*", cors({ origin: config.webOrigins, credentials: true }))
       .get("/api/health", (c) => c.json({ ok: true }))
+      .route("/", attachmentRoutes(database, blobs, userID))
       .on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
       .post("/api/zero/query", async (c) => {
         const id = await userID(c.req.raw.headers);

@@ -9,7 +9,7 @@ x-app: &app
   image: feishu-project/app
   restart: unless-stopped
   profiles: [app]
-  environment:
+  environment: &app-env
     DATABASE_URL: postgresql://feishu:feishu@postgres:5432/feishu
     TEMPORAL_ADDRESS: temporal:7233
     TEMPORAL_TASK_QUEUE: fp-events
@@ -146,6 +146,12 @@ services:
   api:
     <<: *app
     command: ["node", "apps/api/src/server.ts"]
+    environment:
+      <<: *app-env
+      # 附件存在卷里，备份时连同 pgdata 一起备份
+      FILES_DIR: /data/files
+    volumes:
+      - files:/data/files
     ports:
       - "3000:3000"
     depends_on:
@@ -168,3 +174,4 @@ services:
 volumes:
   pgdata:
   zerodata:
+  files:
