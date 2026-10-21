@@ -116,6 +116,19 @@ export const queries = defineQueries({
     bySpace: defineQuery(spaceItemsArgs, ({ args, ctx }) =>
       spaceItems(args, ctx.userID).related("type").orderBy("createdAt", "desc"),
     ),
+    /**
+     * 空间看板：工作项连同处理人和流程定义。状态流卡片拖到别的列时在前端乐观执行流转，
+     * 所以也要带上字段值（流转条件）和自己在空间里的成员身份。
+     */
+    boardBySpace: defineQuery(spaceItemsArgs, ({ args, ctx }) =>
+      spaceItems(args, ctx.userID)
+        .related("type")
+        .related("flowVersion")
+        .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID)))
+        .related("fieldValues", visibleFieldValues(ctx.userID))
+        .related("roleMembers", (r) => r.related("user"))
+        .orderBy("updatedAt", "desc"),
+    ),
     /** 空间甘特图：工作项连同节点排期和流程定义。改排期的 mutator 在前端乐观执行时也要读这些。 */
     plansBySpace: defineQuery(spaceItemsArgs, ({ args, ctx }) =>
       spaceItems(args, ctx.userID)
