@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 /**
- * 端到端测试：需要全套服务在跑（ZERO_API_ORIGIN=http://api:3000 docker compose --profile app up）。
+ * 端到端测试：需要全套服务在跑（ZERO_API_ORIGIN=http://api:3000 AUTH_RATE_LIMIT=off docker compose --profile app up）。
  * 前端开发服务器没开的话会自动起一个。
  */
 export default defineConfig({

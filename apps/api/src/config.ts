@@ -7,4 +7,6 @@ export const config = {
   authSecret: process.env.BETTER_AUTH_SECRET ?? "dev-only-secret-change-me-in-production",
   /** 允许跨域带 cookie 访问的前端地址，逗号分隔。 */
   webOrigins: (process.env.WEB_ORIGINS ?? "http://localhost:5173").split(","),
+  /** 登录接口限流（防暴力破解）。只在端到端测试里关掉，测试会在几秒内注册好几个账号。 */
+  authRateLimit: process.env.AUTH_RATE_LIMIT !== "off",
 };

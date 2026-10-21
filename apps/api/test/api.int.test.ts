@@ -339,3 +339,121 @@ describe("POST /api/spaces/:spaceId/import-oem", () => {
     expect((await app.request(url, { method: "POST", headers: { cookie: admin.cookie } })).status).toBe(409);
   });
 });
+
+describe("configuring a type and its flow template", () => {
+  const spaceId = randomUUID();
+  const typeId = `${spaceId}/bug`;
+  const templateId = `${typeId}/default`;
+  let admin: { cookie: string; userId: string };
+  let member: { cookie: string; userId: string };
+  const run = (name: string, args: unknown, userId = admin.userId) => services.zero.run(name, args, userId);
+
+  const definition = (ownerRole: string) => ({
+    key: "ignored",
+    version: 0,
+    nodes: [
+      { key: "start", name: "开始", completion: "auto", ownerRoles: [] },
+      { key: "fix", name: "修复", completion: "singleConfirm", ownerRoles: [ownerRole], position: { x: 200, y: 0 } },
+      {
+        key: "verify",
+        name: "验证",
+        completion: "singleConfirm",
+        ownerRoles: ["qa"],
+        visibility: { kind: "equal", field: "needQa", value: "是" },
+        stageOnArrival: "验证中",
+      },
+    ],
+    edges: [
+      { from: "start", to: "fix" },
+      { from: "fix", to: "verify" },
+    ],
+  });
+
+  beforeAll(async () => {
+    admin = await signUp(`cfg-admin-${spaceId}@example.com`);
+    member = await signUp(`cfg-member-${spaceId}@example.com`);
+    await run("space.create", { id: spaceId, name: "配置" });
+    await services.database.db.insert(schema.spaceMember).values({ spaceId, userId: member.userId });
+  });
+
+  it("only lets space admins change configuration", async () => {
+    await expect(
+      run("workItemType.create", { id: typeId, spaceId, key: "bug", name: "缺陷" }, member.userId),
+    ).rejects.toThrow("空间管理员");
+  });
+
+  it("creates a type with roles, fields and a template that starts as a draft", async () => {
+    await run("workItemType.create", { id: typeId, spaceId, key: "bug", name: "缺陷" });
+    await run("roleDef.create", { id: `${typeId}/role/dev`, typeId, key: "dev", name: "开发" });
+    await run("roleDef.create", { id: `${typeId}/role/qa`, typeId, key: "qa", name: "测试" });
+    await run("fieldDef.create", {
+      id: `${typeId}/field/needQa`,
+      typeId,
+      key: "needQa",
+      name: "需要测试",
+      dataType: "select",
+      options: [
+        { value: "是", label: "是" },
+        { value: "否", label: "否" },
+      ],
+    });
+    await run("flowTemplate.create", { id: templateId, typeId, key: "default", name: "默认流程" });
+
+    const versions = await services.database.db
+      .select()
+      .from(schema.flowVersion)
+      .where(eq(schema.flowVersion.templateId, templateId));
+    expect(versions).toHaveLength(1);
+    expect(versions[0]).toMatchObject({ version: 1, publishedAt: null });
+  });
+
+  it("refuses to publish a draft that references a missing role", async () => {
+    await run("flowTemplate.saveDraft", { templateId, definition: definition("pm") });
+    await expect(run("flowTemplate.publish", { versionId: `${templateId}/v1` })).rejects.toThrow(
+      "负责角色「pm」不存在",
+    );
+  });
+
+  it("publishes a valid draft, and work items use it", async () => {
+    await run("flowTemplate.saveDraft", { templateId, definition: definition("dev") });
+    await run("flowTemplate.publish", { versionId: `${templateId}/v1` });
+    const [template] = await services.database.db
+      .select()
+      .from(schema.flowTemplate)
+      .where(eq(schema.flowTemplate.id, templateId));
+    expect(template?.currentVersionId).toBe(`${templateId}/v1`);
+
+    const id = randomUUID();
+    await run("workItem.create", {
+      id,
+      typeId,
+      name: "登录报错",
+      fields: { needQa: "否" },
+      roles: { dev: [member.userId] },
+    });
+    const nodes = await services.database.db
+      .select()
+      .from(schema.nodeInstance)
+      .where(eq(schema.nodeInstance.workItemId, id));
+    const state = Object.fromEntries(nodes.map((n) => [n.nodeKey, [n.state, n.owners]]));
+    expect(state).toEqual({
+      start: ["completed", []],
+      fix: ["inProgress", [member.userId]],
+      verify: ["skipped", []],
+    });
+  });
+
+  it("editing a published template opens a new draft and leaves the published version alone", async () => {
+    await run("flowTemplate.saveDraft", { templateId, definition: definition("qa") });
+    const versions = await services.database.db
+      .select()
+      .from(schema.flowVersion)
+      .where(eq(schema.flowVersion.templateId, templateId))
+      .orderBy(schema.flowVersion.version);
+    expect(versions.map((v) => [v.version, v.publishedAt !== null, v.definition.nodes[1]?.ownerRoles])).toEqual([
+      [1, true, ["dev"]],
+      [2, false, ["qa"]],
+    ]);
+    await expect(run("flowTemplate.publish", { versionId: `${templateId}/v1` })).rejects.toThrow("已经发布过");
+  });
+});

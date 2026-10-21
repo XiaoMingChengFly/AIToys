@@ -16,7 +16,7 @@ async function signUpWithOemSpace(page: Page, name: string, suffix: string) {
   await page.getByRole("button", { name: "创建" }).click();
   await page.getByText(`OEM 验收 ${suffix}`).click();
   await page.getByRole("button", { name: "导入 OEM 模板" }).click();
-  await expect(page.getByText("新建项目（OEM）")).toBeVisible();
+  await expect(page.getByText("新建工作项")).toBeVisible();
 }
 
 test("sign up, import OEM, create a project and see its flow", async ({ page }) => {

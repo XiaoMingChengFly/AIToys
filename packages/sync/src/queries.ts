@@ -27,6 +27,37 @@ export const queries = defineQueries({
         .one(),
     ),
   },
+  types: {
+    /** 类型配置页：角色、字段、模板及其最新版本。 */
+    byId: defineQuery(z.object({ id: z.string() }), ({ args, ctx }) =>
+      zql.workItemType
+        .where("id", args.id)
+        .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID)))
+        .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID)))
+        .related("roles", (r) => r.orderBy("createdAt", "asc"))
+        .related("fields", (f) => f.orderBy("sort", "asc"))
+        .related("flowTemplates", (t) => t.related("versions", (v) => v.orderBy("version", "desc").limit(1)))
+        .one(),
+    ),
+  },
+  templates: {
+    /** 模板编辑器：模板、它的版本列表、所属类型的角色和字段。 */
+    byId: defineQuery(z.object({ id: z.string() }), ({ args, ctx }) =>
+      zql.flowTemplate
+        .where("id", args.id)
+        .whereExists("type", (t) =>
+          t.whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID))),
+        )
+        .related("versions", (v) => v.orderBy("version", "desc"))
+        .related("type", (t) =>
+          t
+            .related("roles", (r) => r.orderBy("createdAt", "asc"))
+            .related("fields", (f) => f.orderBy("sort", "asc"))
+            .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID))),
+        )
+        .one(),
+    ),
+  },
   workItems: {
     bySpace: defineQuery(z.object({ spaceId: z.string() }), ({ args, ctx }) =>
       zql.workItem
