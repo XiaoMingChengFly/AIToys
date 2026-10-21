@@ -3,6 +3,7 @@ import {
   type AutomationTrigger,
   type Condition,
   type FlowDefinition,
+  formatFieldValue,
   nodeFlowOf,
 } from "@fp/engine";
 import { mutators, queries } from "@fp/sync";
@@ -11,6 +12,8 @@ import { useQuery, useZero } from "@rocicorp/zero/react";
 import { useParams } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
+import { ConditionEditor } from "@/components/ConditionEditor";
+import { FieldInput } from "@/components/FieldInput";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -40,6 +43,27 @@ function flowOf(type: ItemType | undefined): FlowDefinition | null {
   return nodeFlowOf(version?.definition);
 }
 
+/** 条件的一句话描述。 */
+function describeCondition(
+  condition: Condition,
+  fieldName: (key: string) => string,
+  show: (key: string, value: unknown) => string,
+): string {
+  const ops = { gt: "大于", gte: "不小于", lt: "小于", lte: "不大于" };
+  switch (condition.kind) {
+    case "equal":
+      return `「${fieldName(condition.field)}」为 ${show(condition.field, condition.value)}`;
+    case "notEmpty":
+      return `「${fieldName(condition.field)}」不为空`;
+    case "compare":
+      return `「${fieldName(condition.field)}」${ops[condition.op]} ${condition.value}`;
+    default:
+      return condition.items
+        .map((c) => describeCondition(c, fieldName, show))
+        .join(condition.kind === "all" ? "并且" : "或者");
+  }
+}
+
 /** 规则的一句话描述，列表里用。 */
 function describeRule(rule: Rule, types: ItemType[], members: Map<string, string>): string {
   const trigger = rule.trigger as AutomationTrigger;
@@ -52,10 +76,15 @@ function describeRule(rule: Rule, types: ItemType[], members: Map<string, string
     when = `「${nodeName(trigger.node)}」${trigger.kind === "nodeStarted" ? "开始时" : "完成时"}`;
   if (trigger.kind === "fieldChanged") when = `「${fieldName(trigger.field)}」变化时`;
   const condition = rule.conditions as Condition | null;
-  const given = condition?.kind === "equal" ? `，且「${fieldName(condition.field)}」为 ${String(condition.value)}` : "";
+  const fieldOf = (key: string) => type?.fields.find((f) => f.key === key);
+  const show = (key: string, value: unknown) => {
+    const f = fieldOf(key);
+    return f ? formatFieldValue(f, value, (id) => members.get(id) ?? id) : String(value);
+  };
+  const given = condition ? `，且${describeCondition(condition, fieldName, show)}` : "";
   const then = (rule.actions as AutomationAction[])
     .map((a) => {
-      if (a.type === "setField") return `把「${fieldName(a.field)}」设为 ${a.value ?? "空"}`;
+      if (a.type === "setField") return `把「${fieldName(a.field)}」设为 ${show(a.field, a.value) || "空"}`;
       if (a.type === "setRole")
         return `把「${roleName(a.role)}」设为 ${a.userIds.map((u) => members.get(u) ?? u).join("、") || "无人"}`;
       return `完成「${nodeName(a.node)}」`;
@@ -195,7 +224,7 @@ function RuleForm({
   const [kind, setKind] = useState<AutomationTrigger["kind"]>("workItemCreated");
   const [node, setNode] = useState("");
   const [field, setField] = useState("");
-  const [condition, setCondition] = useState<{ field: string; value: string } | null>(null);
+  const [condition, setCondition] = useState<Condition | undefined>(undefined);
   const [actions, setActions] = useState<AutomationAction[]>([]);
 
   const type = ready.find((t) => t.id === typeId) ?? ready[0];
@@ -226,13 +255,13 @@ function RuleForm({
         spaceId,
         name,
         trigger: trigger(),
-        condition: condition ? { kind: "equal", field: condition.field, value: condition.value } : null,
+        condition: condition ?? null,
         actions: actions.map((a) => (a.type === "setField" && a.value === "" ? { ...a, value: null } : a)),
       }),
     );
     if (ok) {
       setName("");
-      setCondition(null);
+      setCondition(undefined);
       setActions([]);
     }
   }
@@ -294,35 +323,12 @@ function RuleForm({
             )}
           </div>
 
-          <div className="flex flex-col gap-2">
-            <label className="flex items-center gap-2 text-sm font-medium text-fg">
-              <input
-                type="checkbox"
-                checked={condition !== null}
-                onChange={(e) => setCondition(e.target.checked ? { field: fields[0]?.key ?? "", value: "" } : null)}
-              />
-              只在字段满足条件时执行
-            </label>
-            {condition && (
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="条件字段">
-                  <Select
-                    value={condition.field}
-                    onChange={(e) => setCondition({ ...condition, field: e.target.value })}
-                  >
-                    {fieldOptions}
-                  </Select>
-                </Field>
-                <Field label="等于">
-                  <Input
-                    value={condition.value}
-                    onChange={(e) => setCondition({ ...condition, value: e.target.value })}
-                    required
-                  />
-                </Field>
-              </div>
-            )}
-          </div>
+          <ConditionEditor
+            label="执行条件（不加表示总是执行）"
+            value={condition}
+            fields={fields}
+            onChange={setCondition}
+          />
 
           <div className="flex flex-col gap-3">
             <h4 className="text-sm font-medium text-fg">动作</h4>
@@ -356,26 +362,19 @@ function RuleForm({
                       </Select>
                     </Field>
                     <Field label="设为">
-                      {fields.find((f) => f.key === action.field)?.options ? (
-                        <Select
-                          value={String(action.value ?? "")}
-                          onChange={(e) => updateAction(i, { ...action, value: e.target.value })}
-                        >
-                          <option value="">（清空）</option>
-                          {fields
-                            .find((f) => f.key === action.field)
-                            ?.options?.map((o) => (
-                              <option key={o.value} value={o.value}>
-                                {o.label}
-                              </option>
-                            ))}
-                        </Select>
-                      ) : (
-                        <Input
-                          value={String(action.value ?? "")}
-                          onChange={(e) => updateAction(i, { ...action, value: e.target.value })}
-                        />
-                      )}
+                      {(() => {
+                        const target = fields.find((f) => f.key === action.field);
+                        return target ? (
+                          <FieldInput
+                            field={target}
+                            label="设为"
+                            value={action.value}
+                            members={[...members].map(([userId, name]) => ({ userId, name }))}
+                            live
+                            onChange={(value) => updateAction(i, { ...action, value })}
+                          />
+                        ) : null;
+                      })()}
                     </Field>
                   </>
                 )}

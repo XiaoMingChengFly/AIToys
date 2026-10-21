@@ -19,6 +19,7 @@ import {
   updateAutomationArgs,
 } from "./automations.ts";
 import { createComment, createCommentArgs, markNotificationsRead, markReadArgs } from "./comments.ts";
+import { fieldDefOf, writeFieldValue } from "./field-values.ts";
 import {
   completeBySubItems,
   confirmNode,
@@ -99,28 +100,20 @@ export function visibleWorkItem(tx: Transaction, workItemId: string, userID: str
 /**
  * 改一个字段的值，并按新值重算流程（出现条件、自动节点）。
  * 访客不能改；字段配了可改角色时，只有担任这些角色的人和空间管理员能改。
- * 公式字段由公式引擎计算，不能手动改（公式引擎接入后在这里校验）。
+ * 值按字段类型校验、整理成规范形式；公式字段不能手动改。
  * 返回旧值和流程变化，服务端用来写事件。
  */
 export async function setFieldValue(tx: Transaction, args: z.output<typeof setFieldArgs>, userID: string) {
   const item = await visibleWorkItem(tx, args.workItemId, userID);
   if (!item) throw new Error("工作项不存在或没有权限。");
   const { isAdmin } = await requireWriter(tx, item.spaceId, userID);
-  const field = await tx.run(zql.fieldDef.where("typeId", item.typeId).where("key", args.fieldKey).one());
-  if (!isAdmin && field?.editRoles?.length && !hasAnyRole(field.editRoles, await myRoles(tx, item.id, userID)))
+  const field = await fieldDefOf(tx, item.typeId, args.fieldKey);
+  if (!isAdmin && field.editRoles?.length && !hasAnyRole(field.editRoles, await myRoles(tx, item.id, userID)))
     throw new Error(`你没有权限修改「${field.name}」。`);
-  const before = await tx.run(
-    zql.fieldValue.where("workItemId", args.workItemId).where("fieldKey", args.fieldKey).one(),
-  );
-  await tx.mutate.fieldValue.upsert({
-    workItemId: args.workItemId,
-    fieldKey: args.fieldKey,
-    value: args.value,
-    updatedAt: Date.now(),
-  });
-  if (!before) await syncFieldAccess(tx, args.workItemId);
+  const { from, to, created } = await writeFieldValue(tx, item, args.fieldKey, args.value);
+  if (created) await syncFieldAccess(tx, args.workItemId);
   const events = await recomputeFlow(tx, args.workItemId, userID);
-  return { spaceId: item.spaceId, from: before?.value ?? null, events };
+  return { spaceId: item.spaceId, from, to, events };
 }
 
 export const mutators = defineMutators({

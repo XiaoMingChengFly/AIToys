@@ -3,6 +3,7 @@ import type {
   AutomationTrigger,
   CalendarConfig,
   Condition,
+  FieldDataType,
   FlowDefinition,
   NodeState,
   StatusFlowDefinition,
@@ -13,6 +14,7 @@ import {
   bigint,
   boolean,
   customType,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -46,17 +48,7 @@ const createdAt = () => timestamp("created_at", { withTimezone: true, mode: "dat
 const updatedAt = () => timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow();
 
 export type FlowMode = "node" | "state";
-export type FieldDataType =
-  | "text"
-  | "number"
-  | "bool"
-  | "date"
-  | "select"
-  | "multiSelect"
-  | "user"
-  | "link"
-  | "relation"
-  | "formula";
+export type { FieldDataType };
 export type Cardinality = "one" | "many";
 export type RoleMemberSource = "manual" | "inherited";
 
@@ -285,7 +277,18 @@ export interface WorkItemFilter {
   stages?: string[];
   /** 在任一角色里的成员。 */
   memberIds?: string[];
+  /** 按字段值筛选，多个条件同时满足。 */
+  fields?: FieldFilter[];
 }
+
+/**
+ * 按字段值筛选：in 用于单选、多选、人员、是否（任一值命中）；range 用于数字和日期（YYYY-MM-DD）；
+ * contains 用于文本和链接（不区分大小写）。
+ */
+export type FieldFilter =
+  | { field: string; op: "in"; values: string[] }
+  | { field: string; op: "range"; min?: number | string; max?: number | string }
+  | { field: string; op: "contains"; text: string };
 
 /** 保存下来的工作项视图：空间成员都能看到和使用。 */
 export const savedView = pgTable("saved_view", {
@@ -342,9 +345,29 @@ export const fieldValue = pgTable(
     computedAt: timestamp("computed_at", { withTimezone: true, mode: "date" }),
     /** 字段配了可见角色时为 true，只同步给 field_viewer 里的人和空间管理员。 */
     restricted: boolean("restricted").notNull().default(false),
+    /** 检索列（见 engine 的 fieldIndex）：数字、日期（天数）用于范围筛选。 */
+    num: doublePrecision("num"),
+    /** 检索列：文本、链接、日期的字符串，用于模糊匹配。 */
+    str: text("str"),
     updatedAt: updatedAt(),
   },
   (t) => [primaryKey({ columns: [t.workItemId, t.fieldKey] })],
+);
+
+/** 检索列：单选、多选、人员、是否字段的每个值一行，用于“属于”筛选。 */
+export const fieldValueItem = pgTable(
+  "field_value_item",
+  {
+    workItemId: text("work_item_id")
+      .notNull()
+      .references(() => workItem.id, { onDelete: "cascade" }),
+    fieldKey: text("field_key").notNull(),
+    item: text("item").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workItemId, t.fieldKey, t.item] }),
+    index("field_value_item_lookup").on(t.fieldKey, t.item),
+  ],
 );
 
 /**
@@ -687,6 +710,14 @@ export const notificationRelations = relations(notification, ({ one }) => ({
 export const fieldValueRelations = relations(fieldValue, ({ one, many }) => ({
   workItem: one(workItem, { fields: [fieldValue.workItemId], references: [workItem.id] }),
   viewers: many(fieldViewer),
+  items: many(fieldValueItem),
+}));
+
+export const fieldValueItemRelations = relations(fieldValueItem, ({ one }) => ({
+  fieldValue: one(fieldValue, {
+    fields: [fieldValueItem.workItemId, fieldValueItem.fieldKey],
+    references: [fieldValue.workItemId, fieldValue.fieldKey],
+  }),
 }));
 
 export const fieldViewerRelations = relations(fieldViewer, ({ one }) => ({

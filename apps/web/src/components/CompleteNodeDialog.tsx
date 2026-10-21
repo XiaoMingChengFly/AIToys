@@ -2,16 +2,11 @@ import type { NodeDefinition } from "@fp/engine";
 import { mutators } from "@fp/sync";
 import { useZero } from "@rocicorp/zero/react";
 import { type FormEvent, useState } from "react";
+import { type FieldConfig, FieldInput, type FieldInputValue, type FieldMember } from "@/components/FieldInput";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent } from "@/components/ui/dialog";
-import { Field, Input, Select } from "@/components/ui/input";
+import { Field } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/ui/page";
-
-interface FieldConfig {
-  key: string;
-  name: string;
-  options: { value: string; label: string }[] | null;
-}
 
 /** 有完成表单的节点：确认完成前先在弹窗里填表单，提交时字段值和确认一起写入。 */
 export function CompleteNodeDialog({
@@ -19,6 +14,7 @@ export function CompleteNodeDialog({
   node,
   fields,
   values,
+  members,
   open,
   onOpenChange,
 }: {
@@ -26,22 +22,21 @@ export function CompleteNodeDialog({
   node: NodeDefinition;
   fields: readonly FieldConfig[];
   values: ReadonlyMap<string, unknown>;
+  members: readonly FieldMember[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const zero = useZero();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const text = (key: string) => {
-    const value = values.get(key);
-    return value === null || value === undefined ? "" : String(value);
-  };
+  const [draft, setDraft] = useState<Record<string, FieldInputValue>>(() =>
+    Object.fromEntries((node.form ?? []).map(({ field }) => [field, (values.get(field) ?? null) as FieldInputValue])),
+  );
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
     const submitted = Object.fromEntries(
-      (node.form ?? []).map(({ field }) => [field, String(data.get(field) ?? "").trim() || null]),
+      Object.entries(draft).map(([key, v]) => [key, typeof v === "string" ? v.trim() || null : v]),
     );
     setError(null);
     setBusy(true);
@@ -76,18 +71,14 @@ export function CompleteNodeDialog({
             );
             return (
               <Field key={key} label={label}>
-                {field?.options ? (
-                  <Select name={key} defaultValue={text(key)} required={required}>
-                    <option value="">未选择</option>
-                    {field.options.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </Select>
-                ) : (
-                  <Input name={key} defaultValue={text(key)} required={required} placeholder="未填写" />
-                )}
+                <FieldInput
+                  field={field ?? { key, name: key, dataType: "text", options: null }}
+                  value={draft[key] ?? null}
+                  members={members}
+                  live
+                  required={required}
+                  onChange={(v) => setDraft((prev) => ({ ...prev, [key]: v }))}
+                />
               </Field>
             );
           })}

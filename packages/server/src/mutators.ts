@@ -266,13 +266,13 @@ export const serverMutators = defineMutators(mutators, {
   },
   fieldValue: {
     set: defineMutator(setFieldArgs, async ({ tx, args, ctx }) => {
-      const { spaceId, from, events } = await setFieldValue(tx, args, ctx.userID);
+      const { spaceId, from, to, events } = await setFieldValue(tx, args, ctx.userID);
       await append(tx, ctx, [
         {
           spaceId,
           workItemId: args.workItemId,
           kind: "fieldChanged",
-          payload: { fieldKey: args.fieldKey, from, to: args.value },
+          payload: { fieldKey: args.fieldKey, from, to },
           actor: ctx.userID,
         },
         ...flowEvents(spaceId, args.workItemId, events),

@@ -23,6 +23,7 @@ import { type ReactNode, useMemo, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
 import { CommentsCard } from "@/components/CommentsCard";
 import { CompleteNodeDialog } from "@/components/CompleteNodeDialog";
+import { FieldInput, type FieldInputValue, type FieldMember } from "@/components/FieldInput";
 import { GanttChart } from "@/components/GanttChart";
 import { NodeTasks } from "@/components/NodeTasks";
 import { RelationsCard } from "@/components/RelationsCard";
@@ -31,7 +32,7 @@ import { CATEGORY_LABEL, StatusDiagram } from "@/components/StatusDiagram";
 import { SubItems } from "@/components/SubItems";
 import { UserChip } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { ErrorBanner, Panel } from "@/components/ui/page";
 import { Tabs } from "@/components/ui/tabs";
 import { StageTag, StatusTag, Tag } from "@/components/ui/tag";
@@ -360,6 +361,7 @@ export function WorkItemPage() {
               item={item}
               isAdmin={isAdmin}
               myRoles={myRoles}
+              members={members}
               onSet={(fieldKey, value) => run(mutators.fieldValue.set({ workItemId: item.id, fieldKey, value }))}
             />
 
@@ -408,6 +410,7 @@ export function WorkItemPage() {
             node={completingNode}
             fields={item.type?.fields ?? []}
             values={new Map(item.fieldValues.map((f) => [f.fieldKey, f.value]))}
+            members={members}
             open
             onOpenChange={(open) => !open && setCompleting(null)}
           />
@@ -583,12 +586,14 @@ function FieldsPanel({
   item,
   isAdmin,
   myRoles,
+  members,
   onSet,
 }: {
   item: Item;
   isAdmin: boolean;
   myRoles: string[];
-  onSet: (fieldKey: string, value: string | null) => void;
+  members: readonly FieldMember[];
+  onSet: (fieldKey: string, value: FieldInputValue) => void;
 }) {
   const values = new Map(item.fieldValues.map((f) => [f.fieldKey, f.value]));
   const allowed = (roles: readonly string[]) => isAdmin || hasAnyRole(roles, myRoles);
@@ -601,36 +606,19 @@ function FieldsPanel({
     <Panel title="字段" aria-label="字段">
       <div className="flex flex-col gap-2">
         {fields.map((field) => {
-          const value = values.get(field.key);
-          const text = value === null || value === undefined ? "" : String(value);
-          const readOnly = !allowed(field.editRoles ?? []);
           return (
-            // biome-ignore lint/a11y/noLabelWithoutControl: 控件嵌在标签里
-            <label key={field.key} className="grid grid-cols-[7rem_1fr] items-center gap-3">
+            <div key={field.key} className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-3">
               <span className="truncate text-fg-muted" title={field.name}>
                 {field.name}
               </span>
-              {field.options ? (
-                <Select value={text} disabled={readOnly} onChange={(e) => onSet(field.key, e.target.value || null)}>
-                  <option value="">未选择</option>
-                  {field.options.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <Input
-                  key={text}
-                  defaultValue={text}
-                  placeholder="未填写"
-                  readOnly={readOnly}
-                  onBlur={(e) => {
-                    if (e.target.value !== text) onSet(field.key, e.target.value.trim() || null);
-                  }}
-                />
-              )}
-            </label>
+              <FieldInput
+                field={field}
+                value={values.get(field.key) ?? null}
+                members={members}
+                readOnly={!allowed(field.editRoles ?? [])}
+                onChange={(value) => onSet(field.key, value)}
+              />
+            </div>
           );
         })}
       </div>

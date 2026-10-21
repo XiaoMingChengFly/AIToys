@@ -10,6 +10,21 @@ export const workItemFilter = z.object({
   statuses: z.array(z.enum(["inProgress", "completed", "terminated"])).optional(),
   stages: z.array(z.string()).max(50).optional(),
   memberIds: z.array(z.string()).max(50).optional(),
+  fields: z
+    .array(
+      z.union([
+        z.object({ field: z.string(), op: z.literal("in"), values: z.array(z.string()).min(1).max(50) }),
+        z.object({
+          field: z.string(),
+          op: z.literal("range"),
+          min: z.union([z.number(), z.string()]).optional(),
+          max: z.union([z.number(), z.string()]).optional(),
+        }),
+        z.object({ field: z.string(), op: z.literal("contains"), text: z.string().trim().min(1).max(100) }),
+      ]),
+    )
+    .max(10)
+    .optional(),
 });
 export type WorkItemFilterArgs = z.output<typeof workItemFilter>;
 

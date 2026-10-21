@@ -14,7 +14,7 @@ test("configure a type from scratch, draw and publish its flow, then create a wo
   await page.getByLabel("新角色名称").fill("开发");
   await page.getByRole("button", { name: "添加角色" }).click();
   await page.getByLabel("新字段名称").fill("需要测试");
-  await page.getByLabel("选项（单选用，逗号分隔）").fill("是，否");
+  await page.getByLabel("选项（单选、多选用，逗号分隔）").fill("是，否");
   await page.getByRole("button", { name: "添加字段" }).click();
   await expect(page.getByRole("cell", { name: "是 / 否" })).toBeVisible();
   await page.getByLabel("新模板名称").fill("默认流程");

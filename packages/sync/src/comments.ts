@@ -1,7 +1,7 @@
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
+import { assertSpaceMembers } from "./access.ts";
 import { zql } from "./schema.gen.ts";
-import { assertSpaceMembers } from "./work-items.ts";
 
 export const createCommentArgs = z.object({
   id: z.string(),

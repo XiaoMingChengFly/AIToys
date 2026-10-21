@@ -1,10 +1,10 @@
 import { dayFromIso, dayToTimestamp, nodeFlowOf } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
-import { requireWriter } from "./access.ts";
+import { assertSpaceMembers, requireWriter } from "./access.ts";
 import { isoDate } from "./flow.ts";
 import { zql } from "./schema.gen.ts";
-import { assertSpaceMembers, nodeInstanceId } from "./work-items.ts";
+import { nodeInstanceId } from "./work-items.ts";
 
 const taskName = z.string().trim().min(1, "子任务要有名称。").max(200);
 
