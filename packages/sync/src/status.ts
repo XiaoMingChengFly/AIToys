@@ -2,6 +2,7 @@ import { isFinal, type StatusEvent, StatusFlow, statusFlowOf } from "@fp/engine"
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { requireWriter } from "./access.ts";
+import { recomputeParentFormulas } from "./formulas.ts";
 import { zql } from "./schema.gen.ts";
 
 export const transitionArgs = z.object({ workItemId: z.string(), to: z.string() });
@@ -45,5 +46,6 @@ export async function transitionStatus(
     status: isFinal(target.category) ? "completed" : "inProgress",
     updatedAt: Date.now(),
   });
+  await recomputeParentFormulas(tx, item.id);
   return { spaceId: item.spaceId, events };
 }

@@ -1,8 +1,11 @@
 import {
   type Condition,
+  compileFormula,
   conditionFields,
   EDITABLE_FIELD_TYPES,
+  type FieldDataType,
   type FlowDefinition,
+  FormulaError,
   isStatusFlow,
   type StatusFlowDefinition,
   validateFlow,
@@ -11,6 +14,7 @@ import {
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { requireAdmin, syncFieldAccess } from "./access.ts";
+import { compileTypeFormulas, fieldResolver, recomputeFormulas, recomputeParentFormulas } from "./formulas.ts";
 import { zql } from "./schema.gen.ts";
 
 /*
@@ -39,9 +43,12 @@ export const createFieldArgs = z.object({
   typeId: z.string(),
   key,
   name: z.string().min(1),
-  dataType: z.enum(EDITABLE_FIELD_TYPES),
+  dataType: z.enum([...EDITABLE_FIELD_TYPES, "formula"]),
   options: z.array(z.object({ value: z.string().min(1), label: z.string().min(1) })).optional(),
+  /** 公式字段的公式，字段可以写成 {字段名}。 */
+  formula: z.string().max(2000).optional(),
 });
+export const setFormulaArgs = z.object({ id: z.string(), formula: z.string().min(1).max(2000) });
 /** 字段的可见和可改角色；空数组表示不限制。 */
 export const setFieldAccessArgs = z.object({
   id: z.string(),
@@ -165,16 +172,67 @@ export async function createField(tx: Transaction, args: z.output<typeof createF
   const type = await adminType(tx, args.typeId, userID);
   const isOptions = args.dataType === "select" || args.dataType === "multiSelect";
   if (isOptions && !args.options?.length) throw new Error("选项字段至少要有一个选项。");
+  if (type.fields.some((f) => f.key === args.key || f.name === args.name))
+    throw new Error(`已经有字段「${args.name}」了。`);
+  const formula =
+    args.dataType === "formula"
+      ? checkFormula([...type.fields, { ...args, formula: null }], args.key, args.formula)
+      : null;
   await tx.mutate.fieldDef.insert({
     ...args,
     options: isOptions ? (args.options ?? []) : null,
-    formula: null,
+    formula,
     required: false,
     viewRoles: null,
     editRoles: null,
     sort: type.fields.length,
     createdAt: Date.now(),
   });
+  if (formula) await recomputeType(tx, args.typeId);
+}
+
+/**
+ * 检查公式：能解析、引用的字段都在、不和别的公式循环引用。返回规范化后的公式（字段换成字段键）。
+ */
+function checkFormula(
+  fields: readonly { key: string; name: string; dataType: string; formula: string | null }[],
+  key: string,
+  source: string | undefined,
+): string {
+  if (!source?.trim()) throw new Error("公式字段要填公式。");
+  const resolve = fieldResolver(fields);
+  try {
+    const compiled = compileFormula(source, resolve);
+    if (compiled.refs.includes(key)) throw new FormulaError("公式不能引用自己。");
+    compileTypeFormulas(
+      fields.map((f) => ({
+        ...f,
+        dataType: f.key === key ? "formula" : (f.dataType as FieldDataType),
+        formula: f.key === key ? compiled.source : f.formula,
+      })),
+    );
+    return compiled.source;
+  } catch (error) {
+    if (error instanceof FormulaError) throw new Error(`公式有误：${error.message}`);
+    throw error;
+  }
+}
+
+/** 公式改了以后，类型下所有工作项重算（在服务端）。 */
+async function recomputeType(tx: Transaction, typeId: string) {
+  if (tx.location !== "server") return;
+  for (const item of await tx.run(zql.workItem.where("typeId", typeId))) {
+    if ((await recomputeFormulas(tx, item.id)).length > 0) await recomputeParentFormulas(tx, item.id);
+  }
+}
+
+export async function setFormula(tx: Transaction, args: z.output<typeof setFormulaArgs>, userID: string) {
+  const field = await tx.run(zql.fieldDef.where("id", args.id).one());
+  if (field?.dataType !== "formula") throw new Error("只有公式字段能改公式。");
+  const type = await adminType(tx, field.typeId, userID);
+  const formula = checkFormula(type.fields, field.key, args.formula);
+  await tx.mutate.fieldDef.update({ id: args.id, formula });
+  await recomputeType(tx, field.typeId);
 }
 
 /** 新模板带一个草稿 v1：节点流只有“开始”节点；状态流是“待处理 → 处理中 → 已完成”的常用流转。 */

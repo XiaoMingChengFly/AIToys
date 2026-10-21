@@ -2,6 +2,7 @@ import { nodeFlowOf } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { requireWriter } from "./access.ts";
+import { recomputeParentFormulas } from "./formulas.ts";
 import { zql } from "./schema.gen.ts";
 import { createWorkItem, nodeInstanceId } from "./work-items.ts";
 
@@ -55,5 +56,6 @@ export async function createSubItem(tx: Transaction, args: z.output<typeof creat
     toId: args.id,
     createdAt: Date.now(),
   });
+  await recomputeParentFormulas(tx, args.id);
   return result;
 }

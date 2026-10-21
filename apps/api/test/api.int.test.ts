@@ -1634,3 +1634,118 @@ describe("typed field values", () => {
     for (const part of ["field_value_item", "后端", '"num"', "ILIKE", "%wiki%"]) expect(ast).toContain(part);
   });
 });
+
+describe("formula fields", () => {
+  const spaceId = randomUUID();
+  const projectType = `${spaceId}/project`;
+  const taskType = `${spaceId}/task`;
+  const parentId = randomUUID();
+  let admin: { cookie: string; userId: string };
+  const run = (name: string, args: unknown, userId = admin.userId) => services.zero.run(name, args, userId);
+  const field = (typeId: string, key: string, dataType: string, formula?: string) =>
+    run("fieldDef.create", { id: `${typeId}/field/${key}`, typeId, key, name: key, dataType, formula });
+  const value = async (workItemId: string, fieldKey: string) =>
+    (
+      await services.database.db
+        .select()
+        .from(schema.fieldValue)
+        .where(and(eq(schema.fieldValue.workItemId, workItemId), eq(schema.fieldValue.fieldKey, fieldKey)))
+    )[0];
+
+  beforeAll(async () => {
+    admin = await signUp(`formula-${spaceId}@example.com`);
+    await run("space.create", { id: spaceId, name: "公式" });
+    for (const [typeId, key, name, nodes, edges] of [
+      [
+        projectType,
+        "project",
+        "项目",
+        [
+          { key: "start", name: "开始", completion: "auto", ownerRoles: [] },
+          { key: "build", name: "开发", completion: "subItemDriven", ownerRoles: ["owner"] },
+        ],
+        [{ from: "start", to: "build" }],
+      ],
+      [
+        taskType,
+        "task",
+        "任务",
+        [
+          { key: "start", name: "开始", completion: "auto", ownerRoles: [] },
+          { key: "work", name: "处理", completion: "singleConfirm", ownerRoles: ["owner"] },
+        ],
+        [{ from: "start", to: "work" }],
+      ],
+    ] as const) {
+      await run("workItemType.create", { id: typeId, spaceId, key, name });
+      await run("roleDef.create", { id: `${typeId}/role/owner`, typeId, key: "owner", name: "负责人" });
+      await run("flowTemplate.create", { id: `${typeId}/default`, typeId, key: "default", name: "默认流程" });
+      await run("flowTemplate.saveDraft", {
+        templateId: `${typeId}/default`,
+        definition: { key, version: 0, nodes, edges },
+      });
+      await run("flowTemplate.publish", { versionId: `${typeId}/default/v1` });
+    }
+    await field(taskType, "工时", "number");
+    await field(taskType, "单价", "number");
+  });
+
+  it("checks formulas when they are defined", async () => {
+    await expect(field(taskType, "坏", "formula", "{不存在} + 1")).rejects.toThrow("公式有误：字段「不存在」不存在");
+    await expect(field(taskType, "坏", "formula", "SUM(")).rejects.toThrow("公式有误");
+    await expect(field(taskType, "坏", "formula", "")).rejects.toThrow("要填公式");
+  });
+
+  it("computes formulas on the server, in dependency order, and keeps them in step with their inputs", async () => {
+    const id = randomUUID();
+    await run("workItem.create", { id, typeId: taskType, name: "联调", fields: { 工时: 8 }, roles: {} });
+    await field(taskType, "总价", "formula", "{工时} * {单价}");
+    await field(taskType, "含税", "formula", "ROUND({总价} * 1.1, 2)");
+    // 已有的工作项在定义公式时就算好了
+    expect(await value(id, "总价")).toMatchObject({ value: 0, num: 0 });
+
+    await run("fieldValue.set", { workItemId: id, fieldKey: "单价", value: 12.5 });
+    expect(await value(id, "总价")).toMatchObject({ value: 100, num: 100 });
+    expect((await value(id, "含税"))?.value).toBe(110);
+    expect((await value(id, "含税"))?.computedAt).not.toBeNull();
+
+    // 公式字段不能手动改；改公式后重算，循环引用会被拒绝
+    await expect(run("fieldValue.set", { workItemId: id, fieldKey: "总价", value: 1 })).rejects.toThrow("不能手动修改");
+    await run("fieldDef.setFormula", { id: `${taskType}/field/总价`, formula: "{工时} * {单价} * 2" });
+    expect((await value(id, "总价"))?.value).toBe(200);
+    expect((await value(id, "含税"))?.value).toBe(220);
+    await expect(run("fieldDef.setFormula", { id: `${taskType}/field/总价`, formula: "{含税} + 1" })).rejects.toThrow(
+      "循环引用",
+    );
+    const [def] = await services.database.db
+      .select()
+      .from(schema.fieldDef)
+      .where(eq(schema.fieldDef.id, `${taskType}/field/总价`));
+    expect(def?.formula).toBe("{工时} * {单价} * 2");
+  });
+
+  it("rolls up sub-items into the parent", async () => {
+    await field(projectType, "总工时", "formula", "SUBITEMS_SUM({工时})");
+    await field(projectType, "进度", "formula", "SUBITEMS_DONE() / SUBITEMS_COUNT()");
+    await run("workItem.create", {
+      id: parentId,
+      typeId: projectType,
+      name: "官网改版",
+      fields: {},
+      roles: { owner: [admin.userId] },
+    });
+    expect(await value(parentId, "总工时")).toMatchObject({ value: 0 });
+    expect(await value(parentId, "进度")).toBeUndefined();
+
+    const [a, b] = [randomUUID(), randomUUID()];
+    await run("workItem.createSubItem", { id: a, parentId, nodeKey: "build", typeId: taskType, name: "首页" });
+    await run("workItem.createSubItem", { id: b, parentId, nodeKey: "build", typeId: taskType, name: "详情页" });
+    expect((await value(parentId, "进度"))?.value).toBe(0);
+    await run("fieldValue.set", { workItemId: a, fieldKey: "工时", value: 3 });
+    await run("fieldValue.set", { workItemId: b, fieldKey: "工时", value: 5 });
+    expect((await value(parentId, "总工时"))?.value).toBe(8);
+
+    await run("node.confirm", { workItemId: a, nodeKey: "work" });
+    expect((await value(parentId, "进度"))?.value).toBe(0.5);
+  });
+});

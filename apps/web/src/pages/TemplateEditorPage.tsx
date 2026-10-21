@@ -497,7 +497,8 @@ function FormEditor({
   onChange: (form: NodeData["form"]) => void;
 }) {
   const set = (next: typeof value) => onChange(next.length > 0 ? next : undefined);
-  const unused = fields.filter((f) => !value.some((v) => v.field === f.key));
+  // 公式字段由系统计算，不能放进表单
+  const unused = fields.filter((f) => f.dataType !== "formula" && !value.some((v) => v.field === f.key));
   return (
     <fieldset className="flex flex-col gap-1.5">
       <legend className="text-sm font-medium text-fg">完成表单（确认完成时填写）</legend>

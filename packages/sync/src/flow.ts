@@ -16,6 +16,7 @@ import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { requireWriter, syncFieldAccess } from "./access.ts";
 import { fieldDefOf, writeFieldValue } from "./field-values.ts";
+import { recomputeFormulas, recomputeParentFormulas } from "./formulas.ts";
 import { type NodePlan, planNodes } from "./planning.ts";
 import { zql } from "./schema.gen.ts";
 import { assertRoleMembers, nodeInstanceId } from "./work-items.ts";
@@ -227,7 +228,10 @@ export async function confirmNode(
     flow.fields[fieldKey] = to;
     fieldChanges.push({ fieldKey, from, to });
   }
-  if (fieldChanges.length > 0) await syncFieldAccess(tx, args.workItemId);
+  if (fieldChanges.length > 0) {
+    await syncFieldAccess(tx, args.workItemId);
+    for (const c of await recomputeFormulas(tx, args.workItemId)) flow.fields[c.fieldKey] = c.to;
+  }
   const events = fieldChanges.length > 0 ? flow.engine.onFieldsChanged(flow.state, flow.fields) : [];
 
   const openTasks = await tx.run(
@@ -238,6 +242,7 @@ export async function confirmNode(
   const actor = { userId: userID, isSuperAdmin: flow.isAdmin && !isOwner };
   events.push(...flow.engine.confirm(flow.state, args.nodeKey, actor, flow.fields, openTasks.length));
   await saveFlow(tx, flow, before);
+  await recomputeParentFormulas(tx, args.workItemId);
   return { spaceId: flow.spaceId, events, fieldChanges };
 }
 
@@ -262,6 +267,7 @@ export async function rollbackNode(tx: Transaction, args: NodeActionArgs, userID
   const before = structuredClone(flow.state);
   const events = flow.engine.rollback(flow.state, args.nodeKey, { userId: userID }, flow.fields);
   await saveFlow(tx, flow, before);
+  await recomputeParentFormulas(tx, args.workItemId);
   return { spaceId: flow.spaceId, events };
 }
 
@@ -395,5 +401,6 @@ export async function completeBySubItems(tx: Transaction, args: NodeActionArgs, 
   const before = structuredClone(flow.state);
   const events = flow.engine.completeBySubItem(flow.state, args.nodeKey, flow.fields);
   await saveFlow(tx, flow, before);
+  await recomputeParentFormulas(tx, args.workItemId);
   return { spaceId: flow.spaceId, events };
 }

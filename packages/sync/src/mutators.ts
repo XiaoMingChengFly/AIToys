@@ -32,6 +32,7 @@ import {
   setRoleArgs,
   setRoleMembers,
 } from "./flow.ts";
+import { recomputeFormulas, recomputeParentFormulas } from "./formulas.ts";
 import {
   addRelation,
   addRelationArgs,
@@ -71,6 +72,8 @@ import {
   saveDraftArgs,
   setFieldAccess,
   setFieldAccessArgs,
+  setFormula,
+  setFormulaArgs,
 } from "./templates.ts";
 import { createView, createViewArgs, deleteView, deleteViewArgs } from "./views.ts";
 import { createWorkItem, createWorkItemArgs } from "./work-items.ts";
@@ -112,7 +115,10 @@ export async function setFieldValue(tx: Transaction, args: z.output<typeof setFi
     throw new Error(`你没有权限修改「${field.name}」。`);
   const { from, to, created } = await writeFieldValue(tx, item, args.fieldKey, args.value);
   if (created) await syncFieldAccess(tx, args.workItemId);
+  // 先重算公式（流转条件可能用到），再重算流程，最后是汇总了这个工作项的上级
+  await recomputeFormulas(tx, args.workItemId);
   const events = await recomputeFlow(tx, args.workItemId, userID);
+  await recomputeParentFormulas(tx, args.workItemId);
   return { spaceId: item.spaceId, from, to, events };
 }
 
@@ -174,6 +180,7 @@ export const mutators = defineMutators({
   fieldDef: {
     create: defineMutator(createFieldArgs, ({ tx, args, ctx }) => createField(tx, args, ctx.userID)),
     setAccess: defineMutator(setFieldAccessArgs, ({ tx, args, ctx }) => setFieldAccess(tx, args, ctx.userID)),
+    setFormula: defineMutator(setFormulaArgs, ({ tx, args, ctx }) => setFormula(tx, args, ctx.userID)),
   },
   flowTemplate: {
     create: defineMutator(createTemplateArgs, ({ tx, args, ctx }) => createTemplate(tx, args, ctx.userID)),

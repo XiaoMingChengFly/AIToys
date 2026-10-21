@@ -133,6 +133,17 @@ export function FieldInput({
       );
     case "number":
       return textInput("number", "未填写");
+    case "formula":
+      return (
+        <Input
+          aria-label={label}
+          title="由公式计算"
+          value={formatFieldValue({ name: field.name, dataType: "formula" }, value)}
+          placeholder="—"
+          readOnly
+          className="bg-canvas text-fg-muted"
+        />
+      );
     case "link":
       return (
         <div className="flex items-center gap-1.5">
