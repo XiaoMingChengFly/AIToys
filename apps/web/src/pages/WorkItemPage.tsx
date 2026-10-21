@@ -45,6 +45,8 @@ export function WorkItemPage() {
   const [space] = useQuery(item ? queries.spaces.byId({ id: item.spaceId }) : undefined);
   const definition = item?.flowVersion?.definition as FlowDefinition | undefined;
   const graph = useMemo(() => (definition ? new FlowGraph(definition) : null), [definition]);
+  const calendarConfig = item?.space?.calendar;
+  const calendar = useMemo(() => WorkCalendar.fromConfig(calendarConfig), [calendarConfig]);
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState<"flow" | "gantt">("flow");
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +134,7 @@ export function WorkItemPage() {
                 graph={graph}
                 nodes={item.nodes}
                 timeZone={item.space?.timezone ?? "Asia/Shanghai"}
+                calendar={calendar}
                 canPlan={canPlan}
                 onPlan={setPlan}
               />
@@ -228,8 +231,6 @@ export function WorkItemPage() {
   );
 }
 
-const calendar = new WorkCalendar();
-
 type NodeRow = Item["nodes"][number];
 
 /** 甘特图加排期明细表。拖动横条或改表里的日期都会把节点设成“手动”，后续节点自动顺延。 */
@@ -237,12 +238,14 @@ function Schedule({
   graph,
   nodes,
   timeZone,
+  calendar,
   canPlan,
   onPlan,
 }: {
   graph: FlowGraph;
   nodes: readonly NodeRow[];
   timeZone: string;
+  calendar: WorkCalendar;
   canPlan: (nodeKey: string) => boolean;
   onPlan: (nodeKey: string, start?: Day, end?: Day) => void;
 }) {

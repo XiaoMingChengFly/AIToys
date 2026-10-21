@@ -5,5 +5,6 @@ export * from "./mutators.ts";
 export * from "./planning.ts";
 export * from "./queries.ts";
 export * from "./schema.gen.ts";
+export * from "./spaces.ts";
 export * from "./templates.ts";
 export * from "./work-items.ts";

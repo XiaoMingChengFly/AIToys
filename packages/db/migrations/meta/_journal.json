@@ -22,6 +22,13 @@
       "when": 1792563516184,
       "tag": "0002_zero_publication",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792572640312,
+      "tag": "0003_space_calendar",
+      "breakpoints": true
     }
   ]
 }

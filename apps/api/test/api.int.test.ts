@@ -330,6 +330,40 @@ describe("workItem.create with OEM v289", () => {
     ).rejects.toThrow("负责人");
   });
 
+  it("re-plans the space's work items when the admin changes the work calendar", async () => {
+    const { id } = await create({ ...fields, [F.linkedSku]: "SKU-002" });
+    const day = (ms: Date | null | undefined) => (ms ? ms.toISOString().slice(0, 10) : null);
+    await services.zero.run(
+      "node.setPlan",
+      { workItemId: id, nodeKey: "doing", start: "2026-12-01", end: "2026-12-04" },
+      npd.userId,
+    );
+    expect(day((await reload(id)).node("state_51")?.plannedStart)).toBe("2026-12-07");
+
+    // 12-07（周一）放假：财务分析顺延到 12-08
+    const setCalendar = (holidays: string[], extraWorkdays: string[], userId = npd.userId) =>
+      services.zero.run("space.setCalendar", { spaceId, holidays, extraWorkdays }, userId);
+    await setCalendar(["2026-12-07"], []);
+    expect(day((await reload(id)).node("state_51")?.plannedStart)).toBe("2026-12-08");
+    // 12-05（周六）调休上班：财务分析提前到 12-05
+    await setCalendar(["2026-12-07"], ["2026-12-05"]);
+    expect(day((await reload(id)).node("state_51")?.plannedStart)).toBe("2026-12-05");
+
+    const [space] = await services.database.db.select().from(schema.space).where(eq(schema.space.id, spaceId));
+    expect(space?.calendar).toEqual({ holidays: ["2026-12-07"], extraWorkdays: ["2026-12-05"] });
+    const events = await services.database.db
+      .select()
+      .from(schema.eventLog)
+      .where(eq(schema.eventLog.spaceId, spaceId))
+      .orderBy(schema.eventLog.id);
+    expect(events.at(-1)).toMatchObject({ kind: "calendarChanged", workItemId: null });
+
+    await expect(setCalendar([], [], finance.userId)).rejects.toThrow("管理员");
+    await expect(setCalendar(["2026-12-05"], ["2026-12-05"])).rejects.toThrow("既放假又调休");
+    await setCalendar([], []);
+    expect(day((await reload(id)).node("state_51")?.plannedStart)).toBe("2026-12-07");
+  });
+
   it("re-evaluates node visibility when a switch field changes", async () => {
     const { id } = await create(fields);
     expect((await reload(id)).node("state_53")?.state).toBe("notStarted");

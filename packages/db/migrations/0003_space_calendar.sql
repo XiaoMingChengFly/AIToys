@@ -1,0 +1,1 @@
+ALTER TABLE "space" ADD COLUMN "calendar" jsonb DEFAULT '{"holidays":[],"extraWorkdays":[]}'::jsonb NOT NULL;

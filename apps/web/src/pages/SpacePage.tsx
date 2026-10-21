@@ -4,6 +4,7 @@ import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { type FormEvent, useMemo, useState } from "react";
+import { CalendarCard } from "@/components/CalendarCard";
 import { type PickerMember, RolePicker, toggled } from "@/components/RolePicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -82,6 +83,11 @@ export function SpacePage() {
       {space.workItemTypes.length === 0 && isAdmin && <ImportOem spaceId={spaceId} />}
       <TypesCard spaceId={spaceId} types={[...space.workItemTypes]} canManage={isAdmin} />
       <CreateWorkItem types={[...space.workItemTypes]} members={members} />
+      <CalendarCard
+        spaceId={spaceId}
+        calendar={space.calendar ?? { holidays: [], extraWorkdays: [] }}
+        canManage={isAdmin}
+      />
 
       <Card>
         <CardHeader>

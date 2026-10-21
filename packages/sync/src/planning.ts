@@ -1,4 +1,4 @@
-import { type Day, type FlowGraph, type Span, schedule, WorkCalendar, type WorkItemState } from "@fp/engine";
+import { type Day, type FlowGraph, type Span, schedule, type WorkCalendar, type WorkItemState } from "@fp/engine";
 
 /** 节点在库里的排期信息，用天号表示。 */
 export interface NodePlan {
@@ -8,12 +8,10 @@ export interface NodePlan {
   actualEnd: Day | null;
 }
 
-/** 工作日历。节假日和调休做成空间配置后从这里传入。 */
-const calendar = new WorkCalendar();
-
 /** 按当前节点状态和手动日期重新排期。 */
 export function planNodes(
   graph: FlowGraph,
+  calendar: WorkCalendar,
   state: WorkItemState,
   start: Day,
   plans: Readonly<Record<string, Pick<NodePlan, "start" | "end" | "pinned" | "actualEnd">>>,

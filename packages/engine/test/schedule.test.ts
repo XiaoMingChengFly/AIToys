@@ -27,6 +27,13 @@ describe("WorkCalendar", () => {
     expect(calendar.workdaysBetween(d("2026-10-19"), d("2026-10-25"))).toBe(5);
   });
 
+  it("reads the stored config", () => {
+    const stored = WorkCalendar.fromConfig({ holidays: ["2026-10-01"], extraWorkdays: ["2026-10-10"] });
+    expect(stored.isWorkday(d("2026-10-01"))).toBe(false);
+    expect(stored.isWorkday(d("2026-10-10"))).toBe(true);
+    expect(WorkCalendar.fromConfig(null).isWorkday(d("2026-10-01"))).toBe(true);
+  });
+
   it("finds the calendar day in a time zone", () => {
     // 北京时间 10 月 22 日 01:00 还是 UTC 的 21 日
     expect(dayToIso(dayInTimeZone(Date.parse("2026-10-21T17:00:00Z"), "Asia/Shanghai"))).toBe("2026-10-22");
