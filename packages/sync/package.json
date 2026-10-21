@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@fp/db": "workspace:*",
+    "@fp/engine": "workspace:*",
     "@rocicorp/zero": "1.10.0",
     "zod": "4.6.5"
   },

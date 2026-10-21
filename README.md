@@ -76,5 +76,6 @@ pnpm db:generate   # 生成迁移，并重新生成 Zero schema
 - [ ] 自动化引擎
 - [x] 基础设施：Docker Compose、数据库表结构和迁移、Zero schema、Temporal worker、Outbox 中继
 - [x] 登录（Better Auth 邮箱密码）、Zero 的查询和写入接口（新建空间、改字段值）
-- [ ] 前端接入 Zero 和登录页；工作项创建（用引擎初始化节点）；oRPC 开放接口
+- [x] 新建工作项：流程引擎算出初始节点状态和阶段，事件写入 event_log；OEM v289 导入工具（`pnpm --filter @fp/api seed:oem <空间 id>`）
+- [ ] 前端接入 Zero 和登录页；节点确认、回滚；oRPC 开放接口
 - [ ] 正式的前端页面：空间、工作项列表、详情、模板编辑器

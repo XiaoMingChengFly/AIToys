@@ -1,5 +1,5 @@
 import { appendEvents, type Tx } from "@fp/db";
-import { mutators, setFieldArgs, visibleWorkItem, zql } from "@fp/sync";
+import { createWorkItem, createWorkItemArgs, mutators, setFieldArgs, visibleWorkItem, zql } from "@fp/sync";
 import { defineMutator, defineMutators } from "@rocicorp/zero";
 import type { DrizzleTransaction } from "@rocicorp/zero/server/adapters/drizzle";
 
@@ -14,6 +14,17 @@ function drizzleTx(tx: { location: string; dbTransaction?: { wrappedTransaction:
  * 事件经 Outbox 中继交给 Temporal，流程推进和自动化都从那里开始。
  */
 export const serverMutators = defineMutators(mutators, {
+  workItem: {
+    create: defineMutator(createWorkItemArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, flowVersionId, events } = await createWorkItem(tx, args, ctx.userID);
+      const base = { spaceId, workItemId: args.id, actor: ctx.userID };
+      await appendEvents(drizzleTx(tx), [
+        { ...base, kind: "workItemCreated", payload: { typeId: args.typeId, flowVersionId, name: args.name } },
+        // 引擎在初始化时算出的节点变化（开始节点完成、后续节点开始、裁剪、阶段改写）
+        ...events.map(({ type, ...payload }) => ({ ...base, kind: type, payload, actor: null })),
+      ]);
+    }),
+  },
   fieldValue: {
     set: defineMutator(setFieldArgs, async ({ tx, args, ctx }) => {
       const item = await visibleWorkItem(tx, args.workItemId, ctx.userID);

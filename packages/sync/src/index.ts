@@ -3,3 +3,4 @@ export * from "./context.ts";
 export * from "./mutators.ts";
 export * from "./queries.ts";
 export * from "./schema.gen.ts";
+export * from "./work-items.ts";

@@ -5,6 +5,7 @@ import {
   cond,
   type FlowDefinition,
   FlowEngine,
+  resolveOwners,
   validateFlow,
 } from "../src/index.ts";
 
@@ -117,5 +118,23 @@ describe("validateFlow", () => {
 
     const dangling: FlowDefinition = { ...flow(["a", []]), edges: [{ from: "a", to: "zzz" }] };
     expect(validateFlow(dangling).errors).not.toHaveLength(0);
+  });
+});
+
+describe("resolveOwners", () => {
+  it("expands each node's owner roles into the work item's role members, without duplicates", () => {
+    const definition: FlowDefinition = {
+      key: "t",
+      version: 1,
+      nodes: [
+        { key: "a", name: "A", completion: "allConfirm", ownerRoles: ["NPD", "开发"] },
+        { key: "b", name: "B", completion: "auto", ownerRoles: [] },
+      ],
+      edges: [{ from: "a", to: "b" }],
+    };
+    expect(resolveOwners(definition, { NPD: ["u1", "u2"], 开发: ["u2", "u3"] })).toEqual({
+      a: ["u1", "u2", "u3"],
+      b: [],
+    });
   });
 });

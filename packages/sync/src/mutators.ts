@@ -1,6 +1,7 @@
 import { defineMutator, defineMutators, type Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { zql } from "./schema.gen.ts";
+import { createWorkItem, createWorkItemArgs } from "./work-items.ts";
 
 /*
  * 前端的所有写操作都走这里的 mutator：浏览器里先乐观执行，再由服务端（apps/api）权威执行一遍。
@@ -31,6 +32,11 @@ export const mutators = defineMutators({
       const now = Date.now();
       await tx.mutate.space.insert({ id: args.id, name: args.name, timezone: "Asia/Shanghai", createdAt: now });
       await tx.mutate.spaceMember.insert({ spaceId: args.id, userId: ctx.userID, isAdmin: true });
+    }),
+  },
+  workItem: {
+    create: defineMutator(createWorkItemArgs, async ({ tx, args, ctx }) => {
+      await createWorkItem(tx, args, ctx.userID);
     }),
   },
   fieldValue: {
