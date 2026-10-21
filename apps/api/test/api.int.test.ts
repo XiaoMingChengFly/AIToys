@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { schema } from "@fp/db";
 import { createTestDatabase } from "@fp/db/testing";
-import { dayInTimeZone, dayToIso, oemV289 } from "@fp/engine";
+import { dayInTimeZone, dayToIso, type FlowDefinition, oemV289 } from "@fp/engine";
 import { cascadeSubItems, createMutatorRunner, matchRules, notify, runRule } from "@fp/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -526,7 +526,9 @@ describe("configuring a type and its flow template", () => {
       .from(schema.flowVersion)
       .where(eq(schema.flowVersion.templateId, templateId))
       .orderBy(schema.flowVersion.version);
-    expect(versions.map((v) => [v.version, v.publishedAt !== null, v.definition.nodes[1]?.ownerRoles])).toEqual([
+    expect(
+      versions.map((v) => [v.version, v.publishedAt !== null, (v.definition as FlowDefinition).nodes[1]?.ownerRoles]),
+    ).toEqual([
       [1, true, ["dev"]],
       [2, false, ["qa"]],
     ]);
@@ -1213,5 +1215,146 @@ describe("node tasks and completion forms", () => {
     await run("task.setDone", { id: task?.id, done: false });
     await run("task.delete", { id: task?.id });
     expect((await tasksOf()).map((t) => t.id)).not.toContain(task?.id);
+  });
+});
+
+describe("status-flow work items", () => {
+  const spaceId = randomUUID();
+  const typeId = `${spaceId}/bug`;
+  const templateId = `${typeId}/default`;
+  let admin: { cookie: string; userId: string };
+  let dev: { cookie: string; userId: string };
+  let qa: { cookie: string; userId: string };
+  let itemId: string;
+  const run = (name: string, args: unknown, userId = admin.userId) => services.zero.run(name, args, userId);
+  const item = async () =>
+    (await services.database.db.select().from(schema.workItem).where(eq(schema.workItem.id, itemId)))[0];
+
+  beforeAll(async () => {
+    admin = await signUp(`st-admin-${spaceId}@example.com`);
+    dev = await signUp(`st-dev-${spaceId}@example.com`);
+    qa = await signUp(`st-qa-${spaceId}@example.com`);
+    await run("space.create", { id: spaceId, name: "缺陷" });
+    await services.database.db.insert(schema.spaceMember).values([
+      { spaceId, userId: dev.userId },
+      { spaceId, userId: qa.userId },
+    ]);
+    await run("workItemType.create", { id: typeId, spaceId, key: "bug", name: "缺陷", flowMode: "state" });
+    await run("roleDef.create", { id: `${typeId}/role/dev`, typeId, key: "dev", name: "开发" });
+    await run("roleDef.create", { id: `${typeId}/role/qa`, typeId, key: "qa", name: "测试" });
+    await run("fieldDef.create", {
+      id: `${typeId}/field/v`,
+      typeId,
+      key: "修复版本",
+      name: "修复版本",
+      dataType: "text",
+    });
+    await run("flowTemplate.create", { id: templateId, typeId, key: "default", name: "缺陷流程" });
+  });
+
+  it("starts a status-flow template with a usable default draft and refuses node-flow drafts", async () => {
+    const [v1] = await services.database.db
+      .select()
+      .from(schema.flowVersion)
+      .where(eq(schema.flowVersion.templateId, templateId));
+    expect(v1?.definition).toMatchObject({
+      mode: "state",
+      statuses: [{ name: "待处理" }, { name: "处理中" }, { name: "已完成" }],
+    });
+    await expect(
+      run("flowTemplate.saveDraft", { templateId, definition: { key: "x", version: 0, nodes: [], edges: [] } }),
+    ).rejects.toThrow("这个类型用状态流");
+  });
+
+  it("refuses to publish a transition that names a missing role", async () => {
+    await run("flowTemplate.saveDraft", {
+      templateId,
+      definition: {
+        key: "x",
+        version: 0,
+        mode: "state",
+        statuses: [
+          { key: "open", name: "待处理", category: "todo" },
+          { key: "closed", name: "已关闭", category: "closed" },
+        ],
+        transitions: [{ from: "open", to: "closed", roles: ["pm"] }],
+      },
+    });
+    await expect(run("flowTemplate.publish", { versionId: `${templateId}/v1` })).rejects.toThrow(
+      "流转「待处理 → 已关闭」的角色「pm」不存在",
+    );
+  });
+
+  it("publishes a bug flow and starts new bugs in its first status", async () => {
+    await run("flowTemplate.saveDraft", {
+      templateId,
+      definition: {
+        key: "x",
+        version: 0,
+        mode: "state",
+        statuses: [
+          { key: "open", name: "待处理", category: "todo" },
+          { key: "fixing", name: "处理中", category: "doing" },
+          { key: "resolved", name: "已解决", category: "done" },
+        ],
+        transitions: [
+          { from: "open", to: "fixing", roles: ["dev"] },
+          { from: "fixing", to: "resolved", gate: { kind: "notEmpty", field: "修复版本" } },
+          { from: "resolved", to: "fixing", roles: ["qa"] },
+        ],
+      },
+    });
+    await run("flowTemplate.publish", { versionId: `${templateId}/v1` });
+    itemId = randomUUID();
+    await run(
+      "workItem.create",
+      { id: itemId, typeId, name: "登录页白屏", fields: {}, roles: { dev: [dev.userId], qa: [qa.userId] } },
+      dev.userId,
+    );
+    expect(await item()).toMatchObject({ flowStatus: "open", stage: "待处理", status: "inProgress" });
+    const nodes = await services.database.db
+      .select()
+      .from(schema.nodeInstance)
+      .where(eq(schema.nodeInstance.workItemId, itemId));
+    expect(nodes).toEqual([]);
+    await expect(run("node.confirm", { workItemId: itemId, nodeKey: "open" }, dev.userId)).rejects.toThrow(
+      "没有节点流程",
+    );
+  });
+
+  it("moves through the flow by role and gate, completing and reopening the bug", async () => {
+    await expect(run("workItem.transition", { workItemId: itemId, to: "fixing" }, qa.userId)).rejects.toThrow(
+      "没有权限",
+    );
+    await expect(run("workItem.transition", { workItemId: itemId, to: "resolved" }, dev.userId)).rejects.toThrow(
+      "不能从「待处理」流转到「已解决」",
+    );
+    await run("workItem.transition", { workItemId: itemId, to: "fixing" }, dev.userId);
+    expect(await item()).toMatchObject({ flowStatus: "fixing", stage: "处理中" });
+
+    await expect(run("workItem.transition", { workItemId: itemId, to: "resolved" }, dev.userId)).rejects.toThrow(
+      "条件还没满足",
+    );
+    await run("fieldValue.set", { workItemId: itemId, fieldKey: "修复版本", value: "1.2.0" }, dev.userId);
+    await run("workItem.transition", { workItemId: itemId, to: "resolved" }, dev.userId);
+    expect(await item()).toMatchObject({ flowStatus: "resolved", stage: "已解决", status: "completed" });
+
+    // 管理员不担任角色也能流转
+    await run("workItem.transition", { workItemId: itemId, to: "fixing" });
+    expect(await item()).toMatchObject({ flowStatus: "fixing", status: "inProgress" });
+
+    const events = await services.database.db
+      .select()
+      .from(schema.eventLog)
+      .where(eq(schema.eventLog.workItemId, itemId))
+      .orderBy(schema.eventLog.id);
+    expect(events.filter((e) => e.kind !== "fieldChanged").map((e) => [e.kind, e.payload])).toEqual([
+      ["workItemCreated", expect.anything()],
+      ["statusChanged", { from: "open", to: "fixing", by: dev.userId }],
+      ["statusChanged", { from: "fixing", to: "resolved", by: dev.userId }],
+      ["workItemCompleted", {}],
+      ["statusChanged", { from: "resolved", to: "fixing", by: admin.userId }],
+      ["workItemReopened", {}],
+    ]);
   });
 });

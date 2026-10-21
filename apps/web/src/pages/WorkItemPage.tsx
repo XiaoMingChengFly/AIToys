@@ -3,9 +3,14 @@ import {
   dayFromIso,
   dayInTimeZone,
   dayToIso,
-  type FlowDefinition,
+  evaluate,
   FlowGraph,
   type NodeState,
+  nodeFlowOf,
+  type StatusActor,
+  StatusFlow,
+  type StatusFlowDefinition,
+  statusFlowOf,
   WorkCalendar,
 } from "@fp/engine";
 import { mutators, queries } from "@fp/sync";
@@ -22,6 +27,7 @@ import { GanttChart } from "@/components/GanttChart";
 import { NodeTasks } from "@/components/NodeTasks";
 import { RelationsCard } from "@/components/RelationsCard";
 import { RolePicker, toggled } from "@/components/RolePicker";
+import { CATEGORY_LABEL, StatusDiagram } from "@/components/StatusDiagram";
 import { SubItems } from "@/components/SubItems";
 import { UserChip } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -61,8 +67,10 @@ export function WorkItemPage() {
   const [item, result] = useQuery(queries.workItems.byId({ id: itemId }));
   // 空间成员和角色定义：改角色成员时用
   const [space] = useQuery(item ? queries.spaces.byId({ id: item.spaceId }) : undefined);
-  const definition = item?.flowVersion?.definition as FlowDefinition | undefined;
+  const definition = nodeFlowOf(item?.flowVersion?.definition);
   const graph = useMemo(() => (definition ? new FlowGraph(definition) : null), [definition]);
+  // 状态流类型的工作项：没有节点，只有状态和流转
+  const statusDefinition = statusFlowOf(item?.flowVersion?.definition);
   const calendarConfig = item?.space?.calendar;
   const calendar = useMemo(() => WorkCalendar.fromConfig(calendarConfig), [calendarConfig]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -183,14 +191,21 @@ export function WorkItemPage() {
           label="工作项视图"
           value={view}
           onChange={setView}
-          items={[
-            ["flow", "节点流程"],
-            ["gantt", "甘特图"],
-          ]}
+          items={
+            statusDefinition
+              ? [["flow", "状态流转"]]
+              : [
+                  ["flow", "节点流程"],
+                  ["gantt", "甘特图"],
+                ]
+          }
         />
       </header>
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">
+          {statusDefinition && (
+            <StatusDiagram definition={statusDefinition} current={item.flowStatus ?? undefined} className="h-full" />
+          )}
           {graph && view === "flow" && (
             <Diagram graph={graph} states={states} selected={selected} onSelect={setSelected} />
           )}
@@ -211,64 +226,81 @@ export function WorkItemPage() {
               <ErrorBanner>{error}</ErrorBanner>
             </div>
           )}
-          <Panel title="当前节点">
-            <div className="flex flex-col gap-3">
-              {inProgress.map((node) => {
-                const runtime = states.get(node.key);
-                const owners = runtime?.owners ?? [];
-                const confirmed = new Set(runtime?.confirmations.map((c) => c.userId));
-                const bySubItems = node.completion === "subItemDriven";
-                // 子工作项驱动的节点自动完成，只有空间管理员能手动完成
-                const canConfirm = bySubItems
-                  ? isAdmin && !owners.includes(me)
-                  : (owners.includes(me) && !confirmed.has(me)) || (isAdmin && !owners.includes(me));
-                return (
-                  <section
-                    key={node.key}
-                    aria-label={node.name}
-                    className="flex flex-col gap-2.5 rounded-lg border border-brand-200 bg-brand-50/40 p-3"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="size-2 rounded-full bg-brand-500" />
-                      <span className="font-medium">{node.name}</span>
-                      <span className="ml-auto text-xs text-fg-subtle">{COMPLETION_LABEL[node.completion]}</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <span className="text-fg-muted">负责人：</span>
-                      {owners.length === 0 && <span className="text-fg-subtle">无（自动）</span>}
-                      {owners.map((u) => (
-                        <span key={u} className="inline-flex items-center gap-1">
-                          <UserChip id={u} name={nameOf(u)} />
-                          {confirmed.has(u) && <Check aria-label="已确认" className="size-3.5 text-success-600" />}
-                        </span>
-                      ))}
-                    </div>
-                    {bySubItems && (
-                      <SubItems
-                        workItemId={item.id}
-                        nodeKey={node.key}
-                        nodeName={node.name}
-                        items={children(node.key)}
-                        types={spaceTypes}
-                        canCreate
-                      />
-                    )}
-                    {nodeTasks(node.key, node.name, false)}
-                    {canConfirm && (
-                      <div>
-                        <Button size="sm" onClick={() => confirm(node.key)}>
-                          {bySubItems ? "手动完成" : "确认完成"}
-                        </Button>
+          {statusDefinition && (
+            <StatusPanel
+              definition={statusDefinition}
+              current={item.flowStatus}
+              actor={{
+                userId: me,
+                roles: item.roleMembers.filter((m) => m.userId === me).map((m) => m.roleKey),
+                isAdmin,
+              }}
+              fields={Object.fromEntries(item.fieldValues.map((f) => [f.fieldKey, f.value]))}
+              onTransition={(to) => run(mutators.workItem.transition({ workItemId: item.id, to }))}
+            />
+          )}
+          {graph && (
+            <Panel title="当前节点">
+              <div className="flex flex-col gap-3">
+                {inProgress.map((node) => {
+                  const runtime = states.get(node.key);
+                  const owners = runtime?.owners ?? [];
+                  const confirmed = new Set(runtime?.confirmations.map((c) => c.userId));
+                  const bySubItems = node.completion === "subItemDriven";
+                  // 子工作项驱动的节点自动完成，只有空间管理员能手动完成
+                  const canConfirm = bySubItems
+                    ? isAdmin && !owners.includes(me)
+                    : (owners.includes(me) && !confirmed.has(me)) || (isAdmin && !owners.includes(me));
+                  return (
+                    <section
+                      key={node.key}
+                      aria-label={node.name}
+                      className="flex flex-col gap-2.5 rounded-lg border border-brand-200 bg-brand-50/40 p-3"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="size-2 rounded-full bg-brand-500" />
+                        <span className="font-medium">{node.name}</span>
+                        <span className="ml-auto text-xs text-fg-subtle">{COMPLETION_LABEL[node.completion]}</span>
                       </div>
-                    )}
-                  </section>
-                );
-              })}
-              {inProgress.length === 0 && (
-                <p className="text-fg-subtle">{item.status === "completed" ? "流程已走完。" : "没有进行中的节点。"}</p>
-              )}
-            </div>
-          </Panel>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="text-fg-muted">负责人：</span>
+                        {owners.length === 0 && <span className="text-fg-subtle">无（自动）</span>}
+                        {owners.map((u) => (
+                          <span key={u} className="inline-flex items-center gap-1">
+                            <UserChip id={u} name={nameOf(u)} />
+                            {confirmed.has(u) && <Check aria-label="已确认" className="size-3.5 text-success-600" />}
+                          </span>
+                        ))}
+                      </div>
+                      {bySubItems && (
+                        <SubItems
+                          workItemId={item.id}
+                          nodeKey={node.key}
+                          nodeName={node.name}
+                          items={children(node.key)}
+                          types={spaceTypes}
+                          canCreate
+                        />
+                      )}
+                      {nodeTasks(node.key, node.name, false)}
+                      {canConfirm && (
+                        <div>
+                          <Button size="sm" onClick={() => confirm(node.key)}>
+                            {bySubItems ? "手动完成" : "确认完成"}
+                          </Button>
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
+                {inProgress.length === 0 && (
+                  <p className="text-fg-subtle">
+                    {item.status === "completed" ? "流程已走完。" : "没有进行中的节点。"}
+                  </p>
+                )}
+              </div>
+            </Panel>
+          )}
 
           {selectedNode && (
             <Panel title={selectedNode.name} aria-label="选中的节点">
@@ -357,6 +389,57 @@ export function WorkItemPage() {
         )}
       </div>
     </div>
+  );
+}
+
+/** 状态流工作项的当前状态和可以流转到的状态；条件不满足的按钮置灰。 */
+function StatusPanel({
+  definition,
+  current,
+  actor,
+  fields,
+  onTransition,
+}: {
+  definition: StatusFlowDefinition;
+  current: string | null;
+  actor: StatusActor;
+  fields: Record<string, unknown>;
+  onTransition: (to: string) => void;
+}) {
+  const flow = new StatusFlow(definition);
+  const status = current ? definition.statuses.find((s) => s.key === current) : undefined;
+  const options = current ? flow.available(current, actor) : [];
+  return (
+    <Panel title="当前状态" aria-label="当前状态">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{status?.name ?? "—"}</span>
+          {status && <Tag tone="neutral">{CATEGORY_LABEL[status.category]}</Tag>}
+        </div>
+        {options.length > 0 ? (
+          <fieldset className="flex flex-wrap gap-2" aria-label="流转到">
+            {options.map((t) => {
+              const target = flow.status(t.to);
+              const ready = !t.gate || evaluate(t.gate, fields);
+              return (
+                <Button
+                  key={t.to}
+                  size="sm"
+                  variant="outline"
+                  disabled={!ready}
+                  title={ready ? undefined : "流转条件还没满足"}
+                  onClick={() => onTransition(t.to)}
+                >
+                  {target.name}
+                </Button>
+              );
+            })}
+          </fieldset>
+        ) : (
+          <p className="text-fg-subtle">没有你可以操作的流转。</p>
+        )}
+      </div>
+    </Panel>
   );
 }
 

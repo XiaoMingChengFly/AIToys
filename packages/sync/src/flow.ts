@@ -4,9 +4,9 @@ import {
   dayFromIso,
   dayInTimeZone,
   dayToTimestamp,
-  type FlowDefinition,
   FlowEngine,
   type FlowEvent,
+  nodeFlowOf,
   resolveOwners,
   WorkCalendar,
   type WorkItemState,
@@ -53,7 +53,7 @@ interface LoadedFlow {
   terminated: boolean;
 }
 
-/** 读出工作项的流程状态。不是空间成员时抛错；状态流工作项（没有流程版本）返回 null。 */
+/** 读出工作项的节点流程状态。不是空间成员时抛错；状态流工作项返回 null。 */
 async function loadFlow(tx: Transaction, workItemId: string, userID: string): Promise<LoadedFlow | null> {
   const item = await tx.run(
     zql.workItem
@@ -66,7 +66,8 @@ async function loadFlow(tx: Transaction, workItemId: string, userID: string): Pr
       .one(),
   );
   if (!item) throw new Error("工作项不存在或没有权限。");
-  if (!item.flowVersion) return null;
+  const definition = nodeFlowOf(item.flowVersion?.definition);
+  if (!definition) return null;
   const timeZone = item.space?.timezone ?? "Asia/Shanghai";
   const toDay = (ms: number | null | undefined) => (ms == null ? null : dayFromDate(ms));
 
@@ -102,7 +103,7 @@ async function loadFlow(tx: Transaction, workItemId: string, userID: string): Pr
         },
       ]),
     ),
-    engine: new FlowEngine(item.flowVersion.definition as FlowDefinition),
+    engine: new FlowEngine(definition),
     state,
     fields: Object.fromEntries(item.fieldValues.map((f) => [f.fieldKey, f.value])),
     isAdmin: member?.isAdmin === true,

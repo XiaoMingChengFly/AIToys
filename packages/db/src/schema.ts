@@ -5,6 +5,7 @@ import type {
   Condition,
   FlowDefinition,
   NodeState,
+  StatusFlowDefinition,
   WorkItemStatus,
 } from "@fp/engine";
 import { relations, sql } from "drizzle-orm";
@@ -241,7 +242,8 @@ export const flowVersion = pgTable(
       .notNull()
       .references(() => flowTemplate.id),
     version: integer("version").notNull(),
-    definition: jsonb("definition").$type<FlowDefinition>().notNull(),
+    /** 节点流（FlowDefinition）或状态流（StatusFlowDefinition，mode 为 "state"），看类型的 flowMode。 */
+    definition: jsonb("definition").$type<FlowDefinition | StatusFlowDefinition>().notNull(),
     /** 为空表示草稿；发布后不可再改。 */
     publishedAt: timestamp("published_at", { withTimezone: true, mode: "date" }),
     publishedBy: text("published_by").references(() => user.id),
@@ -304,10 +306,13 @@ export const workItem = pgTable(
     typeId: text("type_id")
       .notNull()
       .references(() => workItemType.id),
-    /** 创建时锁定的流程版本。状态流类型为空。 */
+    /** 创建时锁定的流程版本（节点流或状态流）。 */
     flowVersionId: text("flow_version_id").references(() => flowVersion.id),
     name: text("name").notNull(),
+    /** 节点流：当前阶段；状态流：当前状态的名称（列表、筛选、视图按它显示）。 */
     stage: text("stage"),
+    /** 状态流的当前状态键。节点流为空。 */
+    flowStatus: text("flow_status"),
     status: text("status").$type<WorkItemStatus | "terminated">().notNull().default("inProgress"),
     createdBy: text("created_by")
       .notNull()

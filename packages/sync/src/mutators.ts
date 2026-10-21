@@ -33,6 +33,7 @@ import {
 } from "./relations.ts";
 import { zql } from "./schema.gen.ts";
 import { setCalendarArgs, setSpaceCalendar } from "./spaces.ts";
+import { transitionArgs, transitionStatus } from "./status.ts";
 import { createSubItem, createSubItemArgs } from "./subitems.ts";
 import {
   createTask,
@@ -173,6 +174,9 @@ export const mutators = defineMutators({
     }),
     createSubItem: defineMutator(createSubItemArgs, async ({ tx, args, ctx }) => {
       await createSubItem(tx, args, ctx.userID);
+    }),
+    transition: defineMutator(transitionArgs, async ({ tx, args, ctx }) => {
+      await transitionStatus(tx, args, ctx.userID);
     }),
   },
   node: {

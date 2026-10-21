@@ -1,5 +1,5 @@
 import { type Database, schema } from "@fp/db";
-import type { FlowDefinition } from "@fp/engine";
+import { nodeFlowOf } from "@fp/engine";
 import { and, eq, inArray } from "drizzle-orm";
 
 interface NewNotification {
@@ -37,7 +37,7 @@ export async function notify(database: Database, eventId: number): Promise<numbe
     const version = item.flowVersionId
       ? await db.query.flowVersion.findFirst({ where: eq(schema.flowVersion.id, item.flowVersionId) })
       : null;
-    const definition = version?.definition as FlowDefinition | undefined;
+    const definition = nodeFlowOf(version?.definition);
     const name = definition?.nodes.find((n) => n.key === payload.node)?.name ?? payload.node;
     for (const userId of node?.owners ?? [])
       notifications.push({ userId, kind: "nodeAssigned", text: `「${item.name}」的节点「${name}」轮到你了` });

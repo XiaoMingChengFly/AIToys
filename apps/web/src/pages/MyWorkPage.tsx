@@ -1,4 +1,4 @@
-import { type Day, dayFromDate, dayInTimeZone, dayToIso, type FlowDefinition } from "@fp/engine";
+import { type Day, dayFromDate, dayInTimeZone, dayToIso, nodeFlowOf } from "@fp/engine";
 import { mutators, queries } from "@fp/sync";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link } from "@tanstack/react-router";
@@ -55,7 +55,7 @@ export function MyWorkPage() {
 
   const now = Date.now();
   const nodeName = (definition: unknown, key: string) =>
-    (definition as FlowDefinition | undefined)?.nodes.find((n) => n.key === key)?.name ?? key;
+    nodeFlowOf(definition)?.nodes.find((n) => n.key === key)?.name ?? key;
   const entries: Entry[] = [
     ...items.flatMap((item) =>
       item.nodes

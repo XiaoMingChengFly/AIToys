@@ -1,4 +1,11 @@
-import { type Condition, type FlowDefinition, validateFlow } from "@fp/engine";
+import {
+  type Condition,
+  type FlowDefinition,
+  isStatusFlow,
+  type StatusFlowDefinition,
+  validateFlow,
+  validateStatusFlow,
+} from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { zql } from "./schema.gen.ts";
@@ -15,7 +22,14 @@ const key = z
   .max(64)
   .regex(/^[^\s/]+$/, "键不能包含空格和斜杠。");
 
-export const createTypeArgs = z.object({ id: z.string(), spaceId: z.string(), key, name: z.string().min(1) });
+export const createTypeArgs = z.object({
+  id: z.string(),
+  spaceId: z.string(),
+  key,
+  name: z.string().min(1),
+  /** node：节点流（需求、项目）；state：状态流（缺陷、任务）。 */
+  flowMode: z.enum(["node", "state"]).default("node"),
+});
 export const createRoleArgs = z.object({ id: z.string(), typeId: z.string(), key, name: z.string().min(1) });
 export const createFieldArgs = z.object({
   id: z.string(),
@@ -57,7 +71,22 @@ export const flowDefinitionSchema = z.object({
   edges: z.array(z.object({ from: z.string(), to: z.string() })),
 });
 
-export const saveDraftArgs = z.object({ templateId: z.string(), definition: flowDefinitionSchema });
+export const statusFlowDefinitionSchema = z.object({
+  key: z.string(),
+  version: z.number().int(),
+  mode: z.literal("state"),
+  statuses: z.array(
+    z.object({ key, name: z.string().trim().min(1), category: z.enum(["todo", "doing", "done", "closed"]) }),
+  ),
+  transitions: z.array(
+    z.object({ from: z.string(), to: z.string(), roles: z.array(z.string()).optional(), gate: condition.optional() }),
+  ),
+});
+
+export const saveDraftArgs = z.object({
+  templateId: z.string(),
+  definition: z.union([statusFlowDefinitionSchema, flowDefinitionSchema]),
+});
 export const publishArgs = z.object({ versionId: z.string() });
 
 /** 版本 id 由模板和版本号决定，浏览器乐观执行和服务端写的是同一行。 */
@@ -93,7 +122,7 @@ async function adminTemplate(tx: Transaction, templateId: string, userID: string
 export async function createType(tx: Transaction, args: z.output<typeof createTypeArgs>, userID: string) {
   await assertAdmin(tx, args.spaceId, userID);
   const existing = await tx.run(zql.workItemType.where("spaceId", args.spaceId));
-  await tx.mutate.workItemType.insert({ ...args, flowMode: "node", sort: existing.length, createdAt: Date.now() });
+  await tx.mutate.workItemType.insert({ ...args, sort: existing.length, createdAt: Date.now() });
 }
 
 export async function createRole(tx: Transaction, args: z.output<typeof createRoleArgs>, userID: string) {
@@ -115,17 +144,34 @@ export async function createField(tx: Transaction, args: z.output<typeof createF
   });
 }
 
-/** 新模板带一个只有“开始”节点的草稿 v1。 */
+/** 新模板带一个草稿 v1：节点流只有“开始”节点；状态流是“待处理 → 处理中 → 已完成”的常用流转。 */
 export async function createTemplate(tx: Transaction, args: z.output<typeof createTemplateArgs>, userID: string) {
-  await adminType(tx, args.typeId, userID);
+  const type = await adminType(tx, args.typeId, userID);
   const now = Date.now();
   await tx.mutate.flowTemplate.insert({ ...args, currentVersionId: null, createdAt: now });
-  const definition: FlowDefinition = {
-    key: args.key,
-    version: 1,
-    nodes: [{ key: "start", name: "开始", completion: "auto", ownerRoles: [], position: { x: 0, y: 0 } }],
-    edges: [],
-  };
+  const definition: FlowDefinition | StatusFlowDefinition =
+    type.flowMode === "state"
+      ? {
+          key: args.key,
+          version: 1,
+          mode: "state",
+          statuses: [
+            { key: "todo", name: "待处理", category: "todo" },
+            { key: "doing", name: "处理中", category: "doing" },
+            { key: "done", name: "已完成", category: "done" },
+          ],
+          transitions: [
+            { from: "todo", to: "doing" },
+            { from: "doing", to: "done" },
+            { from: "done", to: "doing" },
+          ],
+        }
+      : {
+          key: args.key,
+          version: 1,
+          nodes: [{ key: "start", name: "开始", completion: "auto", ownerRoles: [], position: { x: 0, y: 0 } }],
+          edges: [],
+        };
   await tx.mutate.flowVersion.insert({
     id: flowVersionId(args.id, 1),
     templateId: args.id,
@@ -139,7 +185,9 @@ export async function createTemplate(tx: Transaction, args: z.output<typeof crea
 
 /** 保存草稿：最新版本是草稿就覆盖它，已发布就开一个新版本。返回草稿的版本 id。 */
 export async function saveDraft(tx: Transaction, args: z.output<typeof saveDraftArgs>, userID: string) {
-  const { template, latest } = await adminTemplate(tx, args.templateId, userID);
+  const { template, latest, type } = await adminTemplate(tx, args.templateId, userID);
+  if (isStatusFlow(args.definition) !== (type.flowMode === "state"))
+    throw new Error(type.flowMode === "state" ? "这个类型用状态流。" : "这个类型用节点流。");
   if (latest && !latest.publishedAt) {
     const definition = { ...args.definition, key: template.key, version: latest.version };
     await tx.mutate.flowVersion.update({ id: latest.id, definition });
@@ -163,7 +211,7 @@ export async function saveDraft(tx: Transaction, args: z.output<typeof saveDraft
  * 模板引用的角色和字段必须在工作项类型里存在。引擎的 validateFlow 只看图本身，这里补上和类型配置的对照。
  */
 export function checkReferences(
-  definition: FlowDefinition,
+  definition: FlowDefinition | StatusFlowDefinition,
   roleKeys: readonly string[],
   fieldKeys: readonly string[],
 ): string[] {
@@ -172,6 +220,16 @@ export function checkReferences(
   const fields = new Set(fieldKeys);
   const fieldsOf = (c: Condition): string[] =>
     c.kind === "all" || c.kind === "any" ? c.items.flatMap(fieldsOf) : [c.field];
+  if (isStatusFlow(definition)) {
+    const name = (key: string) => definition.statuses.find((s) => s.key === key)?.name ?? key;
+    for (const t of definition.transitions) {
+      const label = `「${name(t.from)} → ${name(t.to)}」`;
+      for (const role of t.roles ?? []) if (!roles.has(role)) errors.push(`流转${label}的角色「${role}」不存在。`);
+      for (const field of t.gate ? fieldsOf(t.gate) : [])
+        if (!fields.has(field)) errors.push(`流转${label}的条件用到的字段「${field}」不存在。`);
+    }
+    return errors;
+  }
   for (const node of definition.nodes) {
     for (const role of node.ownerRoles)
       if (!roles.has(role)) errors.push(`节点「${node.name}」的负责角色「${role}」不存在。`);
@@ -192,9 +250,9 @@ export async function publishVersion(tx: Transaction, args: z.output<typeof publ
   const { latest, type } = await adminTemplate(tx, version.templateId, userID);
   if (latest?.id !== version.id) throw new Error("只能发布最新的草稿。");
 
-  const definition = version.definition as FlowDefinition;
+  const definition = version.definition;
   const errors = [
-    ...validateFlow(definition).errors,
+    ...(isStatusFlow(definition) ? validateStatusFlow(definition) : validateFlow(definition)).errors,
     ...checkReferences(
       definition,
       type.roles.map((r) => r.key),
