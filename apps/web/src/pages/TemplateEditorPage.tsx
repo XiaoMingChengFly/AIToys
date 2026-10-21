@@ -393,6 +393,16 @@ function NodePanel({
             </div>
           </fieldset>
           <Label className="flex flex-col gap-1.5">
+            预估工期（工作日）
+            <Input
+              type="number"
+              min={0}
+              value={data.duration ?? ""}
+              placeholder={data.completion === "auto" ? "0（里程碑）" : "1"}
+              onChange={(e) => onChange({ duration: e.target.value === "" ? undefined : Number(e.target.value) })}
+            />
+          </Label>
+          <Label className="flex flex-col gap-1.5">
             到达时设置阶段
             <Input
               value={data.stageOnArrival ?? ""}

@@ -21,6 +21,8 @@ export interface NodeDefinition {
   gate?: Condition;
   /** 节点到达时把工作项阶段改成这个值。 */
   stageOnArrival?: string;
+  /** 预估工期（工作日）。不填时需要人确认的节点按 1 天，自动节点按 0 天（里程碑）。 */
+  duration?: number;
   /** 编辑器里的画布坐标。引擎不使用；没有时按层级自动布局。 */
   position?: { x: number; y: number };
 }
@@ -80,6 +82,23 @@ export class FlowGraph {
   /** 没有后续节点的节点。工作项完成的判定看这些节点。 */
   get leaves(): NodeDefinition[] {
     return this.nodes.filter((n) => this.successors(n.key).length === 0);
+  }
+
+  /** 拓扑序：每个节点都排在它的所有前序之后。有环时环上的节点不在结果里。 */
+  topologicalOrder(): string[] {
+    const inDegree = new Map(this.nodes.map((n) => [n.key, this.predecessors(n.key).length]));
+    const queue = this.nodes.filter((n) => inDegree.get(n.key) === 0).map((n) => n.key);
+    const order: string[] = [];
+    while (queue.length > 0) {
+      const key = queue.shift() as string;
+      order.push(key);
+      for (const next of this.successors(key)) {
+        const left = (inDegree.get(next) ?? 0) - 1;
+        inDegree.set(next, left);
+        if (left === 0) queue.push(next);
+      }
+    }
+    return order;
   }
 
   /** 某节点之后能到达的所有节点。 */

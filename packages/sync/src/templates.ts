@@ -48,6 +48,7 @@ export const flowDefinitionSchema = z.object({
       visibility: condition.optional(),
       gate: condition.optional(),
       stageOnArrival: z.string().min(1).optional(),
+      duration: z.number().int().min(0).max(999).optional(),
       position: z.object({ x: z.number(), y: z.number() }).optional(),
     }),
   ),

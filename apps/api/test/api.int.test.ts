@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { schema } from "@fp/db";
 import { createTestDatabase } from "@fp/db/testing";
-import { oemV289 } from "@fp/engine";
+import { dayInTimeZone, dayToIso, oemV289 } from "@fp/engine";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp, createServices, type Services } from "../src/app.ts";
@@ -287,6 +287,47 @@ describe("workItem.create with OEM v289", () => {
     await expect(
       services.zero.run("role.set", { workItemId: id, roleKey: "开发", userIds: [stranger.userId] }, npd.userId),
     ).rejects.toThrow("空间成员");
+  });
+
+  it("plans every node on create and re-plans downstream when a node's dates are set by hand", async () => {
+    const { id } = await create({ ...fields, [F.linkedSku]: "SKU-001" });
+    const day = (ms: Date | null | undefined) => (ms ? ms.toISOString().slice(0, 10) : null);
+    let now = await reload(id);
+    const today = dayToIso(dayInTimeZone(Date.now(), "Asia/Shanghai"));
+    expect(day(now.node("start")?.plannedStart)).toBe(today);
+    const financeStart = now.node("state_51")?.plannedStart as Date;
+    expect(financeStart.getTime()).toBeGreaterThan((now.node("doing")?.plannedEnd as Date).getTime());
+
+    // 需求立项提案手动定到 12 月，后面的财务分析跟着顺延到它之后的第一个工作日
+    await services.zero.run(
+      "node.setPlan",
+      { workItemId: id, nodeKey: "doing", start: "2026-12-01", end: "2026-12-04" },
+      npd.userId,
+    );
+    now = await reload(id);
+    expect(now.node("doing")).toMatchObject({ plannedPinned: true });
+    expect(day(now.node("doing")?.plannedEnd)).toBe("2026-12-04");
+    expect(day(now.node("state_51")?.plannedStart)).toBe("2026-12-07"); // 12-04 是周五
+    expect(now.events.at(-1)).toMatchObject({ kind: "nodePlanChanged", payload: { node: "doing" } });
+
+    // 取消手动日期，回到自动排期
+    await services.zero.run("node.setPlan", { workItemId: id, nodeKey: "doing" }, npd.userId);
+    now = await reload(id);
+    expect(now.node("doing")?.plannedPinned).toBe(false);
+    expect(now.node("state_51")?.plannedStart).toEqual(financeStart);
+  });
+
+  it("refuses plan changes from someone who does not own the node", async () => {
+    const { id } = await create(fields);
+    const outsider = await signUp(`plan-${randomUUID()}@example.com`);
+    await services.database.db.insert(schema.spaceMember).values({ spaceId, userId: outsider.userId });
+    await expect(
+      services.zero.run(
+        "node.setPlan",
+        { workItemId: id, nodeKey: "doing", start: "2026-12-01", end: "2026-12-02" },
+        outsider.userId,
+      ),
+    ).rejects.toThrow("负责人");
   });
 
   it("re-evaluates node visibility when a switch field changes", async () => {

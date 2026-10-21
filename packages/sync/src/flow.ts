@@ -1,18 +1,45 @@
-import { type FlowDefinition, FlowEngine, type FlowEvent, resolveOwners, type WorkItemState } from "@fp/engine";
+import {
+  type Day,
+  dayFromDate,
+  dayFromIso,
+  dayInTimeZone,
+  dayToTimestamp,
+  type FlowDefinition,
+  FlowEngine,
+  type FlowEvent,
+  resolveOwners,
+  type WorkItemState,
+} from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
+import { type NodePlan, planNodes } from "./planning.ts";
 import { zql } from "./schema.gen.ts";
 import { assertSpaceMembers, nodeInstanceId } from "./work-items.ts";
 
 export const nodeActionArgs = z.object({ workItemId: z.string(), nodeKey: z.string() });
 export type NodeActionArgs = z.output<typeof nodeActionArgs>;
 
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式应为 YYYY-MM-DD。");
+/** 手动定节点的计划日期；start、end 都不传表示取消手动日期，交回自动排期。 */
+export const setPlanArgs = z.object({
+  workItemId: z.string(),
+  nodeKey: z.string(),
+  start: isoDate.optional(),
+  end: isoDate.optional(),
+});
+export type SetPlanArgs = z.output<typeof setPlanArgs>;
+
 export const setRoleArgs = z.object({ workItemId: z.string(), roleKey: z.string(), userIds: z.array(z.string()) });
 export type SetRoleArgs = z.output<typeof setRoleArgs>;
 
 /** 一个工作项在数据库里的流程现状，还原成引擎能用的 WorkItemState。 */
 interface LoadedFlow {
+  workItemId: string;
   spaceId: string;
+  timeZone: string;
+  /** 自动排期的起点：工作项创建那天。 */
+  scheduleStart: Day;
+  plans: Record<string, NodePlan>;
   engine: FlowEngine;
   state: WorkItemState;
   fields: Record<string, unknown>;
@@ -27,6 +54,7 @@ async function loadFlow(tx: Transaction, workItemId: string, userID: string): Pr
     zql.workItem
       .where("id", workItemId)
       .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", userID)))
+      .related("space")
       .related("flowVersion")
       .related("fieldValues")
       .related("nodes", (n) => n.related("confirmations"))
@@ -34,6 +62,8 @@ async function loadFlow(tx: Transaction, workItemId: string, userID: string): Pr
   );
   if (!item) throw new Error("工作项不存在或没有权限。");
   if (!item.flowVersion) return null;
+  const timeZone = item.space?.timezone ?? "Asia/Shanghai";
+  const toDay = (ms: number | null | undefined) => (ms == null ? null : dayFromDate(ms));
 
   const member = await tx.run(zql.spaceMember.where("spaceId", item.spaceId).where("userId", userID).one());
   const state: WorkItemState = {
@@ -51,7 +81,21 @@ async function loadFlow(tx: Transaction, workItemId: string, userID: string): Pr
     ),
   };
   return {
+    workItemId,
     spaceId: item.spaceId,
+    timeZone,
+    scheduleStart: dayInTimeZone(item.createdAt ?? Date.now(), timeZone),
+    plans: Object.fromEntries(
+      item.nodes.map((n) => [
+        n.nodeKey,
+        {
+          start: toDay(n.plannedStart),
+          end: toDay(n.plannedEnd),
+          pinned: n.plannedPinned ?? false,
+          actualEnd: n.actualEnd == null ? null : dayInTimeZone(n.actualEnd, timeZone),
+        },
+      ]),
+    ),
     engine: new FlowEngine(item.flowVersion.definition as FlowDefinition),
     state,
     fields: Object.fromEntries(item.fieldValues.map((f) => [f.fieldKey, f.value])),
@@ -60,27 +104,40 @@ async function loadFlow(tx: Transaction, workItemId: string, userID: string): Pr
   };
 }
 
-/** 把引擎算出的新状态和旧状态比较，只写有变化的节点、会签记录和工作项本身。 */
-async function saveFlow(tx: Transaction, workItemId: string, before: WorkItemState, after: WorkItemState) {
+/**
+ * 把引擎算出的新状态和旧状态比较，只写有变化的节点、会签记录和工作项本身；
+ * 然后按新状态重排计划日期（手动定过的节点不动）。
+ */
+async function saveFlow(tx: Transaction, flow: LoadedFlow, before: WorkItemState) {
+  const { workItemId, state: after } = flow;
   const now = Date.now();
+  const today = dayInTimeZone(now, flow.timeZone);
+  const patches = new Map<string, Record<string, unknown>>();
+  const patch = (key: string, values: Record<string, unknown>) =>
+    patches.set(key, { ...(patches.get(key) ?? {}), ...values });
+
   for (const [nodeKey, next] of Object.entries(after.nodes)) {
     const prev = before.nodes[nodeKey];
     const id = nodeInstanceId(workItemId, nodeKey);
     if (prev && (prev.owners.length !== next.owners.length || prev.owners.some((o, i) => o !== next.owners[i])))
-      await tx.mutate.nodeInstance.update({ id, owners: next.owners, updatedAt: now });
+      patch(nodeKey, { owners: next.owners });
     if (prev?.state !== next.state) {
-      const times: { actualStart?: number | null; actualEnd?: number | null } = {};
+      const plan = flow.plans[nodeKey];
       if (next.state === "inProgress") {
         // 新到达的节点记开始时间；从已完成回滚回来的保留原开始时间
-        if (prev?.state !== "completed") times.actualStart = now;
-        times.actualEnd = null;
+        patch(nodeKey, {
+          state: next.state,
+          actualEnd: null,
+          ...(prev?.state !== "completed" && { actualStart: now }),
+        });
+        if (plan) plan.actualEnd = null;
       } else if (next.state === "completed") {
-        times.actualEnd = now;
+        patch(nodeKey, { state: next.state, actualEnd: now });
+        if (plan) plan.actualEnd = today;
       } else {
-        times.actualStart = null;
-        times.actualEnd = null;
+        patch(nodeKey, { state: next.state, actualStart: null, actualEnd: null });
+        if (plan) plan.actualEnd = null;
       }
-      await tx.mutate.nodeInstance.update({ id, state: next.state, ...times, updatedAt: now });
     }
 
     const had = new Set(prev?.confirmations ?? []);
@@ -90,6 +147,19 @@ async function saveFlow(tx: Transaction, workItemId: string, before: WorkItemSta
     for (const userId of had)
       if (!has.has(userId)) await tx.mutate.nodeConfirmation.delete({ nodeInstanceId: id, userId });
   }
+
+  const planned = planNodes(flow.engine.graph, after, flow.scheduleStart, flow.plans);
+  for (const [nodeKey, span] of Object.entries(planned)) {
+    const plan = flow.plans[nodeKey];
+    if (plan?.start !== (span?.start ?? null) || plan?.end !== (span?.end ?? null))
+      patch(nodeKey, {
+        plannedStart: span ? dayToTimestamp(span.start) : null,
+        plannedEnd: span ? dayToTimestamp(span.end) : null,
+      });
+  }
+
+  for (const [nodeKey, values] of patches)
+    await tx.mutate.nodeInstance.update({ id: nodeInstanceId(workItemId, nodeKey), ...values, updatedAt: now });
   if (before.stage !== after.stage || before.status !== after.status)
     await tx.mutate.workItem.update({ id: workItemId, stage: after.stage, status: after.status, updatedAt: now });
 }
@@ -115,7 +185,7 @@ export async function confirmNode(tx: Transaction, args: NodeActionArgs, userID:
   const isOwner = flow.state.nodes[args.nodeKey]?.owners.includes(userID) ?? false;
   const actor = { userId: userID, isSuperAdmin: flow.isAdmin && !isOwner };
   const events = flow.engine.confirm(flow.state, args.nodeKey, actor, flow.fields);
-  await saveFlow(tx, args.workItemId, before, flow.state);
+  await saveFlow(tx, flow, before);
   return { spaceId: flow.spaceId, events };
 }
 
@@ -126,7 +196,7 @@ export async function rollbackNode(tx: Transaction, args: NodeActionArgs, userID
   if (!flow.isAdmin && !owners.includes(userID)) throw new Error("只有节点负责人或空间管理员可以回滚。");
   const before = structuredClone(flow.state);
   const events = flow.engine.rollback(flow.state, args.nodeKey, { userId: userID }, flow.fields);
-  await saveFlow(tx, args.workItemId, before, flow.state);
+  await saveFlow(tx, flow, before);
   return { spaceId: flow.spaceId, events };
 }
 
@@ -136,7 +206,7 @@ export async function recomputeFlow(tx: Transaction, workItemId: string, userID:
   if (!flow || flow.terminated || flow.state.status === "completed") return [];
   const before = structuredClone(flow.state);
   const events = flow.engine.onFieldsChanged(flow.state, flow.fields);
-  await saveFlow(tx, workItemId, before, flow.state);
+  await saveFlow(tx, flow, before);
   return events;
 }
 
@@ -190,7 +260,43 @@ export async function setRoleMembers(
       runtime.owners = owners[node.key] ?? [];
       runtime.confirmations = runtime.confirmations.filter((u) => runtime.owners.includes(u));
     }
-    await saveFlow(tx, args.workItemId, before, flow.state);
+    await saveFlow(tx, flow, before);
   }
   return { spaceId: item.spaceId, from, to };
+}
+
+/**
+ * 手动调整节点的计划日期。调整过的节点之后自动排期不再改它，后续节点从它的结束日期往后排；
+ * 不传日期表示取消手动调整。节点负责人或空间管理员可以操作。
+ */
+export async function setNodePlan(tx: Transaction, args: SetPlanArgs, userID: string): Promise<{ spaceId: string }> {
+  const flow = await loadForAction(tx, args.workItemId, userID);
+  const runtime = flow.state.nodes[args.nodeKey];
+  const plan = flow.plans[args.nodeKey];
+  if (!runtime || !plan) throw new Error("节点不存在。");
+  if (!flow.isAdmin && !runtime.owners.includes(userID)) throw new Error("只有节点负责人或空间管理员可以调整排期。");
+  if (runtime.state === "skipped") throw new Error("跳过的节点没有排期。");
+
+  if (args.start && args.end) {
+    const start = dayFromIso(args.start);
+    const end = dayFromIso(args.end);
+    if (end < start) throw new Error("结束日期不能早于开始日期。");
+    Object.assign(plan, { start, end, pinned: true });
+    await tx.mutate.nodeInstance.update({
+      id: nodeInstanceId(args.workItemId, args.nodeKey),
+      plannedStart: dayToTimestamp(start),
+      plannedEnd: dayToTimestamp(end),
+      plannedPinned: true,
+      updatedAt: Date.now(),
+    });
+  } else {
+    plan.pinned = false;
+    await tx.mutate.nodeInstance.update({
+      id: nodeInstanceId(args.workItemId, args.nodeKey),
+      plannedPinned: false,
+      updatedAt: Date.now(),
+    });
+  }
+  await saveFlow(tx, flow, structuredClone(flow.state));
+  return { spaceId: flow.spaceId };
 }
