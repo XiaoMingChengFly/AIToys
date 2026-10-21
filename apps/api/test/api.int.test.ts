@@ -190,3 +190,19 @@ describe("workItem.create with OEM v289", () => {
     ).rejects.toThrow("没有权限");
   });
 });
+
+describe("POST /api/spaces/:spaceId/import-oem", () => {
+  it("lets the space admin import once and refuses everyone else", async () => {
+    const spaceId = randomUUID();
+    const admin = await signUp(`admin-${spaceId}@example.com`);
+    const other = await signUp(`other-${spaceId}@example.com`);
+    await services.zero.run("space.create", { id: spaceId, name: "演示" }, admin.userId);
+    const url = `/api/spaces/${spaceId}/import-oem`;
+
+    expect((await app.request(url, { method: "POST", headers: { cookie: other.cookie } })).status).toBe(403);
+    const ok = await app.request(url, { method: "POST", headers: { cookie: admin.cookie } });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ typeId: `${spaceId}/project`, templateId: `${spaceId}/project/oem` });
+    expect((await app.request(url, { method: "POST", headers: { cookie: admin.cookie } })).status).toBe(409);
+  });
+});

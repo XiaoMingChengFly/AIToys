@@ -472,11 +472,20 @@ export const relationDefRelations = relations(relationDef, ({ one }) => ({
 
 export const flowTemplateRelations = relations(flowTemplate, ({ one, many }) => ({
   type: one(workItemType, { fields: [flowTemplate.typeId], references: [workItemType.id] }),
-  versions: many(flowVersion),
+  versions: many(flowVersion, { relationName: "versions" }),
+  currentVersion: one(flowVersion, {
+    fields: [flowTemplate.currentVersionId],
+    references: [flowVersion.id],
+    relationName: "currentVersion",
+  }),
 }));
 
 export const flowVersionRelations = relations(flowVersion, ({ one }) => ({
-  template: one(flowTemplate, { fields: [flowVersion.templateId], references: [flowTemplate.id] }),
+  template: one(flowTemplate, {
+    fields: [flowVersion.templateId],
+    references: [flowTemplate.id],
+    relationName: "versions",
+  }),
 }));
 
 export const automationRuleRelations = relations(automationRule, ({ one, many }) => ({

@@ -27,3 +27,33 @@ jobs:
       - name: Service logs on failure
         if: failure()
         run: docker compose logs --tail 200 postgres temporal
+
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      ZERO_API_ORIGIN: http://api:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @fp/web exec playwright install --with-deps chromium
+      - name: Start the full stack
+        run: |
+          docker compose --profile app build
+          docker compose --profile app up -d
+          for url in http://localhost:3000/api/auth/get-session http://localhost:4848/; do
+            timeout 180 sh -c "until curl -s -o /dev/null $url; do sleep 2; done"
+          done
+      - run: pnpm --filter @fp/web test:e2e
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose --profile app logs --tail 200
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: apps/web/test-results
