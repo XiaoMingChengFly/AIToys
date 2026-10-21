@@ -11,6 +11,7 @@ import {
   setRoleMembers,
 } from "./flow.ts";
 import { zql } from "./schema.gen.ts";
+import { setCalendarArgs, setSpaceCalendar } from "./spaces.ts";
 import {
   createField,
   createFieldArgs,
@@ -75,8 +76,17 @@ export const mutators = defineMutators({
     /** 新建空间，创建人成为空间管理员。 */
     create: defineMutator(createSpaceArgs, async ({ tx, args, ctx }) => {
       const now = Date.now();
-      await tx.mutate.space.insert({ id: args.id, name: args.name, timezone: "Asia/Shanghai", createdAt: now });
+      await tx.mutate.space.insert({
+        id: args.id,
+        name: args.name,
+        timezone: "Asia/Shanghai",
+        calendar: { holidays: [], extraWorkdays: [] },
+        createdAt: now,
+      });
       await tx.mutate.spaceMember.insert({ spaceId: args.id, userId: ctx.userID, isAdmin: true });
+    }),
+    setCalendar: defineMutator(setCalendarArgs, async ({ tx, args, ctx }) => {
+      await setSpaceCalendar(tx, args, ctx.userID);
     }),
   },
   workItemType: {

@@ -1,4 +1,4 @@
-import type { FlowDefinition, NodeState, WorkItemStatus } from "@fp/engine";
+import type { CalendarConfig, FlowDefinition, NodeState, WorkItemStatus } from "@fp/engine";
 import { relations, sql } from "drizzle-orm";
 import {
   bigint,
@@ -107,6 +107,8 @@ export const space = pgTable("space", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   timezone: text("timezone").notNull().default("Asia/Shanghai"),
+  /** 工作日历：节假日和调休，排期按它数工作日。 */
+  calendar: jsonb("calendar").$type<CalendarConfig>().notNull().default({ holidays: [], extraWorkdays: [] }),
   createdAt: createdAt(),
 });
 

@@ -41,6 +41,12 @@ export interface CalendarOptions {
   extraWorkdays?: Iterable<Day>;
 }
 
+/** 存库的日历配置：日期都是 'YYYY-MM-DD'。 */
+export interface CalendarConfig {
+  holidays: string[];
+  extraWorkdays: string[];
+}
+
 /** 工作日历：默认周一到周五上班，可以叠加节假日和调休。 */
 export class WorkCalendar {
   private readonly holidays: Set<Day>;
@@ -49,6 +55,13 @@ export class WorkCalendar {
   constructor(options: CalendarOptions = {}) {
     this.holidays = new Set(options.holidays ?? []);
     this.extraWorkdays = new Set(options.extraWorkdays ?? []);
+  }
+
+  static fromConfig(config: Partial<CalendarConfig> | null | undefined): WorkCalendar {
+    return new WorkCalendar({
+      holidays: (config?.holidays ?? []).map(dayFromIso),
+      extraWorkdays: (config?.extraWorkdays ?? []).map(dayFromIso),
+    });
   }
 
   isWorkday(day: Day): boolean {

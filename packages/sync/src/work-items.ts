@@ -5,6 +5,7 @@ import {
   FlowEngine,
   type FlowEvent,
   resolveOwners,
+  WorkCalendar,
 } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
@@ -85,6 +86,7 @@ export async function createWorkItem(
     engine && flow
       ? planNodes(
           engine.graph,
+          WorkCalendar.fromConfig(space?.calendar),
           flow.state,
           today,
           Object.fromEntries(

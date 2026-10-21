@@ -8,6 +8,7 @@ import {
   FlowEngine,
   type FlowEvent,
   resolveOwners,
+  WorkCalendar,
   type WorkItemState,
 } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
@@ -19,7 +20,7 @@ import { assertSpaceMembers, nodeInstanceId } from "./work-items.ts";
 export const nodeActionArgs = z.object({ workItemId: z.string(), nodeKey: z.string() });
 export type NodeActionArgs = z.output<typeof nodeActionArgs>;
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式应为 YYYY-MM-DD。");
+export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式应为 YYYY-MM-DD。");
 /** 手动定节点的计划日期；start、end 都不传表示取消手动日期，交回自动排期。 */
 export const setPlanArgs = z.object({
   workItemId: z.string(),
@@ -37,6 +38,7 @@ interface LoadedFlow {
   workItemId: string;
   spaceId: string;
   timeZone: string;
+  calendar: WorkCalendar;
   /** 自动排期的起点：工作项创建那天。 */
   scheduleStart: Day;
   plans: Record<string, NodePlan>;
@@ -84,6 +86,7 @@ async function loadFlow(tx: Transaction, workItemId: string, userID: string): Pr
     workItemId,
     spaceId: item.spaceId,
     timeZone,
+    calendar: WorkCalendar.fromConfig(item.space?.calendar),
     scheduleStart: dayInTimeZone(item.createdAt ?? Date.now(), timeZone),
     plans: Object.fromEntries(
       item.nodes.map((n) => [
@@ -148,7 +151,7 @@ async function saveFlow(tx: Transaction, flow: LoadedFlow, before: WorkItemState
       if (!has.has(userId)) await tx.mutate.nodeConfirmation.delete({ nodeInstanceId: id, userId });
   }
 
-  const planned = planNodes(flow.engine.graph, after, flow.scheduleStart, flow.plans);
+  const planned = planNodes(flow.engine.graph, flow.calendar, after, flow.scheduleStart, flow.plans);
   for (const [nodeKey, span] of Object.entries(planned)) {
     const plan = flow.plans[nodeKey];
     if (plan?.start !== (span?.start ?? null) || plan?.end !== (span?.end ?? null))
@@ -299,4 +302,11 @@ export async function setNodePlan(tx: Transaction, args: SetPlanArgs, userID: st
   }
   await saveFlow(tx, flow, structuredClone(flow.state));
   return { spaceId: flow.spaceId };
+}
+
+/** 空间日历变了以后重排一个工作项（手动定过的节点不动）。终止的工作项不处理。 */
+export async function replanWorkItem(tx: Transaction, workItemId: string, userID: string) {
+  const flow = await loadFlow(tx, workItemId, userID);
+  if (!flow || flow.terminated) return;
+  await saveFlow(tx, flow, structuredClone(flow.state));
 }

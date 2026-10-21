@@ -7,12 +7,14 @@ import {
   mutators,
   nodeActionArgs,
   rollbackNode,
+  setCalendarArgs,
   setFieldArgs,
   setFieldValue,
   setNodePlan,
   setPlanArgs,
   setRoleArgs,
   setRoleMembers,
+  setSpaceCalendar,
 } from "@fp/sync";
 import { defineMutator, defineMutators } from "@rocicorp/zero";
 import type { DrizzleTransaction } from "@rocicorp/zero/server/adapters/drizzle";
@@ -39,6 +41,14 @@ function flowEvents(spaceId: string, workItemId: string, events: FlowEvent[]): N
  * 事件经 Outbox 中继交给 Temporal，流程推进和自动化都从那里开始。
  */
 export const serverMutators = defineMutators(mutators, {
+  space: {
+    setCalendar: defineMutator(setCalendarArgs, async ({ tx, args, ctx }) => {
+      const { from, to } = await setSpaceCalendar(tx, args, ctx.userID);
+      await appendEvents(drizzleTx(tx), [
+        { spaceId: args.spaceId, kind: "calendarChanged", payload: { from, to }, actor: ctx.userID },
+      ]);
+    }),
+  },
   workItem: {
     create: defineMutator(createWorkItemArgs, async ({ tx, args, ctx }) => {
       const { spaceId, flowVersionId, events } = await createWorkItem(tx, args, ctx.userID);
