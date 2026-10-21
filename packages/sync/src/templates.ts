@@ -8,6 +8,7 @@ import {
 } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
+import { requireAdmin, syncFieldAccess } from "./access.ts";
 import { zql } from "./schema.gen.ts";
 
 /*
@@ -39,6 +40,12 @@ export const createFieldArgs = z.object({
   dataType: z.enum(["text", "number", "bool", "date", "select", "multiSelect", "user", "link", "relation"]),
   options: z.array(z.object({ value: z.string().min(1), label: z.string().min(1) })).optional(),
 });
+/** 字段的可见和可改角色；空数组表示不限制。 */
+export const setFieldAccessArgs = z.object({
+  id: z.string(),
+  viewRoles: z.array(z.string()),
+  editRoles: z.array(z.string()),
+});
 export const createTemplateArgs = z.object({ id: z.string(), typeId: z.string(), key, name: z.string().min(1) });
 
 export const condition: z.ZodType<Condition, Condition> = z.lazy(() =>
@@ -59,6 +66,7 @@ export const flowDefinitionSchema = z.object({
       name: z.string().min(1),
       completion: z.enum(["singleConfirm", "allConfirm", "auto", "subItemDriven"]),
       ownerRoles: z.array(z.string()),
+      operatorRoles: z.array(z.string()).optional(),
       visibility: condition.optional(),
       gate: condition.optional(),
       stageOnArrival: z.string().min(1).optional(),
@@ -95,8 +103,7 @@ export function flowVersionId(templateId: string, version: number): string {
 }
 
 export async function assertAdmin(tx: Transaction, spaceId: string, userID: string) {
-  const member = await tx.run(zql.spaceMember.where("spaceId", spaceId).where("userId", userID).one());
-  if (!member?.isAdmin) throw new Error("只有空间管理员可以修改配置。");
+  await requireAdmin(tx, spaceId, userID, "只有空间管理员可以修改配置。");
 }
 
 /** 类型存在且当前用户是它所在空间的管理员。 */
@@ -130,6 +137,22 @@ export async function createRole(tx: Transaction, args: z.output<typeof createRo
   await tx.mutate.roleDef.insert({ ...args, inheritFrom: null, createdAt: Date.now() });
 }
 
+/** 设置字段按工作项角色的可见、可改范围。只有空间管理员可以。 */
+export async function setFieldAccess(tx: Transaction, args: z.output<typeof setFieldAccessArgs>, userID: string) {
+  const field = await tx.run(zql.fieldDef.where("id", args.id).one());
+  if (!field) throw new Error("字段不存在。");
+  const type = await adminType(tx, field.typeId, userID);
+  const roles = new Set(type.roles.map((r) => r.key));
+  for (const role of [...args.viewRoles, ...args.editRoles])
+    if (!roles.has(role)) throw new Error(`角色「${role}」不存在。`);
+  await tx.mutate.fieldDef.update({
+    id: args.id,
+    viewRoles: args.viewRoles.length > 0 ? [...new Set(args.viewRoles)] : null,
+    editRoles: args.editRoles.length > 0 ? [...new Set(args.editRoles)] : null,
+  });
+  for (const item of await tx.run(zql.workItem.where("typeId", field.typeId))) await syncFieldAccess(tx, item.id);
+}
+
 export async function createField(tx: Transaction, args: z.output<typeof createFieldArgs>, userID: string) {
   const type = await adminType(tx, args.typeId, userID);
   const isOptions = args.dataType === "select" || args.dataType === "multiSelect";
@@ -139,6 +162,8 @@ export async function createField(tx: Transaction, args: z.output<typeof createF
     options: isOptions ? (args.options ?? []) : null,
     formula: null,
     required: false,
+    viewRoles: null,
+    editRoles: null,
     sort: type.fields.length,
     createdAt: Date.now(),
   });
@@ -233,6 +258,8 @@ export function checkReferences(
   for (const node of definition.nodes) {
     for (const role of node.ownerRoles)
       if (!roles.has(role)) errors.push(`节点「${node.name}」的负责角色「${role}」不存在。`);
+    for (const role of node.operatorRoles ?? [])
+      if (!roles.has(role)) errors.push(`节点「${node.name}」的可操作角色「${role}」不存在。`);
     for (const c of [node.visibility, node.gate])
       for (const field of c ? fieldsOf(c) : [])
         if (!fields.has(field)) errors.push(`节点「${node.name}」的条件用到的字段「${field}」不存在。`);

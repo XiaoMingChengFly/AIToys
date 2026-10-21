@@ -1,5 +1,6 @@
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
+import { requireAdmin } from "./access.ts";
 import { isoDate, replanWorkItem } from "./flow.ts";
 import { zql } from "./schema.gen.ts";
 
@@ -15,8 +16,7 @@ export type SetCalendarArgs = z.output<typeof setCalendarArgs>;
  * 只有空间管理员可以改。返回改之前的配置，服务端用来写事件。
  */
 export async function setSpaceCalendar(tx: Transaction, args: SetCalendarArgs, userID: string) {
-  const member = await tx.run(zql.spaceMember.where("spaceId", args.spaceId).where("userId", userID).one());
-  if (!member?.isAdmin) throw new Error("只有空间管理员可以修改工作日历。");
+  await requireAdmin(tx, args.spaceId, userID, "只有空间管理员可以修改工作日历。");
   const space = await tx.run(zql.space.where("id", args.spaceId).one());
   if (!space) throw new Error("空间不存在。");
 

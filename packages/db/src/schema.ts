@@ -133,6 +133,8 @@ export const space = pgTable("space", {
   createdAt: createdAt(),
 });
 
+export type SpaceRole = "admin" | "member" | "guest";
+
 export const spaceMember = pgTable(
   "space_member",
   {
@@ -142,7 +144,8 @@ export const spaceMember = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    isAdmin: boolean("is_admin").notNull().default(false),
+    /** 空间角色：管理员能改配置和管理成员；成员能建、改工作项；访客只能查看和评论。 */
+    role: text("role").$type<SpaceRole>().notNull().default("member"),
   },
   (t) => [primaryKey({ columns: [t.spaceId, t.userId] })],
 );
@@ -178,6 +181,10 @@ export const fieldDef = pgTable(
     /** 非空即公式字段，值由公式引擎计算后缓存在 field_value。 */
     formula: text("formula"),
     required: boolean("required").notNull().default(false),
+    /** 能看到这个字段的工作项角色（角色键）；为空时所有人可见。空间管理员总是可见。 */
+    viewRoles: jsonb("view_roles").$type<string[]>(),
+    /** 能修改这个字段的工作项角色；为空时能改工作项的人都能改。空间管理员总是可以。 */
+    editRoles: jsonb("edit_roles").$type<string[]>(),
     sort: integer("sort").notNull().default(0),
     createdAt: createdAt(),
   },
@@ -333,9 +340,29 @@ export const fieldValue = pgTable(
     value: jsonValue("value"),
     /** 公式字段的结果计算时间；普通字段为空。 */
     computedAt: timestamp("computed_at", { withTimezone: true, mode: "date" }),
+    /** 字段配了可见角色时为 true，只同步给 field_viewer 里的人和空间管理员。 */
+    restricted: boolean("restricted").notNull().default(false),
     updatedAt: updatedAt(),
   },
   (t) => [primaryKey({ columns: [t.workItemId, t.fieldKey] })],
+);
+
+/**
+ * 受限字段的可见名单：工作项上担任字段可见（或可改）角色的人。
+ * 由 mutator 在角色成员、字段权限变化时维护；查询靠它过滤受限字段的值。
+ */
+export const fieldViewer = pgTable(
+  "field_viewer",
+  {
+    workItemId: text("work_item_id")
+      .notNull()
+      .references(() => workItem.id, { onDelete: "cascade" }),
+    fieldKey: text("field_key").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.workItemId, t.fieldKey, t.userId] })],
 );
 
 export const roleMember = pgTable(
@@ -657,8 +684,16 @@ export const notificationRelations = relations(notification, ({ one }) => ({
   workItem: one(workItem, { fields: [notification.workItemId], references: [workItem.id] }),
 }));
 
-export const fieldValueRelations = relations(fieldValue, ({ one }) => ({
+export const fieldValueRelations = relations(fieldValue, ({ one, many }) => ({
   workItem: one(workItem, { fields: [fieldValue.workItemId], references: [workItem.id] }),
+  viewers: many(fieldViewer),
+}));
+
+export const fieldViewerRelations = relations(fieldViewer, ({ one }) => ({
+  fieldValue: one(fieldValue, {
+    fields: [fieldViewer.workItemId, fieldViewer.fieldKey],
+    references: [fieldValue.workItemId, fieldValue.fieldKey],
+  }),
 }));
 
 export const roleMemberRelations = relations(roleMember, ({ one }) => ({

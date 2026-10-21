@@ -1,5 +1,6 @@
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
+import { requireWriter } from "./access.ts";
 import { zql } from "./schema.gen.ts";
 import { assertAdmin } from "./templates.ts";
 
@@ -58,7 +59,7 @@ function visibleItem(id: string, userID: string) {
 }
 
 /**
- * 关联两个工作项。空间成员都可以；两端的类型要和定义一致。
+ * 关联两个工作项。空间管理员和成员可以；两端的类型要和定义一致。
  * 只能关联一个的定义，新关联替换旧的。返回被替换掉的工作项，用来记事件。
  */
 export async function addRelation(tx: Transaction, args: z.output<typeof addRelationArgs>, userID: string) {
@@ -70,6 +71,7 @@ export async function addRelation(tx: Transaction, args: z.output<typeof addRela
   if (!to || to.spaceId !== from.spaceId || to.typeId !== def.toTypeId)
     throw new Error(`关联「${def.name}」只能选同一个空间里对应类型的工作项。`);
   if (to.id === from.id) throw new Error("不能关联自己。");
+  await requireWriter(tx, from.spaceId, userID);
 
   const existing = await tx.run(zql.relation.where("relationDefId", def.id).where("fromId", from.id));
   if (existing.some((r) => r.toId === to.id)) throw new Error(`已经关联过「${to.name}」。`);
@@ -91,6 +93,7 @@ export async function removeRelation(tx: Transaction, args: z.output<typeof remo
   const relation = await tx.run(zql.relation.where("id", args.id).one());
   const from = relation && (await tx.run(visibleItem(relation.fromId, userID)));
   if (!relation?.relationDefId || !from) throw new Error("关联不存在或没有权限。");
+  await requireWriter(tx, from.spaceId, userID);
   await tx.mutate.relation.delete({ id: args.id });
   return { spaceId: from.spaceId, relation };
 }

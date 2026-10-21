@@ -1,5 +1,6 @@
 import { connect, type Database, schema } from "@fp/db";
 import { type FlowDefinition, validateFlow } from "@fp/engine";
+import { spaceRoles } from "@fp/sync";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -37,7 +38,7 @@ export function createApp({ database, auth, zero }: Services) {
       .select()
       .from(schema.spaceMember)
       .where(and(eq(schema.spaceMember.spaceId, spaceId), eq(schema.spaceMember.userId, userId)));
-    return member?.isAdmin === true;
+    return member?.role === "admin";
   }
 
   return (
@@ -65,13 +66,13 @@ export function createApp({ database, auth, zero }: Services) {
         if (existing > 0) return c.json({ error: "这个空间已经有工作项类型了。" }, 409);
         return c.json(await importOemTemplate(database.db, spaceId));
       })
-      // 按邮箱把已注册的用户加进空间。查用户要看全站的用户表，所以不走 Zero（浏览器拿不到别人的邮箱）。
+      // 按邮箱把已注册的用户加进空间，可以指定空间角色（默认成员）。查用户要看全站的用户表，所以不走 Zero（浏览器拿不到别人的邮箱）。
       .post("/api/spaces/:spaceId/members", async (c) => {
         const id = await userID(c.req.raw.headers);
         if (!id) return c.json({ error: "未登录。" }, 401);
         const spaceId = c.req.param("spaceId");
         if (!(await isSpaceAdmin(spaceId, id))) return c.json({ error: "只有空间管理员可以添加成员。" }, 403);
-        const body = await c.req.json<{ email?: unknown; isAdmin?: unknown }>().catch(() => ({}) as never);
+        const body = await c.req.json<{ email?: unknown; role?: unknown }>().catch(() => ({}) as never);
         if (typeof body?.email !== "string" || !body.email.includes("@")) return c.json({ error: "请填写邮箱。" }, 400);
         const [found] = await database.db
           .select({ id: schema.user.id, name: schema.user.name })
@@ -80,7 +81,7 @@ export function createApp({ database, auth, zero }: Services) {
         if (!found) return c.json({ error: "这个邮箱还没有注册。" }, 404);
         const added = await database.db
           .insert(schema.spaceMember)
-          .values({ spaceId, userId: found.id, isAdmin: body.isAdmin === true })
+          .values({ spaceId, userId: found.id, role: spaceRoles.find((r) => r === body.role) ?? "member" })
           .onConflictDoNothing()
           .returning();
         if (added.length === 0) return c.json({ error: "已经是空间成员了。" }, 409);

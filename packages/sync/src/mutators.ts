@@ -1,6 +1,16 @@
 import { defineMutator, defineMutators, type Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import {
+  hasAnyRole,
+  myRoles,
+  removeMember,
+  removeMemberArgs,
+  requireWriter,
+  setMemberRole,
+  setMemberRoleArgs,
+  syncFieldAccess,
+} from "./access.ts";
+import {
   createAutomation,
   createAutomationArgs,
   deleteAutomation,
@@ -58,6 +68,8 @@ import {
   publishVersion,
   saveDraft,
   saveDraftArgs,
+  setFieldAccess,
+  setFieldAccessArgs,
 } from "./templates.ts";
 import { createView, createViewArgs, deleteView, deleteViewArgs } from "./views.ts";
 import { createWorkItem, createWorkItemArgs } from "./work-items.ts";
@@ -86,12 +98,17 @@ export function visibleWorkItem(tx: Transaction, workItemId: string, userID: str
 
 /**
  * 改一个字段的值，并按新值重算流程（出现条件、自动节点）。
+ * 访客不能改；字段配了可改角色时，只有担任这些角色的人和空间管理员能改。
  * 公式字段由公式引擎计算，不能手动改（公式引擎接入后在这里校验）。
  * 返回旧值和流程变化，服务端用来写事件。
  */
 export async function setFieldValue(tx: Transaction, args: z.output<typeof setFieldArgs>, userID: string) {
   const item = await visibleWorkItem(tx, args.workItemId, userID);
   if (!item) throw new Error("工作项不存在或没有权限。");
+  const { isAdmin } = await requireWriter(tx, item.spaceId, userID);
+  const field = await tx.run(zql.fieldDef.where("typeId", item.typeId).where("key", args.fieldKey).one());
+  if (!isAdmin && field?.editRoles?.length && !hasAnyRole(field.editRoles, await myRoles(tx, item.id, userID)))
+    throw new Error(`你没有权限修改「${field.name}」。`);
   const before = await tx.run(
     zql.fieldValue.where("workItemId", args.workItemId).where("fieldKey", args.fieldKey).one(),
   );
@@ -101,6 +118,7 @@ export async function setFieldValue(tx: Transaction, args: z.output<typeof setFi
     value: args.value,
     updatedAt: Date.now(),
   });
+  if (!before) await syncFieldAccess(tx, args.workItemId);
   const events = await recomputeFlow(tx, args.workItemId, userID);
   return { spaceId: item.spaceId, from: before?.value ?? null, events };
 }
@@ -117,11 +135,13 @@ export const mutators = defineMutators({
         calendar: { holidays: [], extraWorkdays: [] },
         createdAt: now,
       });
-      await tx.mutate.spaceMember.insert({ spaceId: args.id, userId: ctx.userID, isAdmin: true });
+      await tx.mutate.spaceMember.insert({ spaceId: args.id, userId: ctx.userID, role: "admin" });
     }),
     setCalendar: defineMutator(setCalendarArgs, async ({ tx, args, ctx }) => {
       await setSpaceCalendar(tx, args, ctx.userID);
     }),
+    setMemberRole: defineMutator(setMemberRoleArgs, ({ tx, args, ctx }) => setMemberRole(tx, args, ctx.userID)),
+    removeMember: defineMutator(removeMemberArgs, ({ tx, args, ctx }) => removeMember(tx, args, ctx.userID)),
   },
   automation: {
     create: defineMutator(createAutomationArgs, ({ tx, args, ctx }) => createAutomation(tx, args, ctx.userID)),
@@ -160,6 +180,7 @@ export const mutators = defineMutators({
   },
   fieldDef: {
     create: defineMutator(createFieldArgs, ({ tx, args, ctx }) => createField(tx, args, ctx.userID)),
+    setAccess: defineMutator(setFieldAccessArgs, ({ tx, args, ctx }) => setFieldAccess(tx, args, ctx.userID)),
   },
   flowTemplate: {
     create: defineMutator(createTemplateArgs, ({ tx, args, ctx }) => createTemplate(tx, args, ctx.userID)),

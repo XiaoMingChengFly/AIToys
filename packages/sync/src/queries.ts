@@ -23,6 +23,25 @@ function spaceItems({ spaceId, filter = {} }: z.output<typeof spaceItemsArgs>, u
   return q;
 }
 
+/**
+ * 字段值的可见范围：没配可见角色的字段所有人可见；配了的只给可见名单里的人和空间管理员。
+ * 在服务端执行，看不到的值根本不会同步到浏览器。
+ */
+function visibleFieldValues(userID: string) {
+  return (q: ReturnType<typeof zql.fieldValue.where>) =>
+    q.where(({ or, cmp, exists }) =>
+      or(
+        cmp("restricted", false),
+        exists("viewers", (v) => v.where("userId", userID)),
+        exists("workItem", (w) =>
+          w.whereExists("space", (s) =>
+            s.whereExists("members", (m) => m.where("userId", userID).where("role", "admin")),
+          ),
+        ),
+      ),
+    );
+}
+
 export const queries = defineQueries({
   spaces: {
     mine: defineQuery(({ ctx }) =>
@@ -102,7 +121,7 @@ export const queries = defineQueries({
       spaceItems(args, ctx.userID)
         .related("flowVersion")
         .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID)))
-        .related("fieldValues")
+        .related("fieldValues", visibleFieldValues(ctx.userID))
         .related("nodes", (n) => n.related("confirmations"))
         .orderBy("createdAt", "asc"),
     ),
@@ -118,7 +137,7 @@ export const queries = defineQueries({
         )
         // 自己在空间里的成员身份：前端乐观执行确认、回滚时要判断是不是管理员
         .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID)))
-        .related("fieldValues")
+        .related("fieldValues", visibleFieldValues(ctx.userID))
         .related("roleMembers", (r) => r.related("user"))
         .related("nodes", (n) => n.related("confirmations"))
         .related("comments", (c) => c.related("author").orderBy("createdAt", "asc"))

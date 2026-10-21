@@ -12,6 +12,7 @@ import {
 } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
+import { requireWriter, syncFieldAccess } from "./access.ts";
 import { planNodes } from "./planning.ts";
 import { zql } from "./schema.gen.ts";
 
@@ -40,6 +41,17 @@ export async function assertSpaceMembers(
   const found = new Set(members.map((m) => m.userId));
   const missing = wanted.filter((u) => !found.has(u));
   if (missing.length > 0) throw new Error(message);
+}
+
+/** 角色成员必须是空间成员，而且不能是访客（访客只能查看和评论，担任角色也没法推进流程）。 */
+export async function assertRoleMembers(tx: Transaction, spaceId: string, userIds: string[]) {
+  await assertSpaceMembers(tx, spaceId, userIds);
+  const wanted = [...new Set(userIds)];
+  if (wanted.length === 0) return;
+  const guests = await tx.run(
+    zql.spaceMember.where("spaceId", spaceId).where("userId", "IN", wanted).where("role", "guest"),
+  );
+  if (guests.length > 0) throw new Error("访客不能担任角色。");
 }
 
 /** 节点实例的 id 由工作项和节点键决定，浏览器乐观执行和服务端执行写出的是同一行。 */
@@ -73,7 +85,8 @@ export async function createWorkItem(
       .one(),
   );
   if (!type) throw new Error("工作项类型不存在或没有权限。");
-  await assertSpaceMembers(tx, type.spaceId, Object.values(args.roles).flat());
+  await requireWriter(tx, type.spaceId, userID);
+  await assertRoleMembers(tx, type.spaceId, Object.values(args.roles).flat());
 
   // 节点流和状态流都从类型的流程模板（默认第一个）的当前发布版本开始
   const templates = zql.flowTemplate.where("typeId", args.typeId);
@@ -163,5 +176,6 @@ export async function createWorkItem(
         });
   }
 
+  await syncFieldAccess(tx, args.id);
   return { spaceId: type.spaceId, flowVersionId, events: flow?.events ?? [] };
 }

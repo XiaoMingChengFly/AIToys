@@ -28,10 +28,10 @@ test("configure a type from scratch, draw and publish its flow, then create a wo
   await node("开始").click();
   await page.getByRole("button", { name: "添加节点" }).click();
   await panel.getByLabel("节点名称").fill("修复");
-  await panel.getByLabel("开发").check();
+  await panel.getByLabel("开发", { exact: true }).check();
   await page.getByRole("button", { name: "添加节点" }).click();
   await panel.getByLabel("节点名称").fill("验证");
-  await panel.getByLabel("开发").check();
+  await panel.getByLabel("开发", { exact: true }).check();
   await panel
     .getByRole("group", { name: "出现条件（不满足时跳过这个节点）" })
     .getByRole("button", { name: "+ 添加条件" })

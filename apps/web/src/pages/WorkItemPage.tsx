@@ -13,7 +13,7 @@ import {
   statusFlowOf,
   WorkCalendar,
 } from "@fp/engine";
-import { mutators, queries } from "@fp/sync";
+import { fieldViewRoles, hasAnyRole, mutators, queries } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
@@ -89,7 +89,10 @@ export function WorkItemPage() {
     );
 
   const me = String(zero.userID);
-  const isAdmin = item.space?.members.some((m) => m.isAdmin) ?? false;
+  const isAdmin = item.space?.members.some((m) => m.role === "admin") ?? false;
+  // 访客只能查看和评论；服务端会再校验一遍
+  const canWrite = !(item.space?.members.some((m) => m.role === "guest") ?? true);
+  const myRoles = item.roleMembers.filter((m) => m.userId === me).map((m) => m.roleKey);
   const states = new Map(item.nodes.map((n) => [n.nodeKey, n]));
   const users = new Map(item.roleMembers.map((m) => [m.userId, m.user?.name ?? m.userId]));
   const roleUsers: Record<string, string[]> = {};
@@ -109,11 +112,17 @@ export function WorkItemPage() {
     for (const outcome of [await client, await server])
       if (outcome.type === "error") return setError(outcome.error.message);
   }
-  /** 已到达的节点可以回滚，节点负责人或空间管理员才能操作；服务端会再校验一遍。 */
+  /** 节点负责人、担任节点可操作角色的人和空间管理员可以回滚、改排期；服务端会再校验一遍。 */
+  const canOperate = (nodeKey: string) =>
+    canWrite &&
+    (isAdmin ||
+      (states.get(nodeKey)?.owners ?? []).includes(me) ||
+      (graph?.node(nodeKey).operatorRoles ?? []).some((r) => myRoles.includes(r)));
+  /** 已到达的节点可以回滚。 */
   const canRollback = (nodeKey: string) => {
     const runtime = states.get(nodeKey);
     const reached = runtime?.state === "completed" || runtime?.state === "inProgress";
-    return reached && (isAdmin || (runtime?.owners ?? []).includes(me));
+    return reached && canOperate(nodeKey);
   };
   const setPlan = (nodeKey: string, start?: Day, end?: Day) =>
     run(
@@ -123,7 +132,7 @@ export function WorkItemPage() {
         ...(start !== undefined && end !== undefined && { start: dayToIso(start), end: dayToIso(end) }),
       }),
     );
-  const canPlan = (nodeKey: string) => isAdmin || (states.get(nodeKey)?.owners ?? []).includes(me);
+  const canPlan = canOperate;
   const confirm = (nodeKey: string) =>
     graph?.node(nodeKey).form?.length
       ? setCompleting(nodeKey)
@@ -131,6 +140,8 @@ export function WorkItemPage() {
   const rollback = (nodeKey: string) => run(mutators.node.rollback({ workItemId: item.id, nodeKey }));
 
   const members = space?.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId })) ?? [];
+  // 访客不能担任角色
+  const assignable = members.filter((m) => space?.members.find((x) => x.userId === m.userId)?.role !== "guest");
   const nameOf = (userId: string) => members.find((m) => m.userId === userId)?.name ?? users.get(userId) ?? userId;
   const today = dayInTimeZone(Date.now(), item.space?.timezone ?? "Asia/Shanghai");
   const nodeTasks = (nodeKey: string, nodeName: string, readOnly: boolean) => (
@@ -226,154 +237,168 @@ export function WorkItemPage() {
               <ErrorBanner>{error}</ErrorBanner>
             </div>
           )}
-          {statusDefinition && (
-            <StatusPanel
-              definition={statusDefinition}
-              current={item.flowStatus}
-              actor={{
-                userId: me,
-                roles: item.roleMembers.filter((m) => m.userId === me).map((m) => m.roleKey),
-                isAdmin,
-              }}
-              fields={Object.fromEntries(item.fieldValues.map((f) => [f.fieldKey, f.value]))}
-              onTransition={(to) => run(mutators.workItem.transition({ workItemId: item.id, to }))}
-            />
+          {!canWrite && (
+            <p role="note" className="mx-5 mt-4 rounded-md bg-canvas px-3 py-2 text-sm text-fg-muted">
+              你是这个空间的访客，只能查看和评论。
+            </p>
           )}
-          {graph && (
-            <Panel title="当前节点">
-              <div className="flex flex-col gap-3">
-                {inProgress.map((node) => {
-                  const runtime = states.get(node.key);
-                  const owners = runtime?.owners ?? [];
-                  const confirmed = new Set(runtime?.confirmations.map((c) => c.userId));
-                  const bySubItems = node.completion === "subItemDriven";
-                  // 子工作项驱动的节点自动完成，只有空间管理员能手动完成
-                  const canConfirm = bySubItems
-                    ? isAdmin && !owners.includes(me)
-                    : (owners.includes(me) && !confirmed.has(me)) || (isAdmin && !owners.includes(me));
-                  return (
-                    <section
-                      key={node.key}
-                      aria-label={node.name}
-                      className="flex flex-col gap-2.5 rounded-lg border border-brand-200 bg-brand-50/40 p-3"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="size-2 rounded-full bg-brand-500" />
-                        <span className="font-medium">{node.name}</span>
-                        <span className="ml-auto text-xs text-fg-subtle">{COMPLETION_LABEL[node.completion]}</span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <span className="text-fg-muted">负责人：</span>
-                        {owners.length === 0 && <span className="text-fg-subtle">无（自动）</span>}
-                        {owners.map((u) => (
-                          <span key={u} className="inline-flex items-center gap-1">
-                            <UserChip id={u} name={nameOf(u)} />
-                            {confirmed.has(u) && <Check aria-label="已确认" className="size-3.5 text-success-600" />}
-                          </span>
-                        ))}
-                      </div>
-                      {bySubItems && (
-                        <SubItems
-                          workItemId={item.id}
-                          nodeKey={node.key}
-                          nodeName={node.name}
-                          items={children(node.key)}
-                          types={spaceTypes}
-                          canCreate
-                        />
-                      )}
-                      {nodeTasks(node.key, node.name, false)}
-                      {canConfirm && (
-                        <div>
-                          <Button size="sm" onClick={() => confirm(node.key)}>
-                            {bySubItems ? "手动完成" : "确认完成"}
-                          </Button>
+          {/* 访客：下面的操作都禁用，评论除外 */}
+          <fieldset disabled={!canWrite} className="contents">
+            {statusDefinition && (
+              <StatusPanel
+                definition={statusDefinition}
+                current={item.flowStatus}
+                actor={{
+                  userId: me,
+                  roles: item.roleMembers.filter((m) => m.userId === me).map((m) => m.roleKey),
+                  isAdmin,
+                }}
+                fields={Object.fromEntries(item.fieldValues.map((f) => [f.fieldKey, f.value]))}
+                onTransition={(to) => run(mutators.workItem.transition({ workItemId: item.id, to }))}
+              />
+            )}
+            {graph && (
+              <Panel title="当前节点">
+                <div className="flex flex-col gap-3">
+                  {inProgress.map((node) => {
+                    const runtime = states.get(node.key);
+                    const owners = runtime?.owners ?? [];
+                    const confirmed = new Set(runtime?.confirmations.map((c) => c.userId));
+                    const bySubItems = node.completion === "subItemDriven";
+                    // 子工作项驱动的节点自动完成，只有空间管理员能手动完成
+                    const canConfirm = bySubItems
+                      ? isAdmin && !owners.includes(me)
+                      : (owners.includes(me) && !confirmed.has(me)) || (isAdmin && !owners.includes(me));
+                    return (
+                      <section
+                        key={node.key}
+                        aria-label={node.name}
+                        className="flex flex-col gap-2.5 rounded-lg border border-brand-200 bg-brand-50/40 p-3"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="size-2 rounded-full bg-brand-500" />
+                          <span className="font-medium">{node.name}</span>
+                          <span className="ml-auto text-xs text-fg-subtle">{COMPLETION_LABEL[node.completion]}</span>
                         </div>
-                      )}
-                    </section>
-                  );
-                })}
-                {inProgress.length === 0 && (
-                  <p className="text-fg-subtle">
-                    {item.status === "completed" ? "流程已走完。" : "没有进行中的节点。"}
-                  </p>
-                )}
-              </div>
-            </Panel>
-          )}
-
-          {selectedNode && (
-            <Panel title={selectedNode.name} aria-label="选中的节点">
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-fg-muted">状态：</span>
-                  <NodeStateTag state={states.get(selectedNode.key)?.state ?? "notStarted"} />
-                </div>
-                {selectedNode.completion === "subItemDriven" &&
-                  states.get(selectedNode.key)?.state !== "inProgress" && (
-                    <SubItems
-                      workItemId={item.id}
-                      nodeKey={selectedNode.key}
-                      nodeName={selectedNode.name}
-                      items={children(selectedNode.key)}
-                      types={spaceTypes}
-                      canCreate={false}
-                    />
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <span className="text-fg-muted">负责人：</span>
+                          {owners.length === 0 && <span className="text-fg-subtle">无（自动）</span>}
+                          {owners.map((u) => (
+                            <span key={u} className="inline-flex items-center gap-1">
+                              <UserChip id={u} name={nameOf(u)} />
+                              {confirmed.has(u) && <Check aria-label="已确认" className="size-3.5 text-success-600" />}
+                            </span>
+                          ))}
+                        </div>
+                        {bySubItems && (
+                          <SubItems
+                            workItemId={item.id}
+                            nodeKey={node.key}
+                            nodeName={node.name}
+                            items={children(node.key)}
+                            types={spaceTypes}
+                            canCreate
+                          />
+                        )}
+                        {nodeTasks(node.key, node.name, false)}
+                        {canConfirm && (
+                          <div>
+                            <Button size="sm" onClick={() => confirm(node.key)}>
+                              {bySubItems ? "手动完成" : "确认完成"}
+                            </Button>
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })}
+                  {inProgress.length === 0 && (
+                    <p className="text-fg-subtle">
+                      {item.status === "completed" ? "流程已走完。" : "没有进行中的节点。"}
+                    </p>
                   )}
-                {states.get(selectedNode.key)?.state !== "inProgress" &&
-                  nodeTasks(selectedNode.key, selectedNode.name, states.get(selectedNode.key)?.state !== "notStarted")}
-                {canRollback(selectedNode.key) && (
-                  <div>
-                    <Button size="sm" variant="outline" onClick={() => rollback(selectedNode.key)}>
-                      <Undo2 />
-                      回滚到此节点
-                    </Button>
+                </div>
+              </Panel>
+            )}
+
+            {selectedNode && (
+              <Panel title={selectedNode.name} aria-label="选中的节点">
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-fg-muted">状态：</span>
+                    <NodeStateTag state={states.get(selectedNode.key)?.state ?? "notStarted"} />
                   </div>
-                )}
-              </div>
-            </Panel>
-          )}
+                  {selectedNode.completion === "subItemDriven" &&
+                    states.get(selectedNode.key)?.state !== "inProgress" && (
+                      <SubItems
+                        workItemId={item.id}
+                        nodeKey={selectedNode.key}
+                        nodeName={selectedNode.name}
+                        items={children(selectedNode.key)}
+                        types={spaceTypes}
+                        canCreate={false}
+                      />
+                    )}
+                  {states.get(selectedNode.key)?.state !== "inProgress" &&
+                    nodeTasks(
+                      selectedNode.key,
+                      selectedNode.name,
+                      states.get(selectedNode.key)?.state !== "notStarted",
+                    )}
+                  {canRollback(selectedNode.key) && (
+                    <div>
+                      <Button size="sm" variant="outline" onClick={() => rollback(selectedNode.key)}>
+                        <Undo2 />
+                        回滚到此节点
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </Panel>
+            )}
 
-          <FieldsPanel
-            item={item}
-            onSet={(fieldKey, value) => run(mutators.fieldValue.set({ workItemId: item.id, fieldKey, value }))}
-          />
+            <FieldsPanel
+              item={item}
+              isAdmin={isAdmin}
+              myRoles={myRoles}
+              onSet={(fieldKey, value) => run(mutators.fieldValue.set({ workItemId: item.id, fieldKey, value }))}
+            />
 
-          <RelationsCard
-            workItemId={item.id}
-            spaceId={item.spaceId}
-            defs={item.type?.relationDefs ?? []}
-            outgoing={item.outgoing.map((r) => ({ ...r, item: r.to }))}
-            incoming={item.incoming.map((r) => ({ ...r, item: r.from }))}
-          />
+            <RelationsCard
+              workItemId={item.id}
+              spaceId={item.spaceId}
+              defs={item.type?.relationDefs ?? []}
+              outgoing={item.outgoing.map((r) => ({ ...r, item: r.to }))}
+              incoming={item.incoming.map((r) => ({ ...r, item: r.from }))}
+            />
 
-          {space && (
-            <Panel
-              title={`角色 ${typeRoles.length}`}
-              actions={
-                typeRoles.length > ROLES_FOLDED && (
-                  <Button variant="link" size="sm" onClick={() => setRolesOpen(!rolesOpen)} aria-expanded={rolesOpen}>
-                    {rolesOpen ? "收起" : "展开全部"}
-                  </Button>
-                )
-              }
-            >
-              <RolePicker
-                roles={rolesOpen ? typeRoles : typeRoles.slice(0, ROLES_FOLDED)}
-                members={members}
-                value={roleUsers}
-                onToggle={(roleKey, userId, selected) =>
-                  run(
-                    mutators.role.set({
-                      workItemId: item.id,
-                      roleKey,
-                      userIds: toggled(roleUsers[roleKey], userId, selected),
-                    }),
+            {space && (
+              <Panel
+                title={`角色 ${typeRoles.length}`}
+                actions={
+                  typeRoles.length > ROLES_FOLDED && (
+                    <Button variant="link" size="sm" onClick={() => setRolesOpen(!rolesOpen)} aria-expanded={rolesOpen}>
+                      {rolesOpen ? "收起" : "展开全部"}
+                    </Button>
                   )
                 }
-              />
-            </Panel>
-          )}
+              >
+                <RolePicker
+                  roles={rolesOpen ? typeRoles : typeRoles.slice(0, ROLES_FOLDED)}
+                  members={assignable}
+                  value={roleUsers}
+                  onToggle={(roleKey, userId, selected) =>
+                    run(
+                      mutators.role.set({
+                        workItemId: item.id,
+                        roleKey,
+                        userIds: toggled(roleUsers[roleKey], userId, selected),
+                      }),
+                    )
+                  }
+                />
+              </Panel>
+            )}
+          </fieldset>
 
           <CommentsCard workItemId={item.id} comments={item.comments} members={members} />
         </aside>
@@ -550,16 +575,35 @@ function Schedule({
 type Item = NonNullable<QueryResultType<ReturnType<typeof queries.workItems.byId>>>;
 
 /** 工作项字段：左边字段名，右边值。选项字段用下拉，其它先用文本框，失焦时保存。 */
-function FieldsPanel({ item, onSet }: { item: Item; onSet: (fieldKey: string, value: string | null) => void }) {
+/**
+ * 字段面板。配了可见角色、自己又看不到的字段不显示（值也不会同步过来）；
+ * 配了可改角色、自己不能改的字段只读。
+ */
+function FieldsPanel({
+  item,
+  isAdmin,
+  myRoles,
+  onSet,
+}: {
+  item: Item;
+  isAdmin: boolean;
+  myRoles: string[];
+  onSet: (fieldKey: string, value: string | null) => void;
+}) {
   const values = new Map(item.fieldValues.map((f) => [f.fieldKey, f.value]));
-  const fields = item.type?.fields ?? [];
+  const allowed = (roles: readonly string[]) => isAdmin || hasAnyRole(roles, myRoles);
+  const fields = (item.type?.fields ?? []).filter((f) => {
+    const roles = fieldViewRoles(f);
+    return !roles || allowed(roles);
+  });
   if (fields.length === 0) return null;
   return (
-    <Panel title="字段">
+    <Panel title="字段" aria-label="字段">
       <div className="flex flex-col gap-2">
         {fields.map((field) => {
           const value = values.get(field.key);
           const text = value === null || value === undefined ? "" : String(value);
+          const readOnly = !allowed(field.editRoles ?? []);
           return (
             // biome-ignore lint/a11y/noLabelWithoutControl: 控件嵌在标签里
             <label key={field.key} className="grid grid-cols-[7rem_1fr] items-center gap-3">
@@ -567,7 +611,7 @@ function FieldsPanel({ item, onSet }: { item: Item; onSet: (fieldKey: string, va
                 {field.name}
               </span>
               {field.options ? (
-                <Select value={text} onChange={(e) => onSet(field.key, e.target.value || null)}>
+                <Select value={text} disabled={readOnly} onChange={(e) => onSet(field.key, e.target.value || null)}>
                   <option value="">未选择</option>
                   {field.options.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -580,6 +624,7 @@ function FieldsPanel({ item, onSet }: { item: Item; onSet: (fieldKey: string, va
                   key={text}
                   defaultValue={text}
                   placeholder="未填写"
+                  readOnly={readOnly}
                   onBlur={(e) => {
                     if (e.target.value !== text) onSet(field.key, e.target.value.trim() || null);
                   }}

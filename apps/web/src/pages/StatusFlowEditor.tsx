@@ -36,7 +36,7 @@ export function StatusFlowEditor({
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState<{ kind: "error" | "info"; text: string } | null>(null);
 
-  const isAdmin = type.space?.members.some((m) => m.isAdmin) ?? false;
+  const isAdmin = type.space?.members.some((m) => m.role === "admin") ?? false;
   const validation = validateStatusFlow(definition);
   const errors = [
     ...validation.errors,

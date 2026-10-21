@@ -22,6 +22,8 @@ export interface NodeDefinition {
   name: string;
   completion: CompletionMode;
   ownerRoles: string[];
+  /** 可操作角色：除负责人和空间管理员外，还可以回滚到这个节点、调整它排期的角色。 */
+  operatorRoles?: string[];
   /** 出现条件。不满足时节点被裁剪（跳过）。 */
   visibility?: Condition;
   /** 卡点：节点完成前必须满足的条件。 */

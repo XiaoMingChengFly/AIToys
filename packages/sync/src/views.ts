@@ -1,6 +1,7 @@
 import type { WorkItemFilter } from "@fp/db/schema";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
+import { spaceMemberOf } from "./access.ts";
 import { zql } from "./schema.gen.ts";
 
 /** 工作项列表的筛选条件，查询参数和保存的视图共用。 */
@@ -20,10 +21,11 @@ export const createViewArgs = z.object({
 });
 export const deleteViewArgs = z.object({ id: z.string() });
 
-/** 保存一个视图。空间成员都可以保存，所有成员都能看到。 */
+/** 保存一个视图。空间管理员和成员可以保存（访客不行），所有人都能看到。 */
 export async function createView(tx: Transaction, args: z.output<typeof createViewArgs>, userID: string) {
-  const member = await tx.run(zql.spaceMember.where("spaceId", args.spaceId).where("userId", userID).one());
+  const member = await spaceMemberOf(tx, args.spaceId, userID);
   if (!member) throw new Error("不是空间成员。");
+  if (member.role === "guest") throw new Error("访客只能查看和评论。");
   await tx.mutate.savedView.insert({
     id: args.id,
     spaceId: args.spaceId,
@@ -39,7 +41,7 @@ export async function createView(tx: Transaction, args: z.output<typeof createVi
 export async function deleteView(tx: Transaction, args: z.output<typeof deleteViewArgs>, userID: string) {
   const view = await tx.run(zql.savedView.where("id", args.id).one());
   if (!view) throw new Error("视图不存在。");
-  const member = await tx.run(zql.spaceMember.where("spaceId", view.spaceId).where("userId", userID).one());
-  if (view.createdBy !== userID && !member?.isAdmin) throw new Error("只有创建人或空间管理员可以删除视图。");
+  const member = await spaceMemberOf(tx, view.spaceId, userID);
+  if (view.createdBy !== userID && member?.role !== "admin") throw new Error("只有创建人或空间管理员可以删除视图。");
   await tx.mutate.savedView.delete({ id: args.id });
 }

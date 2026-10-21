@@ -54,12 +54,13 @@ export function SpaceGantt({
   for (const item of items) {
     const graph = item.flowVersion ? graphs.get(item.flowVersion.id) : undefined;
     if (!graph) continue;
-    const isAdmin = item.space?.members.some((m) => m.isAdmin) ?? false;
+    const role = item.space?.members[0]?.role;
+    const isAdmin = role === "admin";
     const nodes = nodeGanttRows(graph, item.nodes, {
       timeZone,
       keyPrefix: `${item.id}/`,
       depth: 1,
-      canPlan: (n) => isAdmin || (n.owners ?? []).includes(String(zero.userID)),
+      canPlan: (n) => role !== "guest" && (isAdmin || (n.owners ?? []).includes(String(zero.userID))),
     });
     if (nodes.rows.length === 0) continue;
     const open = expanded.has(item.id);
