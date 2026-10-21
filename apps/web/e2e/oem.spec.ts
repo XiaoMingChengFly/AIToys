@@ -15,6 +15,8 @@ async function signUpWithOemSpace(page: Page, name: string, suffix: string) {
   await page.getByLabel("空间名称").fill(`OEM 验收 ${suffix}`);
   await page.getByRole("button", { name: "创建" }).click();
   await page.getByText(`OEM 验收 ${suffix}`).click();
+  // 等自己的成员身份同步下来，否则客户端会先以为自己不是管理员
+  await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();
   await page.getByRole("button", { name: "导入 OEM 模板" }).click();
   await expect(page.getByText("新建工作项")).toBeVisible();
 }

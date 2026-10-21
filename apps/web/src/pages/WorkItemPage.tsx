@@ -1,10 +1,22 @@
-import { type FlowDefinition, FlowGraph, type NodeState } from "@fp/engine";
+import {
+  type Day,
+  dayFromDate,
+  dayFromIso,
+  dayInTimeZone,
+  dayToIso,
+  durationOf,
+  type FlowDefinition,
+  FlowGraph,
+  type NodeState,
+  WorkCalendar,
+} from "@fp/engine";
 import { mutators, queries } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
 import { Background, Controls, type Edge, MarkerType, type Node, ReactFlow } from "@xyflow/react";
 import { useMemo, useState } from "react";
+import { GanttChart, type GanttRow } from "@/components/GanttChart";
 import { RolePicker, toggled } from "@/components/RolePicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +46,7 @@ export function WorkItemPage() {
   const definition = item?.flowVersion?.definition as FlowDefinition | undefined;
   const graph = useMemo(() => (definition ? new FlowGraph(definition) : null), [definition]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [view, setView] = useState<"flow" | "gantt">("flow");
   const [error, setError] = useState<string | null>(null);
 
   if (!item)
@@ -65,6 +78,15 @@ export function WorkItemPage() {
     const reached = runtime?.state === "completed" || runtime?.state === "inProgress";
     return reached && (isAdmin || (runtime?.owners ?? []).includes(me));
   };
+  const setPlan = (nodeKey: string, start?: Day, end?: Day) =>
+    run(
+      mutators.node.setPlan({
+        workItemId: item.id,
+        nodeKey,
+        ...(start !== undefined && end !== undefined && { start: dayToIso(start), end: dayToIso(end) }),
+      }),
+    );
+  const canPlan = (nodeKey: string) => isAdmin || (states.get(nodeKey)?.owners ?? []).includes(me);
   const confirm = (nodeKey: string) => run(mutators.node.confirm({ workItemId: item.id, nodeKey }));
   const rollback = (nodeKey: string) => run(mutators.node.rollback({ workItemId: item.id, nodeKey }));
 
@@ -83,7 +105,39 @@ export function WorkItemPage() {
         <span className="text-sm text-slate-500">{item.status === "completed" ? "已完成" : "进行中"}</span>
       </header>
       <div className="flex min-h-0 flex-1">
-        <div className="flex-1">{graph && <Diagram graph={graph} states={states} onSelect={setSelected} />}</div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div role="tablist" className="flex gap-1 border-b border-slate-200 bg-white px-4">
+            {(
+              [
+                ["flow", "流程图"],
+                ["gantt", "甘特图"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={view === key}
+                onClick={() => setView(key)}
+                className={`border-b-2 px-3 py-2 text-sm ${view === key ? "border-sky-600 text-sky-700" : "border-transparent text-slate-500"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="min-h-0 flex-1">
+            {graph && view === "flow" && <Diagram graph={graph} states={states} onSelect={setSelected} />}
+            {graph && view === "gantt" && (
+              <Schedule
+                graph={graph}
+                nodes={item.nodes}
+                timeZone={item.space?.timezone ?? "Asia/Shanghai"}
+                canPlan={canPlan}
+                onPlan={setPlan}
+              />
+            )}
+          </div>
+        </div>
         <aside className="flex w-96 flex-col gap-4 overflow-y-auto border-l border-slate-200 bg-slate-50 p-4">
           {error && (
             <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -170,6 +224,110 @@ export function WorkItemPage() {
           />
         </aside>
       </div>
+    </div>
+  );
+}
+
+const calendar = new WorkCalendar();
+
+type NodeRow = Item["nodes"][number];
+
+/** 甘特图加排期明细表。拖动横条或改表里的日期都会把节点设成“手动”，后续节点自动顺延。 */
+function Schedule({
+  graph,
+  nodes,
+  timeZone,
+  canPlan,
+  onPlan,
+}: {
+  graph: FlowGraph;
+  nodes: readonly NodeRow[];
+  timeZone: string;
+  canPlan: (nodeKey: string) => boolean;
+  onPlan: (nodeKey: string, start?: Day, end?: Day) => void;
+}) {
+  const today = dayInTimeZone(Date.now(), timeZone);
+  const byKey = new Map(nodes.map((n) => [n.nodeKey, n]));
+  const toDay = (ms: number | null | undefined) => (ms == null ? null : dayFromDate(ms));
+  const localDay = (ms: number | null | undefined) => (ms == null ? null : dayInTimeZone(ms, timeZone));
+
+  const rows: GanttRow[] = [];
+  for (const key of graph.topologicalOrder()) {
+    const n = byKey.get(key);
+    const start = toDay(n?.plannedStart);
+    const end = toDay(n?.plannedEnd);
+    if (!n || n.state === "skipped" || start === null || end === null) continue;
+    rows.push({
+      key,
+      label: graph.node(key).name,
+      start,
+      end,
+      state: n.state ?? "notStarted",
+      pinned: n.plannedPinned ?? false,
+      milestone: durationOf(graph.node(key)) === 0 && !n.plannedPinned,
+      actualStart: localDay(n.actualStart),
+      actualEnd: localDay(n.actualEnd),
+      editable: canPlan(key) && n.state !== "completed",
+    });
+  }
+  const shown = new Set(rows.map((r) => r.key));
+  const deps = graph.definition.edges.filter((e) => shown.has(e.from) && shown.has(e.to));
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-[3]">
+        <GanttChart rows={rows} deps={deps} calendar={calendar} today={today} onChange={onPlan} />
+      </div>
+      <details open className="min-h-0 flex-[2] overflow-auto border-t border-slate-200 bg-white">
+        <summary className="cursor-pointer px-4 py-2 text-sm font-medium">排期明细</summary>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-slate-500">
+              <th className="px-4 py-1 font-medium">节点</th>
+              <th className="py-1 font-medium">计划开始</th>
+              <th className="py-1 font-medium">计划结束</th>
+              <th className="py-1 font-medium">实际</th>
+              <th className="py-1" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.key} aria-label={row.label} className="border-t border-slate-100">
+                <td className="px-4 py-1">{row.label}</td>
+                {(["start", "end"] as const).map((side) => (
+                  <td key={side} className="py-1">
+                    <input
+                      type="date"
+                      aria-label={side === "start" ? "计划开始" : "计划结束"}
+                      className="rounded border border-slate-200 px-1 disabled:border-transparent disabled:bg-transparent"
+                      value={dayToIso(row[side])}
+                      disabled={!row.editable}
+                      onChange={(e) => {
+                        if (!e.target.value) return;
+                        const day = dayFromIso(e.target.value);
+                        // 改开始日期时整体平移、工期不变；改结束日期时只改结束
+                        if (side === "start") onPlan(row.key, day, day + (row.end - row.start));
+                        else onPlan(row.key, row.start, Math.max(row.start, day));
+                      }}
+                    />
+                  </td>
+                ))}
+                <td className="py-1 text-slate-500">
+                  {row.actualStart !== null ? dayToIso(row.actualStart) : ""}
+                  {row.actualEnd !== null ? ` → ${dayToIso(row.actualEnd)}` : ""}
+                </td>
+                <td className="py-1 pr-4 text-right">
+                  {row.pinned && row.editable && (
+                    <Button variant="ghost" size="sm" onClick={() => onPlan(row.key)}>
+                      恢复自动
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
     </div>
   );
 }

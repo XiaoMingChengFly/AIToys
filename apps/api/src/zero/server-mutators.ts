@@ -9,6 +9,8 @@ import {
   rollbackNode,
   setFieldArgs,
   setFieldValue,
+  setNodePlan,
+  setPlanArgs,
   setRoleArgs,
   setRoleMembers,
 } from "@fp/sync";
@@ -61,6 +63,18 @@ export const serverMutators = defineMutators(mutators, {
     rollback: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
       const { spaceId, events } = await rollbackNode(tx, args, ctx.userID);
       await appendEvents(drizzleTx(tx), flowEvents(spaceId, args.workItemId, events));
+    }),
+    setPlan: defineMutator(setPlanArgs, async ({ tx, args, ctx }) => {
+      const { spaceId } = await setNodePlan(tx, args, ctx.userID);
+      await appendEvents(drizzleTx(tx), [
+        {
+          spaceId,
+          workItemId: args.workItemId,
+          kind: "nodePlanChanged",
+          payload: { node: args.nodeKey, start: args.start ?? null, end: args.end ?? null },
+          actor: ctx.userID,
+        },
+      ]);
     }),
   },
   role: {

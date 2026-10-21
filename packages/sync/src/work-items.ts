@@ -1,6 +1,14 @@
-import { type FlowDefinition, FlowEngine, type FlowEvent, resolveOwners } from "@fp/engine";
+import {
+  dayInTimeZone,
+  dayToTimestamp,
+  type FlowDefinition,
+  FlowEngine,
+  type FlowEvent,
+  resolveOwners,
+} from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
+import { planNodes } from "./planning.ts";
 import { zql } from "./schema.gen.ts";
 
 export const createWorkItemArgs = z.object({
@@ -68,7 +76,25 @@ export async function createWorkItem(
   }
 
   const now = Date.now();
-  const flow = definition ? new FlowEngine(definition).start(args.fields, resolveOwners(definition, args.roles)) : null;
+  const engine = definition ? new FlowEngine(definition) : null;
+  const flow = engine?.start(args.fields, resolveOwners(definition as FlowDefinition, args.roles)) ?? null;
+  // 自动排期从创建那天（空间时区）开始；一开始就完成的节点（开始节点）算当天完成
+  const space = await tx.run(zql.space.where("id", type.spaceId).one());
+  const today = dayInTimeZone(now, space?.timezone ?? "Asia/Shanghai");
+  const planned =
+    engine && flow
+      ? planNodes(
+          engine.graph,
+          flow.state,
+          today,
+          Object.fromEntries(
+            Object.entries(flow.state.nodes).map(([key, n]) => [
+              key,
+              { start: null, end: null, pinned: false, actualEnd: n.state === "completed" ? today : null },
+            ]),
+          ),
+        )
+      : {};
 
   await tx.mutate.workItem.insert({
     id: args.id,
@@ -99,6 +125,8 @@ export async function createWorkItem(
         owners: runtime.owners,
         actualStart: reached ? now : null,
         actualEnd: runtime.state === "completed" ? now : null,
+        plannedStart: planned[nodeKey] ? dayToTimestamp(planned[nodeKey].start) : null,
+        plannedEnd: planned[nodeKey] ? dayToTimestamp(planned[nodeKey].end) : null,
         plannedPinned: false,
         updatedAt: now,
       });

@@ -1,6 +1,15 @@
 import { defineMutator, defineMutators, type Transaction } from "@rocicorp/zero";
 import { z } from "zod";
-import { confirmNode, nodeActionArgs, recomputeFlow, rollbackNode, setRoleArgs, setRoleMembers } from "./flow.ts";
+import {
+  confirmNode,
+  nodeActionArgs,
+  recomputeFlow,
+  rollbackNode,
+  setNodePlan,
+  setPlanArgs,
+  setRoleArgs,
+  setRoleMembers,
+} from "./flow.ts";
 import { zql } from "./schema.gen.ts";
 import {
   createField,
@@ -97,6 +106,9 @@ export const mutators = defineMutators({
     }),
     rollback: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
       await rollbackNode(tx, args, ctx.userID);
+    }),
+    setPlan: defineMutator(setPlanArgs, async ({ tx, args, ctx }) => {
+      await setNodePlan(tx, args, ctx.userID);
     }),
   },
   role: {

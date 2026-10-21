@@ -29,7 +29,7 @@ export function validateFlow(definition: FlowDefinition): ValidationResult {
   const starts = graph.nodes.filter((n) => graph.predecessors(n.key).length === 0);
   if (starts.length !== 1) errors.push(`流程必须有且只有一个起始节点，现在有 ${starts.length} 个。`);
 
-  const order = topologicalOrder(graph);
+  const order = graph.topologicalOrder();
   if (order.length !== graph.nodes.length) errors.push("流程图里存在环。");
 
   for (const node of graph.nodes) {
@@ -40,22 +40,6 @@ export function validateFlow(definition: FlowDefinition): ValidationResult {
 
   if (errors.length === 0) warnings.push(...stageRegressions(graph, order));
   return { errors, warnings };
-}
-
-function topologicalOrder(graph: FlowGraph): string[] {
-  const inDegree = new Map(graph.nodes.map((n) => [n.key, graph.predecessors(n.key).length]));
-  const queue = graph.nodes.filter((n) => inDegree.get(n.key) === 0).map((n) => n.key);
-  const order: string[] = [];
-  while (queue.length > 0) {
-    const key = queue.shift() as string;
-    order.push(key);
-    for (const next of graph.successors(key)) {
-      const left = (inDegree.get(next) ?? 0) - 1;
-      inDegree.set(next, left);
-      if (left === 0) queue.push(next);
-    }
-  }
-  return order;
 }
 
 /**
