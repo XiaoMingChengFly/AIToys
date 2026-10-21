@@ -10,6 +10,7 @@ import {
 } from "./automations.ts";
 import { createComment, createCommentArgs, markNotificationsRead, markReadArgs } from "./comments.ts";
 import {
+  completeBySubItems,
   confirmNode,
   nodeActionArgs,
   recomputeFlow,
@@ -21,6 +22,7 @@ import {
 } from "./flow.ts";
 import { zql } from "./schema.gen.ts";
 import { setCalendarArgs, setSpaceCalendar } from "./spaces.ts";
+import { createSubItem, createSubItemArgs } from "./subitems.ts";
 import {
   createField,
   createFieldArgs,
@@ -136,6 +138,9 @@ export const mutators = defineMutators({
     create: defineMutator(createWorkItemArgs, async ({ tx, args, ctx }) => {
       await createWorkItem(tx, args, ctx.userID);
     }),
+    createSubItem: defineMutator(createSubItemArgs, async ({ tx, args, ctx }) => {
+      await createSubItem(tx, args, ctx.userID);
+    }),
   },
   node: {
     confirm: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
@@ -146,6 +151,9 @@ export const mutators = defineMutators({
     }),
     setPlan: defineMutator(setPlanArgs, async ({ tx, args, ctx }) => {
       await setNodePlan(tx, args, ctx.userID);
+    }),
+    completeBySubItems: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
+      await completeBySubItems(tx, args, ctx.userID);
     }),
   },
   role: {

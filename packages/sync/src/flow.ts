@@ -310,3 +310,25 @@ export async function replanWorkItem(tx: Transaction, workItemId: string, userID
   if (!flow || flow.terminated) return;
   await saveFlow(tx, flow, structuredClone(flow.state));
 }
+
+/**
+ * “子工作项驱动”的节点：为它建的子工作项全部结束（至少一个完成，其余完成或终止）时完成节点。
+ * 子工作项完成后由 worker 调用；条件不满足或节点不在进行中时什么也不做，可以重复调用。
+ */
+export async function completeBySubItems(tx: Transaction, args: NodeActionArgs, userID: string): Promise<FlowChange> {
+  const flow = await loadFlow(tx, args.workItemId, userID);
+  if (!flow || flow.terminated) return { spaceId: flow?.spaceId ?? "", events: [] };
+  const node = flow.engine.graph.node(args.nodeKey);
+  if (node.completion !== "subItemDriven" || flow.state.nodes[args.nodeKey]?.state !== "inProgress")
+    return { spaceId: flow.spaceId, events: [] };
+  const children = await tx.run(
+    zql.relation.where("fromId", args.workItemId).where("parentNodeKey", args.nodeKey).related("to"),
+  );
+  const statuses = children.map((c) => c.to?.status ?? "inProgress");
+  const done = statuses.length > 0 && statuses.every((s) => s !== "inProgress") && statuses.includes("completed");
+  if (!done) return { spaceId: flow.spaceId, events: [] };
+  const before = structuredClone(flow.state);
+  const events = flow.engine.completeBySubItem(flow.state, args.nodeKey, flow.fields);
+  await saveFlow(tx, flow, before);
+  return { spaceId: flow.spaceId, events };
+}

@@ -340,9 +340,10 @@ export const relation = pgTable(
   "relation",
   {
     id: text("id").primaryKey(),
-    relationDefId: text("relation_def_id")
-      .notNull()
-      .references(() => relationDef.id),
+    /** 自定义关联的定义。子工作项关系没有定义，用 parentNodeKey 标识。 */
+    relationDefId: text("relation_def_id").references(() => relationDef.id),
+    /** 子工作项关系：from 是父工作项，to 是为它的这个“子工作项驱动”节点建的子工作项。 */
+    parentNodeKey: text("parent_node_key"),
     fromId: text("from_id")
       .notNull()
       .references(() => workItem.id, { onDelete: "cascade" }),
@@ -355,6 +356,7 @@ export const relation = pgTable(
     uniqueIndex("relation_def_from_to").on(t.relationDefId, t.fromId, t.toId),
     // 公式和角色继承需要从子工作项反查父工作项
     index("relation_to").on(t.toId),
+    index("relation_from").on(t.fromId),
   ],
 );
 

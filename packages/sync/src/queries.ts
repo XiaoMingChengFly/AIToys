@@ -117,6 +117,9 @@ export const queries = defineQueries({
         .related("roleMembers", (r) => r.related("user"))
         .related("nodes", (n) => n.related("confirmations"))
         .related("comments", (c) => c.related("author").orderBy("createdAt", "asc"))
+        // 子工作项和上级工作项
+        .related("outgoing", (r) => r.related("to"))
+        .related("incoming", (r) => r.related("from"))
         .one(),
     ),
   },

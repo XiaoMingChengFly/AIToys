@@ -17,6 +17,7 @@ import { useMemo, useState } from "react";
 import { CommentsCard } from "@/components/CommentsCard";
 import { GanttChart } from "@/components/GanttChart";
 import { RolePicker, toggled } from "@/components/RolePicker";
+import { SubItems } from "@/components/SubItems";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
@@ -66,6 +67,11 @@ export function WorkItemPage() {
   for (const m of item.roleMembers) roleUsers[m.roleKey] = [...(roleUsers[m.roleKey] ?? []), m.userId];
   const inProgress = graph?.nodes.filter((n) => states.get(n.key)?.state === "inProgress") ?? [];
   const selectedNode = selected ? graph?.nodes.find((n) => n.key === selected) : undefined;
+  // 子工作项按驱动的节点分组；上级工作项是指向自己的子工作项关系
+  const children = (nodeKey: string) =>
+    item.outgoing.flatMap((r) => (r.parentNodeKey === nodeKey && r.to ? [r.to] : []));
+  const parent = item.incoming.find((r) => r.parentNodeKey && r.from)?.from;
+  const spaceTypes = space?.workItemTypes.map((t) => ({ id: t.id, name: t.name })) ?? [];
 
   /** 先在浏览器里乐观执行；被拒绝时（本地或服务端）把原因显示出来。 */
   async function run(request: Parameters<typeof zero.mutate>[0]) {
@@ -104,7 +110,18 @@ export function WorkItemPage() {
         </Link>
         <h1 className="text-lg font-semibold">{item.name}</h1>
         <span className="rounded bg-slate-100 px-2 py-0.5 text-sm">{item.stage ?? "—"}</span>
-        <span className="text-sm text-slate-500">{item.status === "completed" ? "已完成" : "进行中"}</span>
+        <span className="text-sm text-slate-500">
+          {{ completed: "已完成", terminated: "已终止", inProgress: "进行中" }[item.status ?? "inProgress"]}
+        </span>
+        {parent && (
+          <Link
+            to="/items/$itemId"
+            params={{ itemId: parent.id }}
+            className="ml-auto text-sm text-slate-500 hover:underline"
+          >
+            上级工作项：{parent.name}
+          </Link>
+        )}
       </header>
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
@@ -156,7 +173,11 @@ export function WorkItemPage() {
                 const runtime = states.get(node.key);
                 const owners = runtime?.owners ?? [];
                 const confirmed = new Set(runtime?.confirmations.map((c) => c.userId));
-                const canConfirm = (owners.includes(me) && !confirmed.has(me)) || (isAdmin && !owners.includes(me));
+                const bySubItems = node.completion === "subItemDriven";
+                // 子工作项驱动的节点自动完成，只有空间管理员能手动完成
+                const canConfirm = bySubItems
+                  ? isAdmin && !owners.includes(me)
+                  : (owners.includes(me) && !confirmed.has(me)) || (isAdmin && !owners.includes(me));
                 return (
                   <section key={node.key} aria-label={node.name} className="flex flex-col gap-1 text-sm">
                     <div className="font-medium">{node.name}</div>
@@ -165,10 +186,20 @@ export function WorkItemPage() {
                       {owners.map((u) => `${users.get(u) ?? u}${confirmed.has(u) ? "（已确认）" : ""}`).join("、") ||
                         "无（自动）"}
                     </div>
+                    {bySubItems && (
+                      <SubItems
+                        workItemId={item.id}
+                        nodeKey={node.key}
+                        nodeName={node.name}
+                        items={children(node.key)}
+                        types={spaceTypes}
+                        canCreate
+                      />
+                    )}
                     {canConfirm && (
                       <div>
                         <Button size="sm" onClick={() => confirm(node.key)}>
-                          确认完成
+                          {bySubItems ? "手动完成" : "确认完成"}
                         </Button>
                       </div>
                     )}
@@ -186,6 +217,17 @@ export function WorkItemPage() {
               </CardHeader>
               <CardContent className="flex flex-col gap-2 text-sm">
                 <div>状态：{STATE_LABEL[states.get(selectedNode.key)?.state ?? "notStarted"]}</div>
+                {selectedNode.completion === "subItemDriven" &&
+                  states.get(selectedNode.key)?.state !== "inProgress" && (
+                    <SubItems
+                      workItemId={item.id}
+                      nodeKey={selectedNode.key}
+                      nodeName={selectedNode.name}
+                      items={children(selectedNode.key)}
+                      types={spaceTypes}
+                      canCreate={false}
+                    />
+                  )}
                 {canRollback(selectedNode.key) && (
                   <div>
                     <Button size="sm" variant="outline" onClick={() => rollback(selectedNode.key)}>
