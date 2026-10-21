@@ -1,6 +1,17 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.2.4/schema.json",
-  "files": { "includes": ["**", "!**/dist", "!**/node_modules", "!**/routeTree.gen.ts"] },
+  "files": {
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/.turbo",
+      "!**/node_modules",
+      "!**/*.gen.ts",
+      "!**/migrations/meta",
+      "!**/test-results",
+      "!**/playwright-report"
+    ]
+  },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
   "javascript": { "formatter": { "quoteStyle": "double", "semicolons": "always" } },
   "linter": { "enabled": true, "rules": { "recommended": true } },

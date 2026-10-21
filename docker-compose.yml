@@ -1,6 +1,22 @@
-# 本地开发和部署共用的基础设施：Postgres（应用库 + Temporal 库）、Temporal、zero-cache。
-# 应用进程（api、worker、web）开发时用 pnpm dev 在本机跑。
+# 本地开发和部署共用。
+#   docker compose up -d                 只起基础设施和迁移：Postgres、Temporal + UI、zero-cache。api/worker/web 用 pnpm dev 在本机跑
+#   docker compose --profile app up -d   连同 api、Temporal worker、Outbox 中继一起起（部署用）
+# 端口：Postgres 5432、API 3000、zero-cache 4848、Temporal 7233、Temporal UI 8080
 name: feishu-project
+
+x-app: &app
+  build: .
+  image: feishu-project/app
+  restart: unless-stopped
+  profiles: [app]
+  environment:
+    DATABASE_URL: postgresql://feishu:feishu@postgres:5432/feishu
+    TEMPORAL_ADDRESS: temporal:7233
+    TEMPORAL_TASK_QUEUE: fp-events
+    # 部署时务必换成随机长字符串：openssl rand -base64 32
+    BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-only-secret-change-me-in-production}
+    BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+    WEB_ORIGINS: ${WEB_ORIGINS:-http://localhost:5173}
 
 services:
   postgres:
@@ -27,6 +43,14 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+
+  migrate:
+    <<: *app
+    profiles: []
+    restart: "no"
+    command: ["node", "packages/db/src/migrate.ts"]
+    depends_on:
+      postgres: { condition: service_healthy }
 
   temporal-setup:
     image: temporalio/admin-tools:1.31.0
@@ -92,17 +116,21 @@ services:
       - "8080:8080"
 
   zero-cache:
-    image: rocicorp/zero:1.9.0
+    # 版本要和 packages/sync 里的 @rocicorp/zero 一致
+    image: rocicorp/zero:1.10.0
     restart: unless-stopped
     depends_on:
-      postgres: { condition: service_healthy }
+      # publication 由迁移创建
+      migrate: { condition: service_completed_successfully }
     environment:
       ZERO_UPSTREAM_DB: postgresql://feishu:feishu@postgres:5432/feishu
+      ZERO_CVR_DB: postgresql://feishu:feishu@postgres:5432/zero
+      ZERO_CHANGE_DB: postgresql://feishu:feishu@postgres:5432/zero
       ZERO_REPLICA_FILE: /data/zero.db
       ZERO_APP_PUBLICATIONS: zero_pub
-      # 查询和写操作都转发给本机跑的 api（开发时）
-      ZERO_QUERY_URL: http://host.docker.internal:3000/api/zero/query
-      ZERO_MUTATE_URL: http://host.docker.internal:3000/api/zero/mutate
+      # 查询和写操作转发给 api。开发时 api 在本机跑；用 --profile app 起时设 ZERO_API_ORIGIN=http://api:3000
+      ZERO_QUERY_URL: ${ZERO_API_ORIGIN:-http://host.docker.internal:3000}/api/zero/query
+      ZERO_MUTATE_URL: ${ZERO_API_ORIGIN:-http://host.docker.internal:3000}/api/zero/mutate
       ZERO_QUERY_FORWARD_COOKIES: "true"
       ZERO_MUTATE_FORWARD_COOKIES: "true"
       ZERO_ADMIN_PASSWORD: feishu-dev
@@ -112,6 +140,28 @@ services:
       - "4848:4848"
     volumes:
       - zerodata:/data
+
+  api:
+    <<: *app
+    command: ["node", "apps/api/src/server.ts"]
+    ports:
+      - "3000:3000"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  worker:
+    <<: *app
+    command: ["node", "apps/worker/src/main.ts"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      temporal-namespace: { condition: service_completed_successfully }
+
+  relay:
+    <<: *app
+    command: ["node", "apps/worker/src/relay-main.ts"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      temporal-namespace: { condition: service_completed_successfully }
 
 volumes:
   pgdata:

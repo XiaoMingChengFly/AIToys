@@ -1,0 +1,28 @@
+{
+  "name": "@fp/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/main.ts",
+    "start": "node src/main.ts",
+    "relay": "node src/relay-main.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fp/db": "workspace:*",
+    "@fp/engine": "workspace:*",
+    "@temporalio/activity": "1.24.0",
+    "@temporalio/client": "1.24.0",
+    "@temporalio/worker": "1.24.0",
+    "@temporalio/workflow": "1.24.0",
+    "drizzle-orm": "0.45.4",
+    "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "@temporalio/testing": "1.24.0",
+    "@types/node": "24.7.0",
+    "vitest": "3.2.4"
+  }
+}

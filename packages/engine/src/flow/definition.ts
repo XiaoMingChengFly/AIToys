@@ -99,3 +99,13 @@ function push(map: Map<string, string[]>, key: string, value: string) {
   if (list) list.push(value);
   else map.set(key, [value]);
 }
+
+/** 按节点的负责角色，把工作项上各角色的成员展开成每个节点的负责人。 */
+export function resolveOwners(
+  definition: FlowDefinition,
+  membersByRole: Readonly<Record<string, readonly string[]>>,
+): Record<string, string[]> {
+  return Object.fromEntries(
+    definition.nodes.map((n) => [n.key, [...new Set(n.ownerRoles.flatMap((role) => membersByRole[role] ?? []))]]),
+  );
+}

@@ -12,3 +12,8 @@ dist/
 # OS / IDE
 .DS_Store
 .idea/
+.turbo/
+
+# Playwright
+test-results/
+playwright-report/

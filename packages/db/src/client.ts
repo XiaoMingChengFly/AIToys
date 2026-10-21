@@ -1,15 +1,23 @@
-import { drizzle } from "drizzle-orm/node-postgres";
-import pg from "pg";
+import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import * as schema from "./schema.ts";
 
-export const DEFAULT_DATABASE_URL = "postgresql://feishu:feishu@localhost:5432/feishu";
+export type Db = PostgresJsDatabase<typeof schema>;
+/** 事务句柄。业务写入和 appendEvents 必须用同一个 tx。 */
+export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+export type Executor = Db | Tx;
 
-export function createPool(url = process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL) {
-  return new pg.Pool({ connectionString: url });
+export interface Database {
+  db: Db;
+  sql: postgres.Sql;
+  close(): Promise<void>;
 }
 
-export function createDb(pool: pg.Pool) {
-  return drizzle(pool, { schema, casing: "snake_case" });
+export function connect(
+  url = process.env.DATABASE_URL,
+  options: postgres.Options<Record<string, postgres.PostgresType>> = {},
+): Database {
+  if (!url) throw new Error("缺少 DATABASE_URL。");
+  const sql = postgres(url, { onnotice: () => {}, ...options });
+  return { db: drizzle(sql, { schema }), sql, close: () => sql.end({ timeout: 5 }) };
 }
-
-export type Db = ReturnType<typeof createDb>;
