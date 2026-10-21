@@ -66,6 +66,17 @@ export const queries = defineQueries({
         .related("type")
         .orderBy("createdAt", "desc"),
     ),
+    /** 空间甘特图：工作项连同节点排期和流程定义。改排期的 mutator 在前端乐观执行时也要读这些。 */
+    plansBySpace: defineQuery(z.object({ spaceId: z.string() }), ({ args, ctx }) =>
+      zql.workItem
+        .where("spaceId", args.spaceId)
+        .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID)))
+        .related("flowVersion")
+        .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID)))
+        .related("fieldValues")
+        .related("nodes", (n) => n.related("confirmations"))
+        .orderBy("createdAt", "asc"),
+    ),
     byId: defineQuery(z.object({ id: z.string() }), ({ args, ctx }) =>
       zql.workItem
         .where("id", args.id)

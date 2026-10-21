@@ -1,10 +1,8 @@
 import {
   type Day,
-  dayFromDate,
   dayFromIso,
   dayInTimeZone,
   dayToIso,
-  durationOf,
   type FlowDefinition,
   FlowGraph,
   type NodeState,
@@ -16,12 +14,13 @@ import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
 import { Background, Controls, type Edge, MarkerType, type Node, ReactFlow } from "@xyflow/react";
 import { useMemo, useState } from "react";
-import { GanttChart, type GanttRow } from "@/components/GanttChart";
+import { GanttChart } from "@/components/GanttChart";
 import { RolePicker, toggled } from "@/components/RolePicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
 import { layoutByDepth } from "@/flow-demo/layout";
+import { nodeGanttRows } from "@/lib/gantt";
 
 const STATE_STYLE: Record<NodeState, string> = {
   notStarted: "bg-white border-slate-300 text-slate-500",
@@ -250,31 +249,7 @@ function Schedule({
   onPlan: (nodeKey: string, start?: Day, end?: Day) => void;
 }) {
   const today = dayInTimeZone(Date.now(), timeZone);
-  const byKey = new Map(nodes.map((n) => [n.nodeKey, n]));
-  const toDay = (ms: number | null | undefined) => (ms == null ? null : dayFromDate(ms));
-  const localDay = (ms: number | null | undefined) => (ms == null ? null : dayInTimeZone(ms, timeZone));
-
-  const rows: GanttRow[] = [];
-  for (const key of graph.topologicalOrder()) {
-    const n = byKey.get(key);
-    const start = toDay(n?.plannedStart);
-    const end = toDay(n?.plannedEnd);
-    if (!n || n.state === "skipped" || start === null || end === null) continue;
-    rows.push({
-      key,
-      label: graph.node(key).name,
-      start,
-      end,
-      state: n.state ?? "notStarted",
-      pinned: n.plannedPinned ?? false,
-      milestone: durationOf(graph.node(key)) === 0 && !n.plannedPinned,
-      actualStart: localDay(n.actualStart),
-      actualEnd: localDay(n.actualEnd),
-      editable: canPlan(key) && n.state !== "completed",
-    });
-  }
-  const shown = new Set(rows.map((r) => r.key));
-  const deps = graph.definition.edges.filter((e) => shown.has(e.from) && shown.has(e.to));
+  const { rows, deps } = nodeGanttRows(graph, nodes, { timeZone, canPlan: (n) => canPlan(n.nodeKey) });
 
   return (
     <div className="flex h-full flex-col">

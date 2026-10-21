@@ -6,11 +6,14 @@ import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "
 import { type FormEvent, useMemo, useState } from "react";
 import { CalendarCard } from "@/components/CalendarCard";
 import { type PickerMember, RolePicker, toggled } from "@/components/RolePicker";
+import { SpaceGantt } from "@/components/SpaceGantt";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
 import { env } from "@/lib/env";
 import { newId } from "@/lib/utils";
+
+const NO_CALENDAR = { holidays: [], extraWorkdays: [] };
 
 const STATUS_LABEL: Record<string, string> = { inProgress: "进行中", completed: "已完成", terminated: "已终止" };
 
@@ -44,6 +47,7 @@ export function SpacePage() {
   const zero = useZero();
   const [space, spaceResult] = useQuery(queries.spaces.byId({ id: spaceId }));
   const [items] = useQuery(queries.workItems.bySpace({ spaceId }));
+  const [view, setView] = useState<"table" | "gantt">("table");
 
   const rows = useMemo<Row[]>(
     () =>
@@ -66,6 +70,7 @@ export function SpacePage() {
       </p>
     );
   const isAdmin = space.members.some((m) => m.userId === zero.userID && m.isAdmin);
+  const calendar = space.calendar ?? NO_CALENDAR;
   const members: PickerMember[] = space.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId }));
 
   return (
@@ -78,49 +83,70 @@ export function SpacePage() {
         <h1 className="text-xl font-semibold">{space.name}</h1>
       </div>
 
-      <MembersCard spaceId={spaceId} members={members} canManage={isAdmin} />
-
       {space.workItemTypes.length === 0 && isAdmin && <ImportOem spaceId={spaceId} />}
-      <TypesCard spaceId={spaceId} types={[...space.workItemTypes]} canManage={isAdmin} />
       <CreateWorkItem types={[...space.workItemTypes]} members={members} />
-      <CalendarCard
-        spaceId={spaceId}
-        calendar={space.calendar ?? { holidays: [], extraWorkdays: [] }}
-        canManage={isAdmin}
-      />
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>工作项</CardTitle>
+          <div role="tablist" className="flex gap-1 text-sm">
+            {(
+              [
+                ["table", "列表"],
+                ["gantt", "甘特图"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={view === key}
+                onClick={() => setView(key)}
+                className={`rounded-md px-2.5 py-1 ${view === key ? "bg-slate-100 font-medium text-slate-900" : "text-slate-500 hover:bg-slate-50"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </CardHeader>
         <CardContent>
-          <table className="w-full text-sm">
-            <thead>
-              {table.getHeaderGroups().map((group) => (
-                <tr key={group.id} className="border-b border-slate-200 text-left text-slate-500">
-                  {group.headers.map((header) => (
-                    <th key={header.id} className="py-2 pr-4 font-medium">
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                    </th>
+          {view === "gantt" ? (
+            <SpaceGantt spaceId={spaceId} timeZone={space.timezone ?? "Asia/Shanghai"} calendar={calendar} />
+          ) : (
+            <>
+              <table className="w-full text-sm">
+                <thead>
+                  {table.getHeaderGroups().map((group) => (
+                    <tr key={group.id} className="border-b border-slate-200 text-left text-slate-500">
+                      {group.headers.map((header) => (
+                        <th key={header.id} className="py-2 pr-4 font-medium">
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        </th>
+                      ))}
+                    </tr>
                   ))}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
-              {table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="border-b border-slate-100">
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="py-2 pr-4">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
+                </thead>
+                <tbody>
+                  {table.getRowModel().rows.map((row) => (
+                    <tr key={row.id} className="border-b border-slate-100">
+                      {row.getVisibleCells().map((cell) => (
+                        <td key={cell.id} className="py-2 pr-4">
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      ))}
+                    </tr>
                   ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {rows.length === 0 && <p className="py-4 text-sm text-slate-500">还没有工作项。</p>}
+                </tbody>
+              </table>
+              {rows.length === 0 && <p className="py-4 text-sm text-slate-500">还没有工作项。</p>}
+            </>
+          )}
         </CardContent>
       </Card>
+
+      <MembersCard spaceId={spaceId} members={members} canManage={isAdmin} />
+      <TypesCard spaceId={spaceId} types={[...space.workItemTypes]} canManage={isAdmin} />
+      <CalendarCard spaceId={spaceId} calendar={calendar} canManage={isAdmin} />
     </div>
   );
 }
