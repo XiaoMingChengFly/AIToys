@@ -22,6 +22,7 @@ import { Check, ChevronRight, CircleCheck, CircleDashed, CircleDot, Undo2 } from
 import { type ReactNode, useMemo, useState } from "react";
 import { ActivityCard } from "@/components/ActivityCard";
 import { useActiveSpace } from "@/components/AppShell";
+import { AttachmentsCard } from "@/components/AttachmentsCard";
 import { CommentsCard } from "@/components/CommentsCard";
 import { CompleteNodeDialog } from "@/components/CompleteNodeDialog";
 import { FieldInput, type FieldInputValue, type FieldMember } from "@/components/FieldInput";
@@ -374,6 +375,14 @@ export function WorkItemPage() {
               defs={item.type?.relationDefs ?? []}
               outgoing={item.outgoing.map((r) => ({ ...r, item: r.to }))}
               incoming={item.incoming.map((r) => ({ ...r, item: r.from }))}
+            />
+
+            <AttachmentsCard
+              workItemId={item.id}
+              attachments={item.attachments}
+              me={me}
+              isAdmin={isAdmin}
+              canWrite={canWrite}
             />
 
             {space && (

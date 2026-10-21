@@ -503,6 +503,26 @@ export const comment = pgTable(
   (t) => [index("comment_work_item").on(t.workItemId, t.createdAt)],
 );
 
+/** 工作项的附件。文件本身在文件存储里（storage_key），这里只有元数据，由 Zero 同步给前端。 */
+export const attachment = pgTable(
+  "attachment",
+  {
+    id: text("id").primaryKey(),
+    workItemId: text("work_item_id")
+      .notNull()
+      .references(() => workItem.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    contentType: text("content_type").notNull(),
+    size: bigint("size", { mode: "number" }).notNull(),
+    storageKey: text("storage_key").notNull(),
+    uploadedBy: text("uploaded_by")
+      .notNull()
+      .references(() => user.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index("attachment_work_item").on(t.workItemId, t.createdAt)],
+);
+
 /** 站内通知。每条事件给每个人最多一条，重试不会重复。 */
 export const notification = pgTable(
   "notification",
@@ -684,6 +704,7 @@ export const workItemRelations = relations(workItem, ({ one, many }) => ({
   space: one(space, { fields: [workItem.spaceId], references: [space.id] }),
   type: one(workItemType, { fields: [workItem.typeId], references: [workItemType.id] }),
   flowVersion: one(flowVersion, { fields: [workItem.flowVersionId], references: [flowVersion.id] }),
+  attachments: many(attachment),
   fieldValues: many(fieldValue),
   roleMembers: many(roleMember),
   nodes: many(nodeInstance),
@@ -697,6 +718,11 @@ export const workItemRelations = relations(workItem, ({ one, many }) => ({
 export const nodeTaskRelations = relations(nodeTask, ({ one }) => ({
   workItem: one(workItem, { fields: [nodeTask.workItemId], references: [workItem.id] }),
   assignee: one(user, { fields: [nodeTask.assigneeId], references: [user.id] }),
+}));
+
+export const attachmentRelations = relations(attachment, ({ one }) => ({
+  workItem: one(workItem, { fields: [attachment.workItemId], references: [workItem.id] }),
+  uploader: one(user, { fields: [attachment.uploadedBy], references: [user.id] }),
 }));
 
 export const commentRelations = relations(comment, ({ one }) => ({

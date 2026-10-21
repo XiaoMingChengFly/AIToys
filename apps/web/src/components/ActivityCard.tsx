@@ -80,6 +80,10 @@ export function describeEvent(kind: string, p: Payload, ctx: ActivityContext): s
     }
     case "commentAdded":
       return "发表了评论";
+    case "attachmentAdded":
+      return `上传了附件「${str(p.name)}」`;
+    case "attachmentRemoved":
+      return `删除了附件「${str(p.name)}」`;
     case "taskCreated":
       return `在${node()}添加了子任务「${str(p.name)}」`;
     case "taskUpdated":

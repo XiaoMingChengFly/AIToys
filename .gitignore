@@ -7,6 +7,8 @@ TestResults/
 
 # Node
 node_modules/
+# 本机开发时 API 存附件的目录
+data/
 dist/
 
 # OS / IDE

@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { schema } from "@fp/db";
 import { createTestDatabase } from "@fp/db/testing";
 import { dayInTimeZone, dayToIso, type FlowDefinition, oemV289 } from "@fp/engine";
@@ -12,7 +15,7 @@ let services: Services;
 let app: ReturnType<typeof createApp>;
 
 beforeAll(async () => {
-  services = createServices(await createTestDatabase("fp_test_api"));
+  services = createServices(await createTestDatabase("fp_test_api"), await mkdtemp(join(tmpdir(), "fp-files-")));
   app = createApp(services);
 });
 
@@ -1747,5 +1750,107 @@ describe("formula fields", () => {
 
     await run("node.confirm", { workItemId: a, nodeKey: "work" });
     expect((await value(parentId, "进度"))?.value).toBe(0.5);
+  });
+});
+
+describe("attachments", () => {
+  const spaceId = randomUUID();
+  const typeId = `${spaceId}/task`;
+  const itemId = randomUUID();
+  let admin: { cookie: string; userId: string };
+  let member: { cookie: string; userId: string };
+  let other: { cookie: string; userId: string };
+  let guest: { cookie: string; userId: string };
+  let outsider: { cookie: string; userId: string };
+  const run = (name: string, args: unknown, userId = admin.userId) => services.zero.run(name, args, userId);
+  const upload = (who: { cookie: string }, name: string, content: string, type = "text/plain") => {
+    const body = new FormData();
+    body.append("file", new File([content], name, { type }));
+    return app.request(`/api/work-items/${itemId}/attachments`, {
+      method: "POST",
+      body,
+      headers: { cookie: who.cookie },
+    });
+  };
+  const events = async (kind: string) =>
+    services.database.db
+      .select()
+      .from(schema.eventLog)
+      .where(and(eq(schema.eventLog.workItemId, itemId), eq(schema.eventLog.kind, kind)));
+
+  beforeAll(async () => {
+    const user = (who: string) => signUp(`att-${who}-${spaceId}@example.com`);
+    [admin, member, other, guest, outsider] = [
+      await user("admin"),
+      await user("member"),
+      await user("other"),
+      await user("guest"),
+      await user("outsider"),
+    ];
+    await run("space.create", { id: spaceId, name: "附件" });
+    await services.database.db.insert(schema.spaceMember).values([
+      { spaceId, userId: member.userId },
+      { spaceId, userId: other.userId },
+      { spaceId, userId: guest.userId, role: "guest" },
+    ]);
+    await run("workItemType.create", { id: typeId, spaceId, key: "task", name: "任务", flowMode: "state" });
+    await run("flowTemplate.create", { id: `${typeId}/default`, typeId, key: "default", name: "流程" });
+    await run("flowTemplate.publish", { versionId: `${typeId}/default/v1` });
+    await run("workItem.create", { id: itemId, typeId, name: "需求文档", fields: {} });
+  });
+
+  it("stores uploads, logs them, and serves them only to space members", async () => {
+    const res = await upload(member, "需求 v1.txt", "第一版");
+    expect(res.status).toBe(200);
+    const { id } = (await res.json()) as { id: string };
+    const [row] = await services.database.db.select().from(schema.attachment).where(eq(schema.attachment.id, id));
+    expect(row).toMatchObject({
+      workItemId: itemId,
+      name: "需求 v1.txt",
+      size: Buffer.byteLength("第一版"),
+      uploadedBy: member.userId,
+    });
+    expect((await events("attachmentAdded")).map((e) => e.payload)).toEqual([
+      { attachmentId: id, name: "需求 v1.txt" },
+    ]);
+
+    const download = await app.request(`/api/attachments/${id}`, { headers: { cookie: guest.cookie } });
+    expect(download.status).toBe(200);
+    expect(await download.text()).toBe("第一版");
+    expect(download.headers.get("content-disposition")).toBe(
+      `attachment; filename="__ v1.txt"; filename*=UTF-8''${encodeURIComponent("需求 v1.txt")}`,
+    );
+    expect(download.headers.get("content-type")).toBe("application/octet-stream");
+    const inline = await app.request(`/api/attachments/${id}?inline`, { headers: { cookie: guest.cookie } });
+    expect(inline.headers.get("content-type")).toBe("text/plain");
+    expect(inline.headers.get("content-disposition")).toMatch(/^inline;/);
+
+    expect((await app.request(`/api/attachments/${id}`, { headers: { cookie: outsider.cookie } })).status).toBe(404);
+    expect((await app.request(`/api/attachments/${id}`)).status).toBe(401);
+  });
+
+  it("lets only writers upload, and only the uploader or an admin delete", async () => {
+    expect((await upload(guest, "a.txt", "x")).status).toBe(403);
+    expect((await upload(outsider, "a.txt", "x")).status).toBe(404);
+    // SVG 可能带脚本，不内联
+    const svg = (await (await upload(member, "图.svg", "<svg/>", "image/svg+xml")).json()) as { id: string };
+    const res = await app.request(`/api/attachments/${svg.id}?inline`, { headers: { cookie: member.cookie } });
+    expect(res.headers.get("content-type")).toBe("application/octet-stream");
+
+    const remove = (who: { cookie: string }) =>
+      app.request(`/api/attachments/${svg.id}`, { method: "DELETE", headers: { cookie: who.cookie } });
+    expect((await remove(other)).status).toBe(403);
+    expect((await remove(guest)).status).toBe(403);
+    expect((await remove(member)).status).toBe(200);
+    expect((await app.request(`/api/attachments/${svg.id}`, { headers: { cookie: member.cookie } })).status).toBe(404);
+    expect((await events("attachmentRemoved")).map((e) => e.payload)).toEqual([
+      { attachmentId: svg.id, name: "图.svg" },
+    ]);
+
+    const mine = (await (await upload(other, "b.txt", "y")).json()) as { id: string };
+    expect(
+      (await app.request(`/api/attachments/${mine.id}`, { method: "DELETE", headers: { cookie: admin.cookie } }))
+        .status,
+    ).toBe(200);
   });
 });

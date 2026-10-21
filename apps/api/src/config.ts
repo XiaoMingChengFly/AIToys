@@ -9,4 +9,6 @@ export const config = {
   webOrigins: (process.env.WEB_ORIGINS ?? "http://localhost:5173").split(","),
   /** 登录接口限流（防暴力破解）。只在端到端测试里关掉，测试会在几秒内注册好几个账号。 */
   authRateLimit: process.env.AUTH_RATE_LIMIT !== "off",
+  /** 附件等文件的存放目录。Docker Compose 部署时挂卷。 */
+  filesDir: process.env.FILES_DIR ?? "./data/files",
 };
