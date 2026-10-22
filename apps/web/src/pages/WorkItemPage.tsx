@@ -403,6 +403,7 @@ export function WorkItemPage() {
 
             {space && (
               <Panel
+                aria-label="角色"
                 title={`角色 ${typeRoles.length}`}
                 actions={
                   typeRoles.length > ROLES_FOLDED && (

@@ -9,7 +9,7 @@ import {
   type SignalState,
 } from "@fp/engine";
 import { Check, ChevronDown, CircleHelp, ExternalLink, Mail, Paperclip, Phone, Upload, X } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { RichTextEditor } from "@/components/RichText";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -124,6 +124,9 @@ export function FieldInput({
   attachments?: readonly FieldAttachment[];
 }) {
   const current = text(value);
+  // Semi 的弹出层默认挂在 body 上；在弹窗里时要挂进弹窗，否则被弹窗的遮罩挡住点不了
+  const anchor = useRef<HTMLSpanElement>(null);
+  const popupContainer = () => (anchor.current?.closest("[role=dialog]") as HTMLElement | null) ?? document.body;
   const textInput = (type: string, placeholder: string) =>
     live ? (
       <Input
@@ -261,30 +264,33 @@ export function FieldInput({
       const all = field.options ?? [];
       const path = (v: string) => optionPath(all, v);
       return (
-        <Cascader
-          aria-label={label}
-          className="w-full"
-          treeData={cascadeTree(options)}
-          multiple={multiple}
-          changeOnSelect={!field.config?.leafOnly}
-          disabled={readOnly}
-          showClear
-          separator=" / "
-          placeholder="未选择"
-          value={
-            multiple
-              ? (Array.isArray(value) ? value : []).map((v) => path(String(v)))
-              : current
-                ? path(current)
-                : undefined
-          }
-          onChange={(next) => {
-            if (multiple) {
-              const list = (Array.isArray(next) ? next : []).map(lastOf).filter(Boolean);
-              onChange(list.length > 0 ? list : null);
-            } else onChange(next === undefined || next === null ? null : lastOf(next) || null);
-          }}
-        />
+        <span ref={anchor} className="contents">
+          <Cascader
+            aria-label={label}
+            getPopupContainer={popupContainer}
+            className="w-full"
+            treeData={cascadeTree(options)}
+            multiple={multiple}
+            changeOnSelect={!field.config?.leafOnly}
+            disabled={readOnly}
+            showClear
+            separator=" / "
+            placeholder="未选择"
+            value={
+              multiple
+                ? (Array.isArray(value) ? value : []).map((v) => path(String(v)))
+                : current
+                  ? path(current)
+                  : undefined
+            }
+            onChange={(next) => {
+              if (multiple) {
+                const list = (Array.isArray(next) ? next : []).map(lastOf).filter(Boolean);
+                onChange(list.length > 0 ? list : null);
+              } else onChange(next === undefined || next === null ? null : lastOf(next) || null);
+            }}
+          />
+        </span>
       );
     }
     case "date":
@@ -312,19 +318,22 @@ export function FieldInput({
     case "dateRange": {
       const range = isObject(value) ? [String(value.start), String(value.end)] : undefined;
       return (
-        <DatePicker
-          aria-label={label}
-          type="dateRange"
-          className="w-full"
-          density="compact"
-          format="yyyy-MM-dd"
-          disabled={readOnly}
-          value={range}
-          onChange={(_date, strings) => {
-            const [start, end] = Array.isArray(strings) ? strings : [];
-            onChange(start && end ? { start: String(start), end: String(end) } : null);
-          }}
-        />
+        <span ref={anchor} className="contents">
+          <DatePicker
+            aria-label={label}
+            getPopupContainer={popupContainer}
+            type="dateRange"
+            className="w-full"
+            density="compact"
+            format="yyyy-MM-dd"
+            disabled={readOnly}
+            value={range}
+            onChange={(_date, strings) => {
+              const [start, end] = Array.isArray(strings) ? strings : [];
+              onChange(start && end ? { start: String(start), end: String(end) } : null);
+            }}
+          />
+        </span>
       );
     }
     case "number":

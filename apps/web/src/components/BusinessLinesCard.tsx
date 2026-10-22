@@ -228,7 +228,7 @@ export function BusinessLinesCard({
             />
             <Button variant="outline" onClick={add}>
               <Plus />
-              添加
+              添加业务线
             </Button>
             <Button onClick={save} disabled={!dirty || saving}>
               保存业务线
