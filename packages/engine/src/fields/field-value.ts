@@ -7,7 +7,7 @@
  * - number：有限数字
  * - bool：true / false
  * - date：YYYY-MM-DD；datetime：YYYY-MM-DD HH:mm；dateRange：{ start, end }（YYYY-MM-DD，start ≤ end）
- * - select、radio、cascadeSelect：选项值；multiSelect、cascadeMulti：选项值数组（去重、按选项顺序）
+ * - select、radio、cascadeSelect、businessLine：选项值（业务线的选项来自空间业务线树）；multiSelect、cascadeMulti：选项值数组（去重、按选项顺序）
  * - user：用户 id 数组（去重）；singleUser：用户 id
  * - attachment：附件 id 数组
  * - signal：{ state, text?, url? }；multiSignal：它的数组（只由开放接口写入）
@@ -29,6 +29,7 @@ export type FieldDataType =
   | "multiSelect"
   | "cascadeSelect"
   | "cascadeMulti"
+  | "businessLine"
   | "user"
   | "singleUser"
   | "link"
@@ -51,6 +52,7 @@ export const EDITABLE_FIELD_TYPES = [
   "cascadeSelect",
   "cascadeMulti",
   "radio",
+  "businessLine",
   "singleUser",
   "user",
   "date",
@@ -81,6 +83,7 @@ export const FIELD_TYPE_LABEL: Record<FieldDataType, string> = {
   multiSelect: "多选",
   cascadeSelect: "级联单选",
   cascadeMulti: "级联多选",
+  businessLine: "业务线",
   user: "多选人员",
   singleUser: "单选人员",
   link: "URL",
@@ -102,8 +105,8 @@ export const OPTION_FIELD_TYPES: readonly FieldDataType[] = [
   "cascadeSelect",
   "cascadeMulti",
 ];
-/** 级联字段：选项用 parent 组成树。 */
-export const CASCADE_FIELD_TYPES: readonly FieldDataType[] = ["cascadeSelect", "cascadeMulti"];
+/** 级联字段：选项用 parent 组成树（业务线的选项是空间的业务线树）。 */
+export const CASCADE_FIELD_TYPES: readonly FieldDataType[] = ["cascadeSelect", "cascadeMulti", "businessLine"];
 /** 值是数组的字段类型。 */
 export const MULTI_VALUE_FIELD_TYPES: readonly FieldDataType[] = [
   "multiSelect",
@@ -291,7 +294,8 @@ export function normalizeFieldValue(field: FieldSpec, value: unknown): unknown {
     }
     case "select":
     case "radio":
-    case "cascadeSelect": {
+    case "cascadeSelect":
+    case "businessLine": {
       const v = String(value);
       if (!options.includes(v)) fail(`没有选项「${v}」。`);
       if (field.dataType === "cascadeSelect" && field.config?.leafOnly && optionList.some((o) => o.parent === v))
@@ -395,6 +399,7 @@ export function formatFieldValue(
     case "select":
     case "radio":
     case "cascadeSelect":
+    case "businessLine":
       return optionLabel(field, value);
     case "multiSelect":
     case "cascadeMulti":
@@ -464,6 +469,7 @@ export function fieldIndex(
     case "singleUser":
       return { ...empty, items: [String(value)] };
     case "cascadeSelect":
+    case "businessLine":
       // 级联值的每一级都能命中「属于」筛选：筛「华东」时「华东 / 上海」也算
       return { ...empty, items: optionPath(field.options ?? [], String(value)) };
     case "cascadeMulti":
@@ -509,6 +515,7 @@ export function conditionValue(field: FieldSpec, value: unknown): unknown {
       return richTextToPlain(String(value));
     case "cascadeSelect":
     case "cascadeMulti":
+    case "businessLine":
       return fieldIndex(field, value).items;
     default:
       return value;

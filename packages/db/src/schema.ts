@@ -8,6 +8,8 @@ import type {
   FieldDataType,
   FlowDefinition,
   NodeState,
+  RoleConfig,
+  RoleOverrides,
   StatusFlowDefinition,
   WorkItemStatus,
 } from "@fp/engine";
@@ -127,6 +129,26 @@ export const space = pgTable("space", {
   createdAt: createdAt(),
 });
 
+/** 空间的业务线树。工作项的「业务线」字段从这里选，角色的出现和默认成员可以按业务线判断。 */
+export const businessLine = pgTable(
+  "business_line",
+  {
+    id: text("id").primaryKey(),
+    spaceId: text("space_id")
+      .notNull()
+      .references(() => space.id),
+    name: text("name").notNull(),
+    parentId: text("parent_id"),
+    /** 业务线管理员（用户 id）。 */
+    admins: jsonb("admins").$type<string[]>(),
+    /** 停用的业务线不能再选，已经选了的保留。 */
+    disabled: boolean("disabled").notNull().default(false),
+    sort: integer("sort").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [index("business_line_space").on(t.spaceId)],
+);
+
 export type SpaceRole = "admin" | "member" | "guest";
 
 export const spaceMember = pgTable(
@@ -200,6 +222,10 @@ export const roleDef = pgTable(
     key: text("key").notNull(),
     name: text("name").notNull(),
     inheritFrom: jsonb("inherit_from").$type<RoleInheritance>(),
+    /** 出现方式、成员分配、单人、负责人、成员编辑权限（见 engine 的 RoleConfig）。 */
+    config: jsonb("config").$type<RoleConfig>(),
+    /** 顺序：角色列表和新建表单里按它排。 */
+    sort: integer("sort").notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("role_def_type_key").on(t.typeId, t.key)],
@@ -381,6 +407,8 @@ export const workItem = pgTable(
     /** 状态流的当前状态键。节点流为空。 */
     flowStatus: text("flow_status"),
     status: text("status").$type<WorkItemStatus | "terminated">().notNull().default("inProgress"),
+    /** 用户手动加上、删掉的角色（之后不再跟着角色的出现规则变）。 */
+    roleOverrides: jsonb("role_overrides").$type<RoleOverrides>(),
     createdBy: text("created_by")
       .notNull()
       .references(() => user.id),
@@ -718,6 +746,11 @@ export const spaceRelations = relations(space, ({ many }) => ({
   automationRules: many(automationRule),
   views: many(savedView),
   webhooks: many(webhook),
+  businessLines: many(businessLine),
+}));
+
+export const businessLineRelations = relations(businessLine, ({ one }) => ({
+  space: one(space, { fields: [businessLine.spaceId], references: [space.id] }),
 }));
 
 export const spaceMemberRelations = relations(spaceMember, ({ one }) => ({

@@ -1,14 +1,18 @@
 import {
   applyDefaults,
+  conditionView,
   dayInTimeZone,
   dayToTimestamp,
+  defaultRoleMembers,
   FlowEngine,
   type FlowEvent,
   isFinal,
   missingRequired,
   nodeFlowOf,
   normalizeFieldValue,
+  type RoleOverrides,
   resolveOwners,
+  roleAppears,
   StatusFlow,
   statusFlowOf,
   WorkCalendar,
@@ -16,7 +20,7 @@ import {
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { assertSpaceMembers, requireWriter, syncFieldAccess } from "./access.ts";
-import { fieldDefOf, writeFieldValue } from "./field-values.ts";
+import { withRuntimeOptions, writeFieldValue } from "./field-values.ts";
 import { recomputeFlow } from "./flow.ts";
 import { recomputeFormulas } from "./formulas.ts";
 import { planNodes } from "./planning.ts";
@@ -31,6 +35,10 @@ export const createWorkItemArgs = z.object({
   fields: z.record(z.string(), z.json()).default({}),
   /** 角色 → 成员用户 id。 */
   roles: z.record(z.string(), z.array(z.string())).default({}),
+  /** 用户在新建表单里手动加上、删掉的角色。 */
+  roleOverrides: z
+    .object({ added: z.array(z.string()).optional(), removed: z.array(z.string()).optional() })
+    .optional(),
 });
 export type CreateWorkItemArgs = z.output<typeof createWorkItemArgs>;
 
@@ -77,15 +85,20 @@ export async function createWorkItem(
   );
   if (!type) throw new Error("工作项类型不存在或没有权限。");
   await requireWriter(tx, type.spaceId, userID);
-  await assertRoleMembers(tx, type.spaceId, Object.values(args.roles).flat());
   // 字段值先按类型整理成规范形式，流程引擎按整理后的值判断出现条件
+  const defs = await withRuntimeOptions(
+    tx,
+    type.spaceId,
+    await tx.run(zql.fieldDef.where("typeId", args.typeId).orderBy("sort", "asc")),
+  );
   const given: Record<string, unknown> = {};
   for (const [fieldKey, input] of Object.entries(args.fields)) {
-    const value = normalizeFieldValue(await fieldDefOf(tx, args.typeId, fieldKey), input);
+    const def = defs.find((f) => f.key === fieldKey);
+    if (!def) throw new Error(`字段「${fieldKey}」不存在。`);
+    const value = normalizeFieldValue(def, input);
     if (value !== null) given[fieldKey] = value;
   }
   // 没填的字段套默认值，再检查必填（有效且显示出来的必填字段）
-  const defs = await tx.run(zql.fieldDef.where("typeId", args.typeId).orderBy("sort", "asc"));
   const fields: Record<string, unknown> = {};
   for (const [fieldKey, value] of Object.entries(applyDefaults(defs, given))) {
     const def = defs.find((f) => f.key === fieldKey);
@@ -97,6 +110,19 @@ export async function createWorkItem(
     fields,
   );
   if (missing.length > 0) throw new Error(`请填写必填字段：${missing.map((f) => f.name).join("、")}。`);
+
+  // 角色：按出现规则决定有哪些角色，没给成员的角色按分配方式带上默认成员
+  const roleDefs = await tx.run(zql.roleDef.where("typeId", args.typeId).orderBy("sort", "asc"));
+  const view = conditionView(defs, fields);
+  const overrides = cleanOverrides(args.roleOverrides, roleDefs);
+  const roles: Record<string, string[]> = {};
+  for (const role of roleDefs) {
+    if (!roleAppears(role, view, overrides)) continue;
+    const members = [...new Set(args.roles[role.key] ?? defaultRoleMembers(role, view, userID))];
+    if (role.config?.single && members.length > 1) throw new Error(`角色「${role.name}」只能有一个人。`);
+    roles[role.key] = members;
+  }
+  await assertRoleMembers(tx, type.spaceId, Object.values(roles).flat());
 
   // 节点流和状态流都从类型的流程模板（默认第一个）的当前发布版本开始
   const templates = zql.flowTemplate.where("typeId", args.typeId);
@@ -113,7 +139,7 @@ export async function createWorkItem(
 
   const now = Date.now();
   const engine = definition ? new FlowEngine(definition) : null;
-  const flow = definition && engine ? engine.start(fields, resolveOwners(definition, args.roles)) : null;
+  const flow = definition && engine ? engine.start(fields, resolveOwners(definition, roles)) : null;
   // 自动排期从创建那天（空间时区）开始；一开始就完成的节点（开始节点）算当天完成
   const space = await tx.run(zql.space.where("id", type.spaceId).one());
   const today = dayInTimeZone(now, space?.timezone ?? "Asia/Shanghai");
@@ -143,13 +169,14 @@ export async function createWorkItem(
     stage: flow?.state.stage ?? statusFlow?.initial.name ?? null,
     flowStatus: statusFlow?.initial.key ?? null,
     status: flow?.state.status ?? (statusFlow && isFinal(statusFlow.initial.category) ? "completed" : "inProgress"),
+    roleOverrides: overrides,
     createdBy: userID,
     createdAt: now,
     updatedAt: now,
   });
   for (const [fieldKey, value] of Object.entries(fields))
     await writeFieldValue(tx, { id: args.id, typeId: args.typeId, spaceId: type.spaceId }, fieldKey, value);
-  for (const [roleKey, userIds] of Object.entries(args.roles))
+  for (const [roleKey, userIds] of Object.entries(roles))
     for (const userId of new Set(userIds))
       await tx.mutate.roleMember.insert({ workItemId: args.id, roleKey, userId, source: "manual" });
 
@@ -192,4 +219,15 @@ export async function createWorkItem(
   if ((await recomputeFormulas(tx, args.id)).length > 0 && definition)
     events.push(...(await recomputeFlow(tx, args.id, userID)));
   return { spaceId: type.spaceId, flowVersionId, events };
+}
+
+/** 只留存在的角色，空的时候存 null。 */
+function cleanOverrides(
+  overrides: { added?: string[] | undefined; removed?: string[] | undefined } | undefined,
+  roles: readonly { key: string }[],
+): RoleOverrides | null {
+  const keys = new Set(roles.map((r) => r.key));
+  const added = [...new Set(overrides?.added ?? [])].filter((k) => keys.has(k));
+  const removed = [...new Set(overrides?.removed ?? [])].filter((k) => keys.has(k) && !added.includes(k));
+  return added.length || removed.length ? { added, removed } : null;
 }

@@ -1,4 +1,11 @@
-import { exclusiveError, type FieldDataType, fieldIndex, normalizeFieldValue, type RuleField } from "@fp/engine";
+import {
+  businessLineOptions,
+  exclusiveError,
+  type FieldDataType,
+  fieldIndex,
+  normalizeFieldValue,
+  type RuleField,
+} from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { assertSpaceMembers } from "./access.ts";
 import { zql } from "./schema.gen.ts";
@@ -58,7 +65,8 @@ export async function writeFieldValue(
   fieldKey: string,
   input: unknown,
 ): Promise<{ from: unknown; to: unknown; created: boolean }> {
-  const field = await fieldDefOf(tx, item.typeId, fieldKey);
+  const [field] = await withRuntimeOptions(tx, item.spaceId, [await fieldDefOf(tx, item.typeId, fieldKey)]);
+  if (!field) throw new Error(`字段「${fieldKey}」不存在。`);
   const value = normalizeFieldValue(field, input);
   await checkFieldValue(tx, item, field, value);
   return storeFieldValue(tx, item.id, field, value);
@@ -92,4 +100,19 @@ export async function storeFieldValue(
     if (!existing.some((row) => row.item === v))
       await tx.mutate.fieldValueItem.upsert({ workItemId, fieldKey, item: v });
   return { from: before?.value ?? null, to: value, created: !before };
+}
+
+/**
+ * 给字段定义补上运行时的选项：「业务线」字段的选项是空间的业务线树。
+ * 校验、检索、条件求值都要用到选项，凡是从数据库读出字段定义拿去用的地方都先过这里。
+ */
+export async function withRuntimeOptions<F extends { dataType: string; options: unknown }>(
+  tx: Transaction,
+  spaceId: string,
+  fields: readonly F[],
+): Promise<F[]> {
+  if (!fields.some((f) => f.dataType === "businessLine")) return [...fields];
+  const lines = await tx.run(zql.businessLine.where("spaceId", spaceId).orderBy("sort", "asc"));
+  const options = businessLineOptions(lines);
+  return fields.map((f) => (f.dataType === "businessLine" ? { ...f, options } : f));
 }

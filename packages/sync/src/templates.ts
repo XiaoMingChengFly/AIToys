@@ -12,13 +12,15 @@ import {
   FormulaError,
   isStatusFlow,
   OPTION_FIELD_TYPES,
+  type RoleConfig,
+  roleConditions,
   type StatusFlowDefinition,
   validateFlow,
   validateStatusFlow,
 } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
-import { requireAdmin, syncFieldAccess } from "./access.ts";
+import { assertSpaceMembers, requireAdmin, syncFieldAccess } from "./access.ts";
 import { compileTypeFormulas, fieldResolver, recomputeFormulas, recomputeParentFormulas } from "./formulas.ts";
 import { zql } from "./schema.gen.ts";
 
@@ -236,8 +238,101 @@ export async function setLayout(tx: Transaction, args: z.output<typeof setLayout
 }
 
 export async function createRole(tx: Transaction, args: z.output<typeof createRoleArgs>, userID: string) {
-  await adminType(tx, args.typeId, userID);
-  await tx.mutate.roleDef.insert({ ...args, inheritFrom: null, createdAt: Date.now() });
+  const type = await adminType(tx, args.typeId, userID);
+  if (type.roles.some((r) => r.key === args.key || r.name === args.name))
+    throw new Error(`已经有角色「${args.name}」了。`);
+  await tx.mutate.roleDef.insert({
+    ...args,
+    inheritFrom: null,
+    config: null,
+    sort: type.roles.length,
+    createdAt: Date.now(),
+  });
+}
+
+/** 角色配置（见 engine 的 RoleConfig）。 */
+export const roleConfigSchema = z.object({
+  appear: z
+    .union([
+      z.object({ mode: z.literal("default"), allowRemove: z.boolean().optional() }),
+      z.object({ mode: z.literal("hidden") }),
+      z.object({ mode: z.literal("conditional"), when: condition, allowRemove: z.boolean().optional() }),
+    ])
+    .nullish(),
+  assign: z
+    .union([
+      z.object({ mode: z.literal("creator") }),
+      z.object({ mode: z.literal("manual") }),
+      z.object({ mode: z.literal("fixed"), members: z.array(z.string()).max(100) }),
+      z.object({
+        mode: z.literal("conditional"),
+        rules: z.array(z.object({ when: condition, members: z.array(z.string()).max(100) })).max(200),
+        combine: z.enum(["first", "union"]).optional(),
+        fallback: z.array(z.string()).max(100).optional(),
+      }),
+    ])
+    .nullish(),
+  single: z.boolean().nullish(),
+  isOwner: z.boolean().nullish(),
+  editors: z
+    .union([
+      z.object({ mode: z.enum(["anyone", "admin", "creator"]) }),
+      z.object({ mode: z.literal("roles"), roles: z.array(z.string()) }),
+    ])
+    .nullish(),
+  description: z.string().max(2000).nullish(),
+});
+export const updateRoleArgs = z.object({
+  id: z.string(),
+  name: z.string().trim().min(1).optional(),
+  config: roleConfigSchema.nullable().optional(),
+});
+/** 角色排序：按给出的角色键顺序。 */
+export const reorderRolesArgs = z.object({ typeId: z.string(), keys: z.array(z.string()) });
+
+/**
+ * 改角色的名称和配置：出现方式、成员分配、单人、负责人、谁能改成员。
+ * 条件只能引用这个类型的字段；默认成员和指定成员要是空间成员。改了只影响之后新建的工作项。
+ */
+export async function updateRole(tx: Transaction, args: z.output<typeof updateRoleArgs>, userID: string) {
+  const role = await tx.run(zql.roleDef.where("id", args.id).one());
+  if (!role) throw new Error("角色不存在。");
+  const type = await adminType(tx, role.typeId, userID);
+  const name = args.name ?? role.name;
+  if (type.roles.some((r) => r.id !== role.id && r.name === name)) throw new Error(`已经有角色「${name}」了。`);
+  const config = args.config;
+  if (config) {
+    const fields = new Set(type.fields.map((f) => f.key));
+    for (const c of roleConditions(config as RoleConfig))
+      for (const key of conditionFields(c))
+        if (!fields.has(key)) throw new Error(`「${name}」的条件用到的字段「${key}」不存在。`);
+    const people =
+      config.assign?.mode === "fixed"
+        ? config.assign.members
+        : config.assign?.mode === "conditional"
+          ? [...config.assign.rules.flatMap((r) => r.members), ...(config.assign.fallback ?? [])]
+          : [];
+    await assertSpaceMembers(tx, type.spaceId, people, "角色的默认成员要是空间成员。");
+    if (config.editors?.mode === "roles") {
+      const keys = new Set(type.roles.map((r) => r.key));
+      const unknown = config.editors.roles.find((k) => !keys.has(k));
+      if (unknown) throw new Error(`角色「${unknown}」不存在。`);
+    }
+  }
+  await tx.mutate.roleDef.update({
+    id: role.id,
+    name,
+    ...(config !== undefined && { config: config as RoleConfig | null }),
+  });
+}
+
+export async function reorderRoles(tx: Transaction, args: z.output<typeof reorderRolesArgs>, userID: string) {
+  const type = await adminType(tx, args.typeId, userID);
+  const order = new Map(args.keys.map((k, i) => [k, i]));
+  const sorted = [...type.roles].sort(
+    (a, b) => (order.get(a.key) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.key) ?? Number.MAX_SAFE_INTEGER),
+  );
+  for (const [sort, r] of sorted.entries()) if (r.sort !== sort) await tx.mutate.roleDef.update({ id: r.id, sort });
 }
 
 /** 设置字段按工作项角色的可见、可改范围。只有空间管理员可以。 */

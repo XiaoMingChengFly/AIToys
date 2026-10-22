@@ -13,6 +13,7 @@ export default drizzleZeroConfig(schema, {
     verification: false,
     space: true,
     spaceMember: true,
+    businessLine: true,
     workItemType: true,
     fieldDef: true,
     roleDef: true,

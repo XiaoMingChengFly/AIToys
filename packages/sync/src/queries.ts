@@ -106,11 +106,12 @@ export const queries = defineQueries({
         .where("id", args.id)
         .whereExists("members", (m) => m.where("userId", ctx.userID))
         .related("members", (m) => m.related("user"))
+        .related("businessLines", (b) => b.orderBy("sort", "asc"))
         .related("views", (v) => v.orderBy("createdAt", "asc"))
         .related("workItemTypes", (t) =>
           t
             .related("fields")
-            .related("roles")
+            .related("roles", (r) => r.orderBy("sort", "asc").orderBy("createdAt", "asc"))
             .related("relationDefs")
             // 带上当前版本：前端乐观创建工作项时要用流程定义启动引擎
             .related("flowTemplates", (f) => f.related("currentVersion")),
@@ -152,8 +153,13 @@ export const queries = defineQueries({
       zql.workItemType
         .where("id", args.id)
         .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", ctx.userID)))
-        .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID)).related("workItemTypes"))
-        .related("roles", (r) => r.orderBy("createdAt", "asc"))
+        .related("space", (s) =>
+          s
+            .related("members", (m) => m.where("userId", ctx.userID))
+            .related("workItemTypes")
+            .related("businessLines", (b) => b.orderBy("sort", "asc")),
+        )
+        .related("roles", (r) => r.orderBy("sort", "asc").orderBy("createdAt", "asc"))
         .related("relationDefs", (r) => r.related("toType").orderBy("createdAt", "asc"))
         .related("fields", (f) => f.orderBy("sort", "asc"))
         .related("flowTemplates", (t) => t.related("versions", (v) => v.orderBy("version", "desc").limit(1)))
@@ -171,7 +177,7 @@ export const queries = defineQueries({
         .related("versions", (v) => v.orderBy("version", "desc"))
         .related("type", (t) =>
           t
-            .related("roles", (r) => r.orderBy("createdAt", "asc"))
+            .related("roles", (r) => r.orderBy("sort", "asc").orderBy("createdAt", "asc"))
             .related("fields", (f) => f.orderBy("sort", "asc"))
             .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID))),
         )
@@ -213,10 +219,15 @@ export const queries = defineQueries({
         .related("type", (t) =>
           t
             .related("fields", (f) => f.orderBy("sort", "asc"))
+            .related("roles", (r) => r.orderBy("sort", "asc").orderBy("createdAt", "asc"))
             .related("relationDefs", (r) => r.related("toType").orderBy("createdAt", "asc")),
         )
-        // 自己在空间里的成员身份：前端乐观执行确认、回滚时要判断是不是管理员
-        .related("space", (s) => s.related("members", (m) => m.where("userId", ctx.userID)))
+        // 自己在空间里的成员身份：前端乐观执行确认、回滚时要判断是不是管理员；业务线树给「业务线」字段当选项
+        .related("space", (s) =>
+          s
+            .related("members", (m) => m.where("userId", ctx.userID))
+            .related("businessLines", (b) => b.orderBy("sort", "asc")),
+        )
         .related("fieldValues", visibleFieldValues(ctx.userID))
         .related("roleMembers", (r) => r.related("user"))
         .related("nodes", (n) => n.related("confirmations"))

@@ -1,21 +1,25 @@
 import {
+  canEditRoleMembers,
+  conditionView,
   type Day,
   dayFromDate,
   dayFromIso,
   dayInTimeZone,
   dayToTimestamp,
+  defaultRoleMembers,
   FlowEngine,
   type FlowEvent,
   nodeFlowOf,
   normalizeFieldValue,
   resolveOwners,
+  roleRemovable,
   WorkCalendar,
   type WorkItemState,
 } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { requireWriter, syncFieldAccess } from "./access.ts";
-import { fieldDefOf, writeFieldValue } from "./field-values.ts";
+import { fieldDefOf, withRuntimeOptions, writeFieldValue } from "./field-values.ts";
 import { recomputeFormulas, recomputeParentFormulas } from "./formulas.ts";
 import { type NodePlan, planNodes } from "./planning.ts";
 import { zql } from "./schema.gen.ts";
@@ -298,8 +302,15 @@ export async function setRoleMembers(
       .one(),
   );
   if (!item) throw new Error("工作项不存在或没有权限。");
-  await requireWriter(tx, item.spaceId, userID);
+  const { isAdmin } = await requireWriter(tx, item.spaceId, userID);
   const to = [...new Set(args.userIds)];
+  const role = await tx.run(zql.roleDef.where("typeId", item.typeId).where("key", args.roleKey).one());
+  if (role) {
+    const mine = item.roleMembers.filter((m) => m.userId === userID).map((m) => m.roleKey);
+    if (!canEditRoleMembers(role, { isAdmin, isCreator: item.createdBy === userID, roles: mine }))
+      throw new Error(`你没有权限修改「${role.name}」的成员。`);
+    if (role.config?.single && to.length > 1) throw new Error(`角色「${role.name}」只能有一个人。`);
+  }
   await assertRoleMembers(tx, item.spaceId, to);
 
   const from = item.roleMembers.filter((m) => m.roleKey === args.roleKey).map((m) => m.userId);
@@ -403,4 +414,48 @@ export async function completeBySubItems(tx: Transaction, args: NodeActionArgs, 
   await saveFlow(tx, flow, before);
   await recomputeParentFormulas(tx, args.workItemId);
   return { spaceId: flow.spaceId, events };
+}
+
+export const setRolePresenceArgs = z.object({ workItemId: z.string(), roleKey: z.string(), present: z.boolean() });
+
+/**
+ * 在工作项上手动加上或删掉一个角色（对应飞书的「添加角色」和删除角色）。之后这个角色不再跟着出现规则变。
+ * 加上时按分配方式带默认成员，删掉时清空成员；不允许删除的角色只有空间管理员能删。
+ */
+export async function setRolePresence(
+  tx: Transaction,
+  args: z.output<typeof setRolePresenceArgs>,
+  userID: string,
+): Promise<{ spaceId: string }> {
+  const item = await tx.run(
+    zql.workItem
+      .where("id", args.workItemId)
+      .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", userID)))
+      .related("fieldValues")
+      .one(),
+  );
+  if (!item) throw new Error("工作项不存在或没有权限。");
+  const { isAdmin } = await requireWriter(tx, item.spaceId, userID);
+  const role = await tx.run(zql.roleDef.where("typeId", item.typeId).where("key", args.roleKey).one());
+  if (!role) throw new Error(`角色「${args.roleKey}」不存在。`);
+  if (!args.present && !isAdmin && !roleRemovable(role)) throw new Error(`角色「${role.name}」不能删除。`);
+
+  const added = new Set(item.roleOverrides?.added ?? []);
+  const removed = new Set(item.roleOverrides?.removed ?? []);
+  if (args.present) {
+    added.add(role.key);
+    removed.delete(role.key);
+  } else {
+    removed.add(role.key);
+    added.delete(role.key);
+  }
+  await tx.mutate.workItem.update({
+    id: item.id,
+    roleOverrides: added.size || removed.size ? { added: [...added], removed: [...removed] } : null,
+  });
+  const defs = await withRuntimeOptions(tx, item.spaceId, await tx.run(zql.fieldDef.where("typeId", item.typeId)));
+  const view = conditionView(defs, Object.fromEntries(item.fieldValues.map((v) => [v.fieldKey, v.value])));
+  const members = args.present ? defaultRoleMembers(role, view, item.createdBy) : [];
+  await setRoleMembers(tx, { workItemId: item.id, roleKey: role.key, userIds: members }, userID);
+  return { spaceId: item.spaceId };
 }

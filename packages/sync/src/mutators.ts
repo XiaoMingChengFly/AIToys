@@ -20,7 +20,7 @@ import {
   updateAutomationArgs,
 } from "./automations.ts";
 import { createComment, createCommentArgs, markNotificationsRead, markReadArgs } from "./comments.ts";
-import { fieldDefOf, writeFieldValue } from "./field-values.ts";
+import { fieldDefOf, withRuntimeOptions, writeFieldValue } from "./field-values.ts";
 import {
   completeBySubItems,
   confirmNode,
@@ -32,6 +32,8 @@ import {
   setPlanArgs,
   setRoleArgs,
   setRoleMembers,
+  setRolePresence,
+  setRolePresenceArgs,
 } from "./flow.ts";
 import { recomputeFormulas, recomputeParentFormulas } from "./formulas.ts";
 import {
@@ -45,7 +47,7 @@ import {
   removeRelationArgs,
 } from "./relations.ts";
 import { zql } from "./schema.gen.ts";
-import { setCalendarArgs, setSpaceCalendar } from "./spaces.ts";
+import { setBusinessLines, setBusinessLinesArgs, setCalendarArgs, setSpaceCalendar } from "./spaces.ts";
 import { transitionArgs, transitionStatus } from "./status.ts";
 import { createSubItem, createSubItemArgs } from "./subitems.ts";
 import {
@@ -69,6 +71,8 @@ import {
   createTypeArgs,
   publishArgs,
   publishVersion,
+  reorderRoles,
+  reorderRolesArgs,
   saveDraft,
   saveDraftArgs,
   setFieldAccess,
@@ -79,6 +83,8 @@ import {
   setLayoutArgs,
   updateField,
   updateFieldArgs,
+  updateRole,
+  updateRoleArgs,
 } from "./templates.ts";
 import { createView, createViewArgs, deleteView, deleteViewArgs } from "./views.ts";
 import {
@@ -139,10 +145,10 @@ export async function setFieldValue(tx: Transaction, args: z.output<typeof setFi
 /** 清空字段时检查：按当前的字段值，它要是必填的（有效、显示且必填）就不能清空。 */
 async function assertNotRequired(
   tx: Transaction,
-  item: { id: string; typeId: string },
+  item: { id: string; typeId: string; spaceId: string },
   field: { key: string; name: string },
 ) {
-  const defs = await tx.run(zql.fieldDef.where("typeId", item.typeId));
+  const defs = await withRuntimeOptions(tx, item.spaceId, await tx.run(zql.fieldDef.where("typeId", item.typeId)));
   const rows = await tx.run(zql.fieldValue.where("workItemId", item.id));
   const values = Object.fromEntries(rows.map((r) => [r.fieldKey, r.value]));
   if (fieldStates(defs, values)[field.key]?.required) throw new Error(`「${field.name}」是必填字段，不能清空。`);
@@ -167,6 +173,9 @@ export const mutators = defineMutators({
     }),
     setMemberRole: defineMutator(setMemberRoleArgs, ({ tx, args, ctx }) => setMemberRole(tx, args, ctx.userID)),
     removeMember: defineMutator(removeMemberArgs, ({ tx, args, ctx }) => removeMember(tx, args, ctx.userID)),
+    setBusinessLines: defineMutator(setBusinessLinesArgs, ({ tx, args, ctx }) =>
+      setBusinessLines(tx, args, ctx.userID),
+    ),
   },
   automation: {
     create: defineMutator(createAutomationArgs, ({ tx, args, ctx }) => createAutomation(tx, args, ctx.userID)),
@@ -208,6 +217,8 @@ export const mutators = defineMutators({
   },
   roleDef: {
     create: defineMutator(createRoleArgs, ({ tx, args, ctx }) => createRole(tx, args, ctx.userID)),
+    update: defineMutator(updateRoleArgs, ({ tx, args, ctx }) => updateRole(tx, args, ctx.userID)),
+    reorder: defineMutator(reorderRolesArgs, ({ tx, args, ctx }) => reorderRoles(tx, args, ctx.userID)),
   },
   fieldDef: {
     create: defineMutator(createFieldArgs, ({ tx, args, ctx }) => createField(tx, args, ctx.userID)),
@@ -264,6 +275,9 @@ export const mutators = defineMutators({
   role: {
     set: defineMutator(setRoleArgs, async ({ tx, args, ctx }) => {
       await setRoleMembers(tx, args, ctx.userID);
+    }),
+    setPresence: defineMutator(setRolePresenceArgs, async ({ tx, args, ctx }) => {
+      await setRolePresence(tx, args, ctx.userID);
     }),
   },
   fieldValue: {
