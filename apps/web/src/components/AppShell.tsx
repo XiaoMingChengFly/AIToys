@@ -54,9 +54,9 @@ function Sidebar({ spaceId, user }: { spaceId: string | undefined; user: { id: s
     <nav aria-label="主导航" className="flex w-56 shrink-0 flex-col border-r border-line-subtle bg-surface">
       <div className="flex h-14 items-center gap-2 px-4">
         <span className="flex size-6 items-center justify-center rounded-md bg-brand-500 text-xs font-bold text-white">
-          飞
+          F
         </span>
-        <span className="font-semibold">飞书项目</span>
+        <span className="font-semibold">Flowen</span>
       </div>
 
       <div className="flex flex-col gap-0.5 px-3 pb-2">
