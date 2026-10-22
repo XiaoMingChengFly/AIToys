@@ -375,12 +375,12 @@ export function createOpenApiHandler() {
         schemaConverters: [new ZodToJsonSchemaConverter()],
         specPath: "/spec.json",
         docsPath: "/docs",
-        docsTitle: "飞书项目复刻 · 开放接口",
+        docsTitle: "Flowen · 开放接口",
         // 固定文档页脚本的版本，不跟着 CDN 上的最新版走
         docsScriptUrl: "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.73.0",
         specGenerateOptions: {
           info: {
-            title: "飞书项目复刻 · 开放接口",
+            title: "Flowen · 开放接口",
             version: "1.0.0",
             description:
               "用 `Authorization: Bearer <令牌>` 调用，令牌在「开放接口」页面创建。令牌代表创建它的用户，权限和这个用户在界面上一样。",
