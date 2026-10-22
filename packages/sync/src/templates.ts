@@ -6,6 +6,7 @@ import {
   checkOptions,
   compileFormula,
   conditionFields,
+  type DetailLayout,
   EDITABLE_FIELD_TYPES,
   type FieldDataType,
   type FlowDefinition,
@@ -74,23 +75,10 @@ export const setFieldAccessArgs = z.object({
   viewRoles: z.array(z.string()),
   editRoles: z.array(z.string()),
 });
-/** 详情页布局；`layout` 为空表示恢复默认（所有字段一组）。 */
+/** 详情页布局；`layout` 为空表示恢复默认。见 engine 的 DetailLayout。 */
 export const setLayoutArgs = z.object({
   id: z.string(),
-  layout: z
-    .object({
-      groups: z
-        .array(
-          z.object({
-            name: z.string().trim().min(1).max(40),
-            fields: z.array(z.string()),
-            collapsed: z.boolean().optional(),
-          }),
-        )
-        .max(30),
-      hidden: z.array(z.string()).optional(),
-    })
-    .nullable(),
+  layout: z.json().nullable(),
 });
 export const createTemplateArgs = z.object({ id: z.string(), typeId: z.string(), key, name: z.string().min(1) });
 
@@ -148,6 +136,64 @@ export const updateFieldArgs = z.object({
   options: fieldOptions.optional(),
   required: z.boolean().optional(),
   config: fieldConfigSchema.nullable().optional(),
+});
+
+const layoutItem = z.union([
+  z.object({
+    kind: z.literal("field"),
+    field: z.string(),
+    label: z.string().max(60).optional(),
+    hint: z.string().max(500).optional(),
+    showWhen: condition.optional(),
+    createHidden: z.boolean().optional(),
+    wide: z.boolean().optional(),
+  }),
+  z.object({ kind: z.literal("text"), text: z.string().max(1000), tone: z.enum(["info", "warning"]).optional() }),
+  z.object({ kind: z.literal("relation"), relationDefId: z.string(), title: z.string().max(60).optional() }),
+  z.object({ kind: z.enum(["relations", "roles", "subItems", "attachments"]) }),
+]);
+/** 详情页布局的结构（早期的分组布局和页签布局都认）。 */
+const detailLayoutSchema = z.object({
+  groups: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(40),
+        fields: z.array(z.string()),
+        collapsed: z.boolean().optional(),
+      }),
+    )
+    .max(30)
+    .optional(),
+  hidden: z.array(z.string()).optional(),
+  tabs: z
+    .array(
+      z.object({
+        key: z.string().min(1).max(64),
+        name: z.string().trim().min(1).max(40),
+        system: z.enum(["nodes", "comments", "activity"]).optional(),
+        showWhen: condition.optional(),
+        sections: z
+          .array(
+            z.object({
+              name: z.string().trim().min(1).max(40),
+              items: z.array(layoutItem).max(500),
+              collapsed: z.boolean().optional(),
+              columns: z.union([z.literal(1), z.literal(2)]).optional(),
+            }),
+          )
+          .max(50)
+          .optional(),
+      }),
+    )
+    .max(30)
+    .optional(),
+  create: z
+    .union([
+      z.object({ mode: z.literal("sync") }),
+      z.object({ mode: z.literal("custom"), items: z.array(layoutItem).max(500) }),
+    ])
+    .optional(),
+  labelPosition: z.enum(["side", "top"]).optional(),
 });
 
 export const flowDefinitionSchema = z.object({
@@ -227,14 +273,19 @@ export async function createType(tx: Transaction, args: z.output<typeof createTy
 
 export async function setLayout(tx: Transaction, args: z.output<typeof setLayoutArgs>, userID: string) {
   const type = await adminType(tx, args.id, userID);
-  if (args.layout) {
+  const parsed = args.layout === null ? null : detailLayoutSchema.safeParse(args.layout);
+  if (parsed && !parsed.success) throw new Error("布局格式不对。");
+  const layout = parsed ? (parsed.data as DetailLayout) : null;
+  if (layout) {
+    const relations = await tx.run(zql.relationDef.where("fromTypeId", args.id));
     const error = checkLayout(
-      args.layout,
+      layout,
       type.fields.map((f) => f.key),
+      relations.map((r) => r.id),
     );
     if (error) throw new Error(error);
   }
-  await tx.mutate.workItemType.update({ id: args.id, detailLayout: args.layout });
+  await tx.mutate.workItemType.update({ id: args.id, detailLayout: layout });
 }
 
 export async function createRole(tx: Transaction, args: z.output<typeof createRoleArgs>, userID: string) {

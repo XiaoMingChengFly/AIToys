@@ -426,12 +426,21 @@ export function TypePage() {
         <Section title="详情页布局">
           <LayoutEditor
             key={JSON.stringify([type.detailLayout, type.fields.map((f) => f.key)])}
-            fields={type.fields}
+            fields={fields.map((f) => ({
+              key: f.key,
+              name: f.name,
+              dataType: f.dataType,
+              options: f.options?.map((o) => ({ value: o.value, label: o.label || o.value })) ?? null,
+            }))}
+            relationDefs={type.relationDefs}
             layout={type.detailLayout ?? null}
             canManage={isAdmin}
             onSave={async (layout) => {
               setError(null);
-              const outcome = await zero.mutate(mutators.workItemType.setLayout({ id: typeId, layout })).client;
+              // 布局作为 JSON 交给 mutator，由它按结构校验
+              const outcome = await zero.mutate(
+                mutators.workItemType.setLayout({ id: typeId, layout: layout as never }),
+              ).client;
               if (outcome.type === "error") setError(outcome.error.message);
               return outcome.type !== "error";
             }}

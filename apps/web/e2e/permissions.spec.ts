@@ -49,7 +49,7 @@ test("guests only read and comment, and restricted fields stay hidden from peopl
   await fields.getByLabel("客户").fill("A 公司");
   await fields.getByLabel("客户").blur();
   // 动态逐条记下改动
-  await page.getByRole("tablist", { name: "评论和动态" }).getByRole("tab", { name: "动态" }).click();
+  await page.getByRole("tablist", { name: "详情页签" }).getByRole("tab", { name: "动态" }).click();
   const activity = page.getByRole("list", { name: "动态列表" });
   await expect(activity).toContainText("Pascal 把「报价」从 空 改为 100");
   await expect(activity).toContainText("Pascal 把「客户」从 空 改为 A 公司");
@@ -72,7 +72,7 @@ test("guests only read and comment, and restricted fields stay hidden from peopl
   await expect(linFields.getByLabel("客户")).toBeDisabled();
   await expect(linFields.getByText("报价")).toHaveCount(0);
   // 动态里也没有报价的改动
-  const linTabs = lin.getByRole("tablist", { name: "评论和动态" });
+  const linTabs = lin.getByRole("tablist", { name: "详情页签" });
   await linTabs.getByRole("tab", { name: "动态" }).click();
   const linActivity = lin.getByRole("list", { name: "动态列表" });
   await expect(linActivity).toContainText("把「客户」从 空 改为 A 公司");

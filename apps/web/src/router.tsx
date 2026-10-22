@@ -44,8 +44,11 @@ const spaceRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/spaces/$spaceId",
   component: SpacePage,
-  validateSearch: (search: Record<string, unknown>): { type?: string } =>
-    typeof search.type === "string" ? { type: search.type } : {},
+  // ?type= 只看一种类型；?item= 在右侧抽屉里打开一个工作项
+  validateSearch: (search: Record<string, unknown>): { type?: string; item?: string } => ({
+    ...(typeof search.type === "string" && { type: search.type }),
+    ...(typeof search.item === "string" && { item: search.item }),
+  }),
 });
 const settingsRoute = createRoute({
   getParentRoute: () => appRoute,

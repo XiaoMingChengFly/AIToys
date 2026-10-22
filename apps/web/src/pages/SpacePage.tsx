@@ -1,13 +1,16 @@
+import { SideSheet } from "@douyinfe/semi-ui";
 import {
   applyDefaults,
   availableOptions,
   conditionView,
   defaultRoleMembers,
+  evaluate,
   fieldStates,
+  type LayoutItem,
   missingRequired,
+  resolveLayout,
   roleAppears,
   roleRemovable,
-  visibleLayoutFields,
 } from "@fp/engine";
 import { mutators, queries, type WorkItemFilterArgs } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
@@ -32,6 +35,7 @@ import { StageTag, StatusTag } from "@/components/ui/tag";
 import { env } from "@/lib/env";
 import { withLineOptions } from "@/lib/fields";
 import { newId } from "@/lib/utils";
+import { WorkItemView } from "@/pages/WorkItemPage";
 
 const NO_CALENDAR = { holidays: [], extraWorkdays: [] };
 
@@ -55,10 +59,12 @@ const columns = [
   column.accessor("name", {
     header: "名称",
     cell: (c) => (
+      // 点名称在右侧抽屉里打开，列表留在后面（像飞书项目一样可以连续看）
       <Link
         className="font-medium text-fg hover:text-brand-500"
-        to="/items/$itemId"
-        params={{ itemId: c.row.original.id }}
+        from="/spaces/$spaceId"
+        to="."
+        search={(prev) => ({ ...prev, item: c.row.original.id })}
       >
         {c.getValue()}
       </Link>
@@ -79,7 +85,8 @@ type ItemType = Space["workItemTypes"][number];
 /** 空间的工作项：左侧导航选了类型时只看这种类型。 */
 export function SpacePage() {
   const { spaceId } = useParams({ from: "/app/spaces/$spaceId" });
-  const { type: typeId } = useSearch({ from: "/app/spaces/$spaceId" });
+  const { type: typeId, item: openItem } = useSearch({ from: "/app/spaces/$spaceId" });
+  const navigate = useNavigate();
   const zero = useZero();
   const [space, spaceResult] = useQuery(queries.spaces.byId({ id: spaceId }));
   useActiveSpace(spaceId);
@@ -113,6 +120,21 @@ export function SpacePage() {
           )
         }
       />
+      {openItem && (
+        <SideSheet
+          visible
+          width="72%"
+          bodyStyle={{ padding: 0 }}
+          title={
+            <Link to="/items/$itemId" params={{ itemId: openItem }} className="text-sm font-normal text-brand-500">
+              全屏打开
+            </Link>
+          }
+          onCancel={() => navigate({ to: ".", search: (prev) => ({ ...prev, item: undefined }) })}
+        >
+          <WorkItemView itemId={openItem} />
+        </SideSheet>
+      )}
       <PageBody className="max-w-none">
         {space.workItemTypes.length === 0 ? (
           <div className="rounded-lg border border-line-subtle bg-surface shadow-card">
@@ -399,9 +421,16 @@ function CreateWorkItemForm({
   );
   // 新建时可以直接填的字段（公式字段由系统计算），按详情页布局的顺序，布局里隐藏的不显示
   // 系统外信号由外部系统写入，附件要先有工作项才能上传，都不在新建表单里；按规则不显示的也不显示
-  const editableFields = visibleLayoutFields(typeFields, type.detailLayout).filter(
-    (f) => !["formula", "relation", "signal", "multiSignal"].includes(f.dataType) && states[f.key]?.visible !== false,
-  );
+  // 按新建页布局：字段（布局可以改显示名、加说明、设显示条件）和提示文字
+  type CreateRow = { item: LayoutItem; field: (typeof typeFields)[number] | undefined };
+  const createItems = resolveLayout(typeFields, type.detailLayout).create.flatMap((item): CreateRow[] => {
+    if (item.kind === "text") return [{ item, field: undefined }];
+    if (item.kind !== "field") return [];
+    const field = typeFields.find((f) => f.key === item.field);
+    if (!field || ["formula", "relation", "signal", "multiSignal"].includes(field.dataType)) return [];
+    if (states[field.key]?.visible === false || (item.showWhen && !evaluate(item.showWhen, view))) return [];
+    return [{ item, field }];
+  });
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -439,27 +468,47 @@ function CreateWorkItemForm({
       <Field label={`${type.name}名称`}>
         <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
       </Field>
-      {editableFields.length > 0 && (
+      {createItems.length > 0 && (
         <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
-          {editableFields.map((f) => (
-            <Field
-              key={f.key}
-              label={
-                <FieldLabel name={f.name} required={states[f.key]?.required} description={f.config?.description} />
-              }
-              className={f.dataType === "richText" || f.dataType === "textarea" ? "sm:col-span-2" : undefined}
-            >
-              <FieldInput
-                field={f}
-                label={f.name}
-                value={fields[f.key] ?? null}
-                members={members}
-                options={availableOptions(f, fields, fields[f.key])}
-                live
-                onChange={(value) => setTouched((prev) => ({ ...prev, [f.key]: value }))}
-              />
-            </Field>
-          ))}
+          {createItems.map(({ item, field: f }, i) =>
+            !f ? (
+              <p
+                // biome-ignore lint/suspicious/noArrayIndexKey: 提示文字没有 id，按位置渲染
+                key={i}
+                role="note"
+                className="rounded-md bg-brand-50 px-3 py-2 text-sm text-brand-600 sm:col-span-2"
+              >
+                {item.kind === "text" ? item.text : ""}
+              </p>
+            ) : (
+              <Field
+                key={f.key}
+                label={
+                  <FieldLabel
+                    name={(item.kind === "field" && item.label) || f.name}
+                    required={states[f.key]?.required}
+                    description={f.config?.description}
+                  />
+                }
+                hint={item.kind === "field" ? item.hint : undefined}
+                className={
+                  f.dataType === "richText" || f.dataType === "textarea" || (item.kind === "field" && item.wide)
+                    ? "sm:col-span-2"
+                    : undefined
+                }
+              >
+                <FieldInput
+                  field={f}
+                  label={(item.kind === "field" && item.label) || f.name}
+                  value={fields[f.key] ?? null}
+                  members={members}
+                  options={availableOptions(f, fields, fields[f.key])}
+                  live
+                  onChange={(value) => setTouched((prev) => ({ ...prev, [f.key]: value }))}
+                />
+              </Field>
+            ),
+          )}
         </div>
       )}
       {type.roles.length > 0 && (

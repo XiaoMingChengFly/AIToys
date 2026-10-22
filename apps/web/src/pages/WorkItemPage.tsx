@@ -9,9 +9,11 @@ import {
   evaluate,
   FlowGraph,
   fieldStates,
-  layoutFields,
+  type LayoutItem,
+  type LayoutSection,
   type NodeState,
   nodeFlowOf,
+  resolveLayout,
   roleAppears,
   roleRemovable,
   type StatusActor,
@@ -74,6 +76,11 @@ const STATE_LABEL: Record<NodeState, string> = {
 
 export function WorkItemPage() {
   const { itemId } = useParams({ from: "/app/items/$itemId" });
+  return <WorkItemView itemId={itemId} />;
+}
+
+/** 工作项详情：整页打开，或在列表右侧的抽屉里打开（内容一样）。 */
+export function WorkItemView({ itemId }: { itemId: string }) {
   const zero = useZero();
   const [item, result] = useQuery(queries.workItems.byId({ id: itemId }));
   // 空间成员和角色定义：改角色成员时用
@@ -90,8 +97,8 @@ export function WorkItemPage() {
   const [rolesOpen, setRolesOpen] = useState(false);
   /** 正在填完成表单的节点。 */
   const [completing, setCompleting] = useState<string | null>(null);
-  /** 侧栏底部：评论还是动态。 */
-  const [discussion, setDiscussion] = useState<"comments" | "activity">("comments");
+  /** 当前打开的详情页签。 */
+  const [tab, setTab] = useState<string | null>(null);
   useActiveSpace(item?.spaceId);
 
   if (!item)
@@ -184,9 +191,145 @@ export function WorkItemPage() {
   const typeRoles = [...shownRoles].sort((a, b) => Number(activeRoles.has(b.key)) - Number(activeRoles.has(a.key)));
   const who = { isAdmin, isCreator: item.createdBy === me, roles: myRoles };
 
+  // 详情页按类型的页面布局渲染：页签 → 分组 → 字段和控件
+  const typeFields = withLineOptions(item.type?.fields ?? [], item.space?.businessLines);
+  const record = Object.fromEntries(item.fieldValues.map((f) => [f.fieldKey, f.value]));
+  const layout = resolveLayout(typeFields, item.type?.detailLayout);
+  const tabs = layout.tabs.filter(
+    (t) => (t.system !== "nodes" || graph) && (!t.showWhen || evaluate(t.showWhen, roleView)),
+  );
+  const currentTab = tabs.find((t) => t.key === tab) ?? tabs[0];
+  const tabLabel = (t: (typeof tabs)[number]) =>
+    t.system === "comments" && item.comments.length ? `${t.name} ${item.comments.length}` : t.name;
+
+  const rolesBlock = space ? (
+    <div className="flex flex-col gap-2">
+      <RolePicker
+        roles={(rolesOpen ? typeRoles : typeRoles.slice(0, ROLES_FOLDED)).map((r) => ({
+          key: r.key,
+          name: r.name,
+          single: !!r.config?.single,
+          isOwner: !!r.config?.isOwner,
+          readOnly: !canWrite || !canEditRoleMembers(r, who),
+          removable: canWrite && (isAdmin || roleRemovable(r)),
+        }))}
+        members={assignable}
+        value={roleUsers}
+        onToggle={(roleKey, userId, selected) =>
+          run(
+            mutators.role.set({
+              workItemId: item.id,
+              roleKey,
+              userIds: toggled(
+                roleUsers[roleKey],
+                userId,
+                selected,
+                !!allRoles.find((r) => r.key === roleKey)?.config?.single,
+              ),
+            }),
+          )
+        }
+        onRemove={(roleKey) => run(mutators.role.setPresence({ workItemId: item.id, roleKey, present: false }))}
+        addable={canWrite ? allRoles.filter((r) => !shownRoles.includes(r)) : []}
+        onAdd={(roleKey) => run(mutators.role.setPresence({ workItemId: item.id, roleKey, present: true }))}
+      />
+      {typeRoles.length > ROLES_FOLDED && (
+        <Button
+          variant="link"
+          size="sm"
+          className="w-fit"
+          onClick={() => setRolesOpen(!rolesOpen)}
+          aria-expanded={rolesOpen}
+        >
+          {rolesOpen ? "收起" : `展开全部 ${typeRoles.length} 个角色`}
+        </Button>
+      )}
+    </div>
+  ) : null;
+
+  /** 布局里的一项：字段、提示文字或控件。 */
+  const renderItem = (it: LayoutItem, index: number) => {
+    switch (it.kind) {
+      case "field":
+        return (
+          <LayoutField
+            key={`f-${it.field}-${index}`}
+            item={it}
+            item_={item}
+            fields={typeFields}
+            record={record}
+            members={members}
+            isAdmin={isAdmin}
+            myRoles={myRoles}
+            labelPosition={layout.labelPosition}
+            onSet={(fieldKey, value) => run(mutators.fieldValue.set({ workItemId: item.id, fieldKey, value }))}
+          />
+        );
+      case "text":
+        return (
+          <p
+            key={`t-${index}`}
+            role="note"
+            className={cn(
+              "col-span-full rounded-md px-3 py-2 text-sm",
+              it.tone === "warning" ? "bg-warning-50 text-warning-600" : "bg-brand-50 text-brand-600",
+            )}
+          >
+            {it.text}
+          </p>
+        );
+      case "relation":
+      case "relations": {
+        const defs = (item.type?.relationDefs ?? []).filter(
+          (d) => it.kind === "relations" || d.id === it.relationDefId,
+        );
+        return (
+          <div key={`r-${index}`} className="col-span-full">
+            <RelationsCard
+              workItemId={item.id}
+              spaceId={item.spaceId}
+              defs={defs}
+              outgoing={item.outgoing
+                .filter((r) => it.kind === "relations" || r.relationDefId === it.relationDefId)
+                .map((r) => ({ ...r, item: r.to }))}
+              incoming={item.incoming
+                .filter((r) => it.kind === "relations" || r.relationDefId === it.relationDefId)
+                .map((r) => ({ ...r, item: r.from }))}
+              {...(it.kind === "relation" && it.title && { title: it.title })}
+            />
+          </div>
+        );
+      }
+      case "subItems":
+        return (
+          <div key={`s-${index}`} className="col-span-full">
+            <SubItemsTable items={item.outgoing.flatMap((r) => (r.parentNodeKey && r.to ? [r.to] : []))} />
+          </div>
+        );
+      case "roles":
+        return (
+          <div key={`ro-${index}`} className="col-span-full">
+            {rolesBlock}
+          </div>
+        );
+      case "attachments":
+        return (
+          <div key={`a-${index}`} className="col-span-full">
+            <AttachmentsCard
+              workItemId={item.id}
+              attachments={item.attachments.filter((a) => !a.fieldKey)}
+              me={me}
+              isAdmin={isAdmin}
+              canWrite={canWrite}
+            />
+          </div>
+        );
+    }
+  };
+
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex flex-col gap-1 border-b border-line-subtle bg-surface px-6 pt-4">
+    <div className="flex h-full flex-col overflow-y-auto bg-canvas">
+      <header className="flex flex-col gap-1 border-b border-line-subtle bg-surface px-6 pt-4 pb-3">
         <nav aria-label="位置" className="flex items-center gap-1 text-xs text-fg-subtle">
           <Link to="/spaces/$spaceId" params={{ spaceId: item.spaceId }} className="hover:text-brand-500">
             {space?.name ?? "空间"}
@@ -217,31 +360,47 @@ export function WorkItemPage() {
           <h1 className="truncate text-xl font-semibold">{item.name}</h1>
           <StatusTag status={item.status} />
           {item.stage && <StageTag stage={item.stage} />}
+          <span className="ml-auto text-xs text-fg-subtle">
+            创建于 {formatTime(item.createdAt)} · 更新于 {formatTime(item.updatedAt)}
+          </span>
         </div>
-        <Tabs
-          className="mt-1 border-b-0"
-          label="工作项视图"
-          value={view}
-          onChange={setView}
-          items={
-            statusDefinition
-              ? [["flow", "状态流转"]]
-              : [
-                  ["flow", "节点流程"],
-                  ["gantt", "甘特图"],
-                ]
-          }
-        />
       </header>
-      <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1">
-          {statusDefinition && (
-            <StatusDiagram definition={statusDefinition} current={item.flowStatus ?? undefined} className="h-full" />
-          )}
-          {graph && view === "flow" && (
+
+      {error && (
+        <div className="px-6 pt-4">
+          <ErrorBanner>{error}</ErrorBanner>
+        </div>
+      )}
+      {!canWrite && (
+        <p role="note" className="mx-6 mt-4 rounded-md bg-surface px-3 py-2 text-sm text-fg-muted">
+          你是这个空间的访客，只能查看和评论。
+        </p>
+      )}
+
+      {/* 流程：顶部横向流程图（或状态图），可以切到甘特图 */}
+      <section aria-label="流程" className="border-b border-line-subtle bg-surface">
+        {graph && (
+          <Tabs
+            className="px-6"
+            label="工作项视图"
+            value={view}
+            onChange={setView}
+            items={[
+              ["flow", "节点流程"],
+              ["gantt", "甘特图"],
+            ]}
+          />
+        )}
+        {statusDefinition && (
+          <StatusDiagram definition={statusDefinition} current={item.flowStatus ?? undefined} className="h-52" />
+        )}
+        {graph && view === "flow" && (
+          <div className="h-56">
             <Diagram graph={graph} states={states} selected={selected} onSelect={setSelected} />
-          )}
-          {graph && view === "gantt" && (
+          </div>
+        )}
+        {graph && view === "gantt" && (
+          <div className="h-[460px]">
             <Schedule
               graph={graph}
               nodes={item.nodes}
@@ -250,36 +409,27 @@ export function WorkItemPage() {
               canPlan={canPlan}
               onPlan={setPlan}
             />
-          )}
-        </div>
-        <aside className="flex w-[400px] shrink-0 flex-col overflow-y-auto border-l border-line-subtle bg-surface">
-          {error && (
-            <div className="px-5 pt-4">
-              <ErrorBanner>{error}</ErrorBanner>
-            </div>
-          )}
-          {!canWrite && (
-            <p role="note" className="mx-5 mt-4 rounded-md bg-canvas px-3 py-2 text-sm text-fg-muted">
-              你是这个空间的访客，只能查看和评论。
-            </p>
-          )}
-          {/* 访客：下面的操作都禁用，评论除外 */}
-          <fieldset disabled={!canWrite} className="contents">
-            {statusDefinition && (
+          </div>
+        )}
+      </section>
+
+      {/* 节点卡片：当前进行中的节点和点选的节点（状态流是当前状态和可以流转到的状态） */}
+      <fieldset disabled={!canWrite} className="contents">
+        <div className="grid items-start gap-4 px-6 py-4 lg:grid-cols-2">
+          {statusDefinition && (
+            <Card>
               <StatusPanel
                 definition={statusDefinition}
                 current={item.flowStatus}
-                actor={{
-                  userId: me,
-                  roles: item.roleMembers.filter((m) => m.userId === me).map((m) => m.roleKey),
-                  isAdmin,
-                }}
-                fields={Object.fromEntries(item.fieldValues.map((f) => [f.fieldKey, f.value]))}
+                actor={{ userId: me, roles: myRoles, isAdmin }}
+                fields={record}
                 onTransition={(to) => run(mutators.workItem.transition({ workItemId: item.id, to }))}
               />
-            )}
-            {graph && (
-              <Panel title="当前节点">
+            </Card>
+          )}
+          {graph && (
+            <Card>
+              <Panel title="当前节点" aria-label="当前节点">
                 <div className="flex flex-col gap-3">
                   {inProgress.map((node) => {
                     const runtime = states.get(node.key);
@@ -339,9 +489,10 @@ export function WorkItemPage() {
                   )}
                 </div>
               </Panel>
-            )}
-
-            {selectedNode && (
+            </Card>
+          )}
+          {selectedNode && (
+            <Card>
               <Panel title={selectedNode.name} aria-label="选中的节点">
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center gap-2">
@@ -375,122 +526,116 @@ export function WorkItemPage() {
                   )}
                 </div>
               </Panel>
-            )}
+            </Card>
+          )}
+        </div>
+      </fieldset>
 
-            <FieldsPanel
-              item={item}
-              isAdmin={isAdmin}
-              myRoles={myRoles}
-              members={members}
-              onSet={(fieldKey, value) => run(mutators.fieldValue.set({ workItemId: item.id, fieldKey, value }))}
-            />
-
-            <RelationsCard
-              workItemId={item.id}
-              spaceId={item.spaceId}
-              defs={item.type?.relationDefs ?? []}
-              outgoing={item.outgoing.map((r) => ({ ...r, item: r.to }))}
-              incoming={item.incoming.map((r) => ({ ...r, item: r.from }))}
-            />
-
-            <AttachmentsCard
-              workItemId={item.id}
-              attachments={item.attachments.filter((a) => !a.fieldKey)}
-              me={me}
-              isAdmin={isAdmin}
-              canWrite={canWrite}
-            />
-
-            {space && (
-              <Panel
-                aria-label="角色"
-                title={`角色 ${typeRoles.length}`}
-                actions={
-                  typeRoles.length > ROLES_FOLDED && (
-                    <Button variant="link" size="sm" onClick={() => setRolesOpen(!rolesOpen)} aria-expanded={rolesOpen}>
-                      {rolesOpen ? "收起" : "展开全部"}
-                    </Button>
-                  )
-                }
-              >
-                <RolePicker
-                  roles={(rolesOpen ? typeRoles : typeRoles.slice(0, ROLES_FOLDED)).map((r) => ({
-                    key: r.key,
-                    name: r.name,
-                    single: !!r.config?.single,
-                    isOwner: !!r.config?.isOwner,
-                    readOnly: !canWrite || !canEditRoleMembers(r, who),
-                    removable: canWrite && (isAdmin || roleRemovable(r)),
-                  }))}
-                  members={assignable}
-                  value={roleUsers}
-                  onToggle={(roleKey, userId, selected) =>
-                    run(
-                      mutators.role.set({
-                        workItemId: item.id,
-                        roleKey,
-                        userIds: toggled(
-                          roleUsers[roleKey],
-                          userId,
-                          selected,
-                          !!allRoles.find((r) => r.key === roleKey)?.config?.single,
-                        ),
-                      }),
-                    )
-                  }
-                  onRemove={(roleKey) =>
-                    run(mutators.role.setPresence({ workItemId: item.id, roleKey, present: false }))
-                  }
-                  addable={canWrite ? allRoles.filter((r) => !shownRoles.includes(r)) : []}
-                  onAdd={(roleKey) => run(mutators.role.setPresence({ workItemId: item.id, roleKey, present: true }))}
-                />
-              </Panel>
-            )}
+      {/* 页签：按页面布局；自定义页签里是分组，系统页签是节点详情、评论、动态 */}
+      <section aria-label="详情" className="mx-6 mb-6 rounded-lg border border-line-subtle bg-surface">
+        <Tabs
+          className="px-5"
+          label="详情页签"
+          value={currentTab?.key ?? ""}
+          onChange={setTab}
+          items={tabs.map((t) => [t.key, tabLabel(t)] as const)}
+        />
+        {currentTab && !currentTab.system && (
+          <fieldset disabled={!canWrite} className="contents">
+            {(currentTab.sections ?? []).map((section) => {
+              // 只放了一个自带标题的控件（关联、附件）的分组，直接显示控件，不再套一层分组标题
+              const only = section.items.length === 1 ? section.items[0] : undefined;
+              if (only && (only.kind === "relations" || only.kind === "relation" || only.kind === "attachments"))
+                return <div key={section.name}>{renderItem(only, 0)}</div>;
+              return (
+                <LayoutSectionView key={section.name} section={section}>
+                  {section.items.map(renderItem)}
+                </LayoutSectionView>
+              );
+            })}
           </fieldset>
-
-          <section aria-label="评论和动态" className="flex flex-col gap-3 px-5 pb-4">
-            <Tabs
-              label="评论和动态"
-              value={discussion}
-              onChange={setDiscussion}
-              items={[
-                ["comments", `评论${item.comments.length ? ` ${item.comments.length}` : ""}`],
-                ["activity", "动态"],
-              ]}
-            />
-            {discussion === "comments" ? (
-              <CommentsCard workItemId={item.id} comments={item.comments} members={members} />
-            ) : (
-              <ActivityCard
-                workItemId={item.id}
-                context={{
-                  nodeName: (key) => graph?.nodes.find((n) => n.key === key)?.name ?? key,
-                  statusName: (key) => statusDefinition?.statuses.find((s) => s.key === key)?.name ?? key,
-                  fields: item.type?.fields ?? [],
-                  roles: typeRoles,
-                  relationDefs: item.type?.relationDefs ?? [],
-                  userName: nameOf,
-                  itemName: (id) =>
-                    item.outgoing.find((r) => r.toId === id)?.to?.name ??
-                    item.incoming.find((r) => r.fromId === id)?.from?.name,
-                }}
-              />
-            )}
-          </section>
-        </aside>
-        {completingNode && (
-          <CompleteNodeDialog
-            workItemId={item.id}
-            node={completingNode}
-            fields={item.type?.fields ?? []}
-            values={new Map(item.fieldValues.map((f) => [f.fieldKey, f.value]))}
-            members={members}
-            open
-            onOpenChange={(open) => !open && setCompleting(null)}
+        )}
+        {currentTab?.system === "nodes" && graph && (
+          <NodesTable
+            graph={graph}
+            nodes={item.nodes}
+            nameOf={nameOf}
+            timeZone={item.space?.timezone ?? "Asia/Shanghai"}
           />
         )}
-      </div>
+        {currentTab?.system === "comments" && (
+          <div className="px-5 py-4">
+            <CommentsCard workItemId={item.id} comments={item.comments} members={members} />
+          </div>
+        )}
+        {currentTab?.system === "activity" && (
+          <div className="px-5 py-4">
+            <ActivityCard
+              workItemId={item.id}
+              context={{
+                nodeName: (key) => graph?.nodes.find((n) => n.key === key)?.name ?? key,
+                statusName: (key) => statusDefinition?.statuses.find((s) => s.key === key)?.name ?? key,
+                fields: item.type?.fields ?? [],
+                roles: allRoles,
+                relationDefs: item.type?.relationDefs ?? [],
+                userName: nameOf,
+                itemName: (id) =>
+                  item.outgoing.find((r) => r.toId === id)?.to?.name ??
+                  item.incoming.find((r) => r.fromId === id)?.from?.name,
+              }}
+            />
+          </div>
+        )}
+      </section>
+
+      {completingNode && (
+        <CompleteNodeDialog
+          workItemId={item.id}
+          node={completingNode}
+          fields={item.type?.fields ?? []}
+          values={new Map(item.fieldValues.map((f) => [f.fieldKey, f.value]))}
+          members={members}
+          open
+          onOpenChange={(open) => !open && setCompleting(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function Card({ children }: { children: ReactNode }) {
+  return <div className="overflow-hidden rounded-lg border border-line-subtle bg-surface">{children}</div>;
+}
+
+const formatTime = (ms: number | null | undefined) =>
+  ms
+    ? new Date(ms).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+    : "—";
+
+/** 布局里的一个分组：标题可以点开收起；两栏布局时字段两两并排。 */
+function LayoutSectionView({ section, children }: { section: LayoutSection; children: ReactNode }) {
+  const [open, setOpen] = useState(!section.collapsed);
+  const count = section.items.filter((i) => i.kind === "field").length;
+  return (
+    <Panel
+      title={section.name}
+      aria-label={section.name}
+      actions={
+        <Button
+          variant="link"
+          size="sm"
+          aria-expanded={open}
+          aria-label={`${open ? "收起" : "展开"}${section.name}`}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? "收起" : count ? `展开 ${count} 个字段` : "展开"}
+        </Button>
+      }
+    >
+      {open && (
+        <div className={cn("grid gap-x-8 gap-y-2.5", section.columns !== 1 && "lg:grid-cols-2")}>{children}</div>
+      )}
+    </Panel>
   );
 }
 
@@ -651,99 +796,172 @@ function Schedule({
 
 type Item = NonNullable<QueryResultType<ReturnType<typeof queries.workItems.byId>>>;
 
+type FieldDefRow = NonNullable<Item["type"]>["fields"][number];
+
 /**
- * 字段面板，按类型配置的详情页布局分组显示，默认收起的分组可以展开。
+ * 布局里的一个字段：显示名（可在布局里改）、附加说明、编辑控件。
  * 配了可见角色、自己又看不到的字段不显示（值也不会同步过来）；配了可改角色、自己不能改的字段只读。
+ * 字段规则（有效性、条件显示）和布局上的显示条件不满足时也不显示。
  */
-function FieldsPanel({
+function LayoutField({
   item,
+  item_: workItem,
+  fields,
+  record,
+  members,
   isAdmin,
   myRoles,
-  members,
+  labelPosition,
   onSet,
 }: {
-  item: Item;
+  item: Extract<LayoutItem, { kind: "field" }>;
+  item_: Item;
+  fields: readonly FieldDefRow[];
+  record: Record<string, unknown>;
+  members: readonly FieldMember[];
   isAdmin: boolean;
   myRoles: string[];
-  members: readonly FieldMember[];
+  labelPosition: "side" | "top";
   onSet: (fieldKey: string, value: FieldInputValue) => void;
 }) {
-  const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
-  const values = new Map(item.fieldValues.map((f) => [f.fieldKey, f.value]));
-  const record = Object.fromEntries(values);
+  const field = fields.find((f) => f.key === item.field);
+  if (!field) return null;
   const allowed = (roles: readonly string[]) => isAdmin || hasAnyRole(roles, myRoles);
-  // 字段规则：无效或不满足显示条件的字段不显示；「业务线」字段的选项是空间的业务线树
-  const typeFields = withLineOptions(item.type?.fields ?? [], item.space?.businessLines);
-  const states = fieldStates(typeFields, record);
-  const fields = typeFields.filter((f) => {
-    const roles = fieldViewRoles(f);
-    return (!roles || allowed(roles)) && states[f.key]?.visible !== false;
-  });
-  const attachments = item.attachments.map((a) => ({ id: a.id, name: a.name, size: a.size }));
-  const wide = (dataType: string) => dataType === "richText" || dataType === "textarea";
-  return layoutFields(fields, item.type?.detailLayout).map((group) => {
-    // 默认收起的分组点一下展开，其余的点一下收起
-    const open = group.collapsed === toggled.has(group.name);
-    const flip = () => {
-      const next = new Set(toggled);
-      if (!next.delete(group.name)) next.add(group.name);
-      setToggled(next);
-    };
-    return (
-      <Panel
-        key={group.name}
-        title={group.name}
-        aria-label={group.name}
-        actions={
-          <Button
-            variant="link"
-            size="sm"
-            aria-expanded={open}
-            aria-label={`${open ? "收起" : "展开"}${group.name}`}
-            onClick={flip}
-          >
-            {open ? "收起" : `展开 ${group.fields.length} 个字段`}
-          </Button>
-        }
-      >
-        {open && (
-          <div className="flex flex-col gap-2">
-            {group.fields.map((field) => (
-              <div
-                key={field.key}
-                className={cn(
-                  "grid gap-3",
-                  wide(field.dataType) ? "grid-cols-1 gap-1.5" : "grid-cols-[7rem_minmax(0,1fr)] items-center",
-                )}
-              >
-                <span className="min-w-0 text-fg-muted" title={field.name}>
-                  <FieldLabel
-                    name={field.name}
-                    required={states[field.key]?.required}
-                    description={field.config?.description}
-                  />
-                </span>
-                <FieldInput
-                  field={field}
-                  label={field.name}
-                  value={values.get(field.key) ?? null}
-                  members={members}
-                  options={availableOptions(field, record, values.get(field.key) ?? null)}
-                  workItemId={item.id}
-                  attachments={attachments}
-                  readOnly={!allowed(field.editRoles ?? [])}
-                  onChange={(value) => onSet(field.key, value)}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </Panel>
-    );
-  });
+  const viewRoles = fieldViewRoles(field);
+  if (viewRoles && !allowed(viewRoles)) return null;
+  const state = fieldStates(fields, record)[field.key];
+  if (state?.visible === false) return null;
+  if (item.showWhen && !evaluate(item.showWhen, conditionView(fields, record))) return null;
+  const value = record[field.key] ?? null;
+  const wide = item.wide || field.dataType === "richText" || field.dataType === "textarea";
+  const top = labelPosition === "top" || wide;
+  const name = item.label || field.name;
+  return (
+    <div
+      className={cn(
+        "grid min-w-0 gap-1.5",
+        wide && "col-span-full",
+        !top && "grid-cols-[9rem_minmax(0,1fr)] items-center gap-3",
+      )}
+    >
+      <span className="min-w-0 overflow-hidden text-fg-muted" title={name}>
+        <FieldLabel name={name} required={state?.required} description={field.config?.description} />
+      </span>
+      <div className="flex min-w-0 flex-col gap-1">
+        <FieldInput
+          field={field}
+          label={name}
+          value={value}
+          members={members}
+          options={availableOptions(field, record, value)}
+          workItemId={workItem.id}
+          attachments={workItem.attachments.map((a) => ({ id: a.id, name: a.name, size: a.size }))}
+          readOnly={!allowed(field.editRoles ?? [])}
+          onChange={(v) => onSet(field.key, v)}
+        />
+        {item.hint && <span className="text-xs text-fg-subtle">{item.hint}</span>}
+      </div>
+    </div>
+  );
 }
 
-/** 节点流程图：从左到右，进行中的节点放在视野左侧。点节点在右侧看详情、回滚。 */
+/** 子工作项表格：名称、状态、阶段。 */
+function SubItemsTable({
+  items,
+}: {
+  items: readonly { id: string; name: string; status: string | null; stage: string | null }[];
+}) {
+  return (
+    <table aria-label="子工作项" className="w-full text-sm">
+      <thead>
+        <tr className="border-b border-line-subtle text-left text-xs text-fg-muted">
+          <th className="h-8 font-normal">子工作项</th>
+          <th className="font-normal">状态</th>
+          <th className="font-normal">阶段</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((i) => (
+          <tr key={i.id} className="border-b border-line-subtle last:border-0">
+            <td className="h-9">
+              <Link to="/items/$itemId" params={{ itemId: i.id }} className="text-brand-500 hover:underline">
+                {i.name}
+              </Link>
+            </td>
+            <td>
+              <StatusTag status={i.status} />
+            </td>
+            <td>
+              <StageTag stage={i.stage} />
+            </td>
+          </tr>
+        ))}
+        {items.length === 0 && (
+          <tr>
+            <td colSpan={3} className="h-9 text-fg-subtle">
+              还没有子工作项。
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  );
+}
+
+/** 节点详情页签：所有节点的状态、负责人、计划和实际日期。 */
+function NodesTable({
+  graph,
+  nodes,
+  nameOf,
+  timeZone,
+}: {
+  graph: FlowGraph;
+  nodes: readonly NodeRow[];
+  nameOf: (userId: string) => string;
+  timeZone: string;
+}) {
+  const { rows } = nodeGanttRows(graph, nodes, { timeZone, canPlan: () => false });
+  const byKey = new Map(nodes.map((n) => [n.nodeKey, n]));
+  return (
+    <div className="overflow-x-auto px-5 py-3">
+      <table aria-label="节点详情" className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-line-subtle text-left text-xs text-fg-muted">
+            <th className="h-8 font-normal">节点</th>
+            <th className="font-normal">状态</th>
+            <th className="font-normal">负责人</th>
+            <th className="font-normal">计划</th>
+            <th className="font-normal">实际</th>
+          </tr>
+        </thead>
+        <tbody>
+          {graph.nodes.map((n) => {
+            const runtime = byKey.get(n.key);
+            const row = rows.find((r) => r.key === n.key);
+            return (
+              <tr key={n.key} className="border-b border-line-subtle last:border-0">
+                <td className="h-10 pr-4">{n.name}</td>
+                <td className="pr-4">
+                  <NodeStateTag state={runtime?.state ?? "notStarted"} />
+                </td>
+                <td className="pr-4">{(runtime?.owners ?? []).map(nameOf).join("、") || "—"}</td>
+                <td className="pr-4 text-fg-muted tabular-nums">
+                  {row ? `${dayToIso(row.start)} → ${dayToIso(row.end)}` : "—"}
+                </td>
+                <td className="text-fg-muted tabular-nums">
+                  {row?.actualStart != null ? dayToIso(row.actualStart) : ""}
+                  {row?.actualEnd != null ? ` → ${dayToIso(row.actualEnd)}` : ""}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** 节点流程图：从左到右，进行中的节点放在视野左侧。点节点在下面的节点卡片里看详情、回滚。 */
 function Diagram({
   graph,
   states,
@@ -761,7 +979,7 @@ function Diagram({
     const zoom = 0.9;
     const current = graph.nodes.find((n) => states.get(n.key)?.state === "inProgress");
     const at = (current && positions.get(current.key)) ?? { x: 0, y: 0 };
-    return { x: 240 - at.x * zoom, y: 120 - at.y * zoom, zoom };
+    return { x: 280 - at.x * zoom, y: 90 - at.y * zoom, zoom };
   });
   const nodes: Node[] = graph.nodes.map((n) => {
     const state = states.get(n.key)?.state ?? "notStarted";

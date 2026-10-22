@@ -34,7 +34,9 @@ export function RelationsCard({
   defs,
   outgoing,
   incoming,
+  title = "关联",
 }: {
+  title?: string;
   workItemId: string;
   spaceId: string;
   defs: readonly Def[];
@@ -54,7 +56,7 @@ export function RelationsCard({
   }
 
   return (
-    <Panel title="关联">
+    <Panel title={title}>
       <div className="flex flex-col gap-4">
         {defs.map((def) => (
           <RelationGroup
