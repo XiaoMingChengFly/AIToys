@@ -19,7 +19,9 @@ const ordered = (field: ConditionField | undefined) =>
   ["number", "date", "datetime", "dateRange"].includes(field?.dataType ?? "");
 /** 「等于」对这些字段表示「包含」（级联字段选上级时，下级也算）。 */
 const contains = (field: ConditionField | undefined) =>
-  ["multiSelect", "user", "cascadeSelect", "cascadeMulti", "attachment", "multiSignal"].includes(field?.dataType ?? "");
+  ["multiSelect", "user", "cascadeSelect", "cascadeMulti", "businessLine", "attachment", "multiSignal"].includes(
+    field?.dataType ?? "",
+  );
 const choices = (field: ConditionField | undefined): ConditionField["options"] =>
   field?.dataType === "bool"
     ? [

@@ -255,7 +255,8 @@ export function FieldInput({
         </Select>
       );
     case "cascadeSelect":
-    case "cascadeMulti": {
+    case "cascadeMulti":
+    case "businessLine": {
       const multiple = field.dataType === "cascadeMulti";
       const all = field.options ?? [];
       const path = (v: string) => optionPath(all, v);

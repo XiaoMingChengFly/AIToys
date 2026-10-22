@@ -1,5 +1,7 @@
 import {
   availableOptions,
+  canEditRoleMembers,
+  conditionView,
   type Day,
   dayFromIso,
   dayInTimeZone,
@@ -10,6 +12,8 @@ import {
   layoutFields,
   type NodeState,
   nodeFlowOf,
+  roleAppears,
+  roleRemovable,
   type StatusActor,
   StatusFlow,
   type StatusFlowDefinition,
@@ -42,6 +46,7 @@ import { ErrorBanner, Panel } from "@/components/ui/page";
 import { Tabs } from "@/components/ui/tabs";
 import { StageTag, StatusTag, Tag } from "@/components/ui/tag";
 import { layoutByDepth } from "@/flow-demo/layout";
+import { withLineOptions } from "@/lib/fields";
 import { nodeGanttRows } from "@/lib/gantt";
 import { cn } from "@/lib/utils";
 
@@ -167,9 +172,17 @@ export function WorkItemPage() {
   const typeName = space?.workItemTypes.find((t) => t.id === item.typeId)?.name;
   // 进行中节点的负责角色排在前面，其余的默认收起
   const activeRoles = new Set(inProgress.flatMap((n) => n.ownerRoles));
-  const typeRoles = [...(space?.workItemTypes.find((t) => t.id === item.typeId)?.roles ?? [])].sort(
-    (a, b) => Number(activeRoles.has(b.key)) - Number(activeRoles.has(a.key)),
+  // 角色按出现规则（和这个工作项上手动的增删）决定显示哪些；不出现的可以「添加角色」
+  const allRoles = space?.workItemTypes.find((t) => t.id === item.typeId)?.roles ?? [];
+  const roleView = conditionView(
+    withLineOptions(item.type?.fields ?? [], item.space?.businessLines),
+    Object.fromEntries(item.fieldValues.map((f) => [f.fieldKey, f.value])),
   );
+  const shownRoles = allRoles.filter(
+    (r) => roleAppears(r, roleView, item.roleOverrides) || (roleUsers[r.key]?.length ?? 0) > 0,
+  );
+  const typeRoles = [...shownRoles].sort((a, b) => Number(activeRoles.has(b.key)) - Number(activeRoles.has(a.key)));
+  const who = { isAdmin, isCreator: item.createdBy === me, roles: myRoles };
 
   return (
     <div className="flex h-full flex-col">
@@ -400,7 +413,14 @@ export function WorkItemPage() {
                 }
               >
                 <RolePicker
-                  roles={rolesOpen ? typeRoles : typeRoles.slice(0, ROLES_FOLDED)}
+                  roles={(rolesOpen ? typeRoles : typeRoles.slice(0, ROLES_FOLDED)).map((r) => ({
+                    key: r.key,
+                    name: r.name,
+                    single: !!r.config?.single,
+                    isOwner: !!r.config?.isOwner,
+                    readOnly: !canWrite || !canEditRoleMembers(r, who),
+                    removable: canWrite && (isAdmin || roleRemovable(r)),
+                  }))}
                   members={assignable}
                   value={roleUsers}
                   onToggle={(roleKey, userId, selected) =>
@@ -408,10 +428,20 @@ export function WorkItemPage() {
                       mutators.role.set({
                         workItemId: item.id,
                         roleKey,
-                        userIds: toggled(roleUsers[roleKey], userId, selected),
+                        userIds: toggled(
+                          roleUsers[roleKey],
+                          userId,
+                          selected,
+                          !!allRoles.find((r) => r.key === roleKey)?.config?.single,
+                        ),
                       }),
                     )
                   }
+                  onRemove={(roleKey) =>
+                    run(mutators.role.setPresence({ workItemId: item.id, roleKey, present: false }))
+                  }
+                  addable={canWrite ? allRoles.filter((r) => !shownRoles.includes(r)) : []}
+                  onAdd={(roleKey) => run(mutators.role.setPresence({ workItemId: item.id, roleKey, present: true }))}
                 />
               </Panel>
             )}
@@ -641,9 +671,10 @@ function FieldsPanel({
   const values = new Map(item.fieldValues.map((f) => [f.fieldKey, f.value]));
   const record = Object.fromEntries(values);
   const allowed = (roles: readonly string[]) => isAdmin || hasAnyRole(roles, myRoles);
-  // 字段规则：无效或不满足显示条件的字段不显示
-  const states = fieldStates(item.type?.fields ?? [], record);
-  const fields = (item.type?.fields ?? []).filter((f) => {
+  // 字段规则：无效或不满足显示条件的字段不显示；「业务线」字段的选项是空间的业务线树
+  const typeFields = withLineOptions(item.type?.fields ?? [], item.space?.businessLines);
+  const states = fieldStates(typeFields, record);
+  const fields = typeFields.filter((f) => {
     const roles = fieldViewRoles(f);
     return (!roles || allowed(roles)) && states[f.key]?.visible !== false;
   });

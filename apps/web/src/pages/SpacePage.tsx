@@ -1,4 +1,14 @@
-import { applyDefaults, availableOptions, fieldStates, missingRequired, visibleLayoutFields } from "@fp/engine";
+import {
+  applyDefaults,
+  availableOptions,
+  conditionView,
+  defaultRoleMembers,
+  fieldStates,
+  missingRequired,
+  roleAppears,
+  roleRemovable,
+  visibleLayoutFields,
+} from "@fp/engine";
 import { mutators, queries, type WorkItemFilterArgs } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
@@ -20,6 +30,7 @@ import { EmptyState, ErrorBanner, PageBody, PageHeader } from "@/components/ui/p
 import { Segmented } from "@/components/ui/tabs";
 import { StageTag, StatusTag } from "@/components/ui/tag";
 import { env } from "@/lib/env";
+import { withLineOptions } from "@/lib/fields";
 import { newId } from "@/lib/utils";
 
 const NO_CALENDAR = { holidays: [], extraWorkdays: [] };
@@ -96,6 +107,7 @@ export function SpacePage() {
             <CreateWorkItem
               types={current ? ready.filter((t) => t.id === current.id) : ready}
               members={members.filter((m) => space.members.find((x) => x.userId === m.userId)?.role !== "guest")}
+              lines={space.businessLines}
               label={current ? `新建${current.name}` : "新建工作项"}
             />
           )
@@ -302,7 +314,19 @@ function ImportOem({ spaceId }: { spaceId: string }) {
 }
 
 /** 新建工作项：选类型（有已发布流程的才可选）、填名称和选项字段、按角色选人。 */
-function CreateWorkItem({ types, members, label }: { types: ItemType[]; members: PickerMember[]; label: string }) {
+type Lines = Space["businessLines"];
+
+function CreateWorkItem({
+  types,
+  members,
+  lines,
+  label,
+}: {
+  types: ItemType[];
+  members: PickerMember[];
+  lines: Lines;
+  label: string;
+}) {
   const [open, setOpen] = useState(false);
   const [typeId, setTypeId] = useState(types[0]?.id ?? "");
   const type = types.find((t) => t.id === typeId) ?? types[0];
@@ -328,7 +352,13 @@ function CreateWorkItem({ types, members, label }: { types: ItemType[]; members:
               </Select>
             </Field>
           )}
-          <CreateWorkItemForm key={type.id} type={type} members={members} onCancel={() => setOpen(false)} />
+          <CreateWorkItemForm
+            key={type.id}
+            type={type}
+            members={members}
+            lines={lines}
+            onCancel={() => setOpen(false)}
+          />
         </div>
       </DialogContent>
     </Dialog>
@@ -338,12 +368,15 @@ function CreateWorkItem({ types, members, label }: { types: ItemType[]; members:
 function CreateWorkItemForm({
   type,
   members,
+  lines,
   onCancel,
 }: {
   type: ItemType;
   members: PickerMember[];
+  lines: Lines;
   onCancel: () => void;
 }) {
+  const typeFields = withLineOptions(type.fields, lines);
   const zero = useZero();
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -351,17 +384,22 @@ function CreateWorkItemForm({
   const [touched, setTouched] = useState<Record<string, FieldInputValue>>({});
   const [error, setError] = useState<string | null>(null);
   const fields: Record<string, unknown> = {
-    ...applyDefaults(type.fields, Object.fromEntries(Object.entries(touched).filter(([, v]) => v !== null))),
+    ...applyDefaults(typeFields, Object.fromEntries(Object.entries(touched).filter(([, v]) => v !== null))),
     ...touched,
   };
-  const states = fieldStates(type.fields, fields);
-  // 默认所有角色都由创建人担任，可以在下面改
-  const [assigned, setAssigned] = useState<Record<string, string[]>>(() =>
-    Object.fromEntries(type.roles.map((r) => [r.key, [String(zero.userID)]])),
+  const states = fieldStates(typeFields, fields);
+  // 角色：按出现规则和分配方式算默认成员（随字段变化），用户改过的角色以用户的为准
+  const me = String(zero.userID);
+  const [touchedRoles, setTouchedRoles] = useState<Record<string, string[]>>({});
+  const [overrides, setOverrides] = useState<{ added: string[]; removed: string[] }>({ added: [], removed: [] });
+  const view = conditionView(typeFields, fields);
+  const shownRoles = type.roles.filter((r) => roleAppears(r, view, overrides));
+  const assigned = Object.fromEntries(
+    shownRoles.map((r) => [r.key, touchedRoles[r.key] ?? defaultRoleMembers(r, view, me)]),
   );
   // 新建时可以直接填的字段（公式字段由系统计算），按详情页布局的顺序，布局里隐藏的不显示
   // 系统外信号由外部系统写入，附件要先有工作项才能上传，都不在新建表单里；按规则不显示的也不显示
-  const editableFields = visibleLayoutFields(type.fields, type.detailLayout).filter(
+  const editableFields = visibleLayoutFields(typeFields, type.detailLayout).filter(
     (f) => !["formula", "relation", "signal", "multiSignal"].includes(f.dataType) && states[f.key]?.visible !== false,
   );
 
@@ -369,7 +407,7 @@ function CreateWorkItemForm({
     event.preventDefault();
     if (!name.trim()) return;
     const missing = missingRequired(
-      type.fields.filter((f) => f.dataType !== "attachment"),
+      typeFields.filter((f) => f.dataType !== "attachment"),
       fields,
     );
     if (missing.length > 0) return setError(`请填写必填字段：${missing.map((f) => f.name).join("、")}。`);
@@ -382,7 +420,14 @@ function CreateWorkItemForm({
     );
     setError(null);
     const outcome = await zero.mutate(
-      mutators.workItem.create({ id, typeId: type.id, name: name.trim(), fields: values as never, roles: assigned }),
+      mutators.workItem.create({
+        id,
+        typeId: type.id,
+        name: name.trim(),
+        fields: values as never,
+        roles: assigned,
+        roleOverrides: overrides,
+      }),
     ).client;
     if (outcome.type === "error") return setError(outcome.error.message);
     await navigate({ to: "/items/$itemId", params: { itemId: id } });
@@ -420,15 +465,32 @@ function CreateWorkItemForm({
       {type.roles.length > 0 && (
         <details className="group rounded-md border border-line-subtle">
           <summary className="cursor-pointer px-3 py-2 text-sm text-fg-muted select-none hover:text-fg">
-            角色和负责人（默认都是你）
+            角色和负责人（{shownRoles.length}）
           </summary>
           <div className="border-t border-line-subtle px-3 py-2">
             <RolePicker
-              roles={type.roles}
+              roles={shownRoles.map((r) => ({
+                key: r.key,
+                name: r.name,
+                single: !!r.config?.single,
+                isOwner: !!r.config?.isOwner,
+                removable: roleRemovable(r),
+              }))}
               members={members}
               value={assigned}
-              onToggle={(roleKey, userId, selected) =>
-                setAssigned((prev) => ({ ...prev, [roleKey]: toggled(prev[roleKey], userId, selected) }))
+              onToggle={(roleKey, userId, selected) => {
+                const role = type.roles.find((r) => r.key === roleKey);
+                setTouchedRoles((prev) => ({
+                  ...prev,
+                  [roleKey]: toggled(assigned[roleKey], userId, selected, !!role?.config?.single),
+                }));
+              }}
+              onRemove={(roleKey) =>
+                setOverrides((o) => ({ added: o.added.filter((k) => k !== roleKey), removed: [...o.removed, roleKey] }))
+              }
+              addable={type.roles.filter((r) => !shownRoles.includes(r))}
+              onAdd={(roleKey) =>
+                setOverrides((o) => ({ added: [...o.added, roleKey], removed: o.removed.filter((k) => k !== roleKey) }))
               }
             />
           </div>

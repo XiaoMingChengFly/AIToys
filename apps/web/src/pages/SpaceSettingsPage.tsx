@@ -5,6 +5,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
+import { BusinessLinesCard } from "@/components/BusinessLinesCard";
 import { CalendarCard } from "@/components/CalendarCard";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,7 @@ const NO_CALENDAR = { holidays: [], extraWorkdays: [] };
 
 type Space = NonNullable<QueryResultType<ReturnType<typeof queries.spaces.byId>>>;
 
-/** 空间设置：成员、工作项类型、工作日历、Webhook（只给管理员）。只有管理员能改，成员只读。 */
+/** 空间设置：成员、业务线、工作项类型、工作日历、Webhook（只给管理员）。只有管理员能改，成员只读。 */
 export function SpaceSettingsPage() {
   const { spaceId } = useParams({ from: "/app/spaces/$spaceId/settings" });
   const zero = useZero();
@@ -38,6 +39,13 @@ export function SpaceSettingsPage() {
       <PageHeader title="空间设置" breadcrumb={space.name} />
       <PageBody className="max-w-4xl">
         <MembersCard space={space} canManage={isAdmin} />
+        <BusinessLinesCard
+          key={JSON.stringify(space.businessLines)}
+          spaceId={spaceId}
+          lines={space.businessLines}
+          members={space.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId }))}
+          canManage={isAdmin}
+        />
         <TypesCard space={space} canManage={isAdmin} />
         <CalendarCard spaceId={spaceId} calendar={space.calendar ?? NO_CALENDAR} canManage={isAdmin} />
         {isAdmin && <WebhooksCard spaceId={spaceId} />}

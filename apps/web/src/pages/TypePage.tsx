@@ -5,24 +5,28 @@ import {
   type FieldOption,
   FORMULA_FUNCTIONS,
   OPTION_FIELD_TYPES,
+  type RoleConfig,
 } from "@fp/engine";
 import { mutators, queries } from "@fp/sync";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
 import { FieldConfigSheet, type FieldPatch } from "@/components/FieldConfigSheet";
 import { LayoutEditor } from "@/components/LayoutEditor";
+import { RoleConfigSheet } from "@/components/RoleConfigSheet";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
 import { ErrorBanner, PageBody, PageHeader } from "@/components/ui/page";
+import { withLineOptions } from "@/lib/fields";
 import { newId } from "@/lib/utils";
 
 /** 新建字段时可选的类型，按飞书项目的字段类型分组。 */
 const TYPE_GROUPS = [
   ["文本", ["text", "textarea", "richText"]],
-  ["选项", ["select", "multiSelect", "cascadeSelect", "cascadeMulti", "radio"]],
+  ["选项", ["select", "multiSelect", "cascadeSelect", "cascadeMulti", "radio", "businessLine"]],
   ["人员", ["singleUser", "user"]],
   ["日期", ["date", "dateRange", "datetime"]],
   ["其他", ["number", "bool", "link", "docLink", "attachment", "phone", "email", "signal", "multiSignal", "formula"]],
@@ -70,8 +74,10 @@ export function TypePage() {
   const [error, setError] = useState<string | null>(null);
   const [newType, setNewType] = useState<NewFieldType>("select");
   const [configuring, setConfiguring] = useState<string | null>(null);
+  const [configuringRole, setConfiguringRole] = useState<string | null>(null);
   const [space] = useQuery(queries.spaces.byId({ id: type?.spaceId ?? "" }));
   const members = (space?.members ?? []).map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId }));
+  const memberName = (id: string) => members.find((m) => m.userId === id)?.name ?? id;
   useActiveSpace(type?.spaceId);
 
   if (!type)
@@ -79,6 +85,15 @@ export function TypePage() {
       <p className="p-6 text-sm text-fg-muted">{result.type === "complete" ? "类型不存在或没有权限。" : "加载中…"}</p>
     );
   const isAdmin = type.space?.members.some((m) => m.role === "admin") ?? false;
+  const fields = withLineOptions(type.fields, type.space?.businessLines);
+  async function reorder(index: number, by: -1 | 1) {
+    const keys = type ? type.roles.map((r) => r.key) : [];
+    const [key] = keys.splice(index, 1);
+    if (key) keys.splice(index + by, 0, key);
+    setError(null);
+    const outcome = await zero.mutate(mutators.roleDef.reorder({ typeId, keys })).client;
+    if (outcome.type === "error") setError(outcome.error.message);
+  }
 
   /** 提交表单：先在浏览器里乐观执行，出错时显示原因；成功后清空表单。 */
   function submit(build: (data: FormData) => Parameters<typeof zero.mutate>[0] | null) {
@@ -149,10 +164,43 @@ export function TypePage() {
         </Section>
 
         <Section title="角色">
-          <ul className="flex flex-wrap gap-2 text-sm">
-            {type.roles.map((r) => (
-              <li key={r.id} className="rounded-full bg-canvas px-2.5 py-0.5">
-                {r.name}
+          <ul aria-label="角色列表" className="flex flex-col text-sm">
+            {type.roles.map((r, i) => (
+              <li key={r.id} className="flex min-h-9 items-center gap-3 border-b border-line-subtle last:border-0">
+                <span className="w-32 truncate font-medium">{r.name}</span>
+                <span className="min-w-0 flex-1 truncate text-xs text-fg-muted">
+                  {roleSummary(r.config, memberName)}
+                </span>
+                {isAdmin && (
+                  <span className="flex shrink-0 items-center">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`上移角色 ${r.name}`}
+                      disabled={i === 0}
+                      onClick={() => reorder(i, -1)}
+                    >
+                      <ArrowUp />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`下移角色 ${r.name}`}
+                      disabled={i === type.roles.length - 1}
+                      onClick={() => reorder(i, 1)}
+                    >
+                      <ArrowDown />
+                    </Button>
+                  </span>
+                )}
+                <Button
+                  variant="link"
+                  size="sm"
+                  aria-label={`配置角色 ${r.name}`}
+                  onClick={() => setConfiguringRole(r.id)}
+                >
+                  {isAdmin ? "配置" : "查看配置"}
+                </Button>
               </li>
             ))}
           </ul>
@@ -333,12 +381,12 @@ export function TypePage() {
         </Section>
 
         {(() => {
-          const field = type.fields.find((f) => f.id === configuring);
+          const field = fields.find((f) => f.id === configuring);
           return field ? (
             <FieldConfigSheet
               key={field.id}
               field={field}
-              fields={type.fields}
+              fields={fields}
               members={members}
               canManage={isAdmin}
               onClose={() => setConfiguring(null)}
@@ -346,6 +394,28 @@ export function TypePage() {
                 // 默认值里的值是 JSON，配置的类型比 mutator 参数宽，交给 mutator 校验
                 const outcome = await zero.mutate(
                   mutators.fieldDef.update({ id: field.id, ...patch, config: patch.config as never }),
+                ).client;
+                return outcome.type === "error" ? outcome.error.message : null;
+              }}
+            />
+          ) : null;
+        })()}
+
+        {(() => {
+          const role = type.roles.find((r) => r.id === configuringRole);
+          return role ? (
+            <RoleConfigSheet
+              key={role.id}
+              role={role}
+              roles={type.roles}
+              fields={fields}
+              members={members}
+              canManage={isAdmin}
+              onClose={() => setConfiguringRole(null)}
+              onSave={async (patch) => {
+                // 条件里的值是 JSON，配置的类型比 mutator 参数宽，交给 mutator 校验
+                const outcome = await zero.mutate(
+                  mutators.roleDef.update({ id: role.id, name: patch.name, config: patch.config as never }),
                 ).client;
                 return outcome.type === "error" ? outcome.error.message : null;
               }}
@@ -423,6 +493,22 @@ type FieldDef = {
   viewRoles: readonly string[] | null;
   editRoles: readonly string[] | null;
 };
+
+/** 角色配置一行概括：出现方式、成员分配、单人、负责人。 */
+function roleSummary(config: RoleConfig | null, name: (id: string) => string): string {
+  const c = config ?? {};
+  const appear =
+    c.appear?.mode === "hidden" ? "默认隐藏" : c.appear?.mode === "conditional" ? "满足条件出现" : "默认出现";
+  const assign =
+    !c.assign || c.assign.mode === "creator"
+      ? "成员：创建者"
+      : c.assign.mode === "manual"
+        ? "成员：自行添加"
+        : c.assign.mode === "fixed"
+          ? `成员：${c.assign.members.map(name).join("、") || "—"}`
+          : `按条件分配（${c.assign.rules.length} 组）`;
+  return [appear, assign, c.single ? "单人" : "", c.isOwner ? "负责人" : ""].filter(Boolean).join(" · ");
+}
 
 /** 字段上配了哪些规则，一行概括。 */
 function rules(field: FieldDef): string {
