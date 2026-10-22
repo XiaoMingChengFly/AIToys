@@ -4,6 +4,7 @@ import type {
   CalendarConfig,
   Condition,
   DetailLayout,
+  FieldConfig,
   FieldDataType,
   FlowDefinition,
   NodeState,
@@ -171,11 +172,14 @@ export const fieldDef = pgTable(
     key: text("key").notNull(),
     name: text("name").notNull(),
     dataType: text("data_type").$type<FieldDataType>().notNull(),
-    /** 选项类字段的候选值。 */
-    options: jsonb("options").$type<{ value: string; label: string; color?: string }[]>(),
+    /** 选项类字段的候选值；级联字段的选项用 parent 指向上级。 */
+    options:
+      jsonb("options").$type<{ value: string; label: string; color?: string; parent?: string; disabled?: boolean }[]>(),
     /** 非空即公式字段，值由公式引擎计算后缓存在 field_value。 */
     formula: text("formula"),
     required: boolean("required").notNull().default(false),
+    /** 帮助说明、对接标识、有效性、条件显示和必填、默认值、数字格式等（见 engine 的 FieldConfig）。 */
+    config: jsonb("config").$type<FieldConfig>(),
     /** 能看到这个字段的工作项角色（角色键）；为空时所有人可见。空间管理员总是可见。 */
     viewRoles: jsonb("view_roles").$type<string[]>(),
     /** 能修改这个字段的工作项角色；为空时能改工作项的人都能改。空间管理员总是可以。 */
@@ -568,6 +572,8 @@ export const attachment = pgTable(
     contentType: text("content_type").notNull(),
     size: bigint("size", { mode: "number" }).notNull(),
     storageKey: text("storage_key").notNull(),
+    /** 附件字段上传的附件记字段键；为空的是工作项的附件（附件卡片）。 */
+    fieldKey: text("field_key"),
     uploadedBy: text("uploaded_by")
       .notNull()
       .references(() => user.id),

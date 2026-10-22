@@ -1,6 +1,9 @@
 import {
+  CASCADE_FIELD_TYPES,
   type Condition,
+  checkFieldConfig,
   checkLayout,
+  checkOptions,
   compileFormula,
   conditionFields,
   EDITABLE_FIELD_TYPES,
@@ -8,6 +11,7 @@ import {
   type FlowDefinition,
   FormulaError,
   isStatusFlow,
+  OPTION_FIELD_TYPES,
   type StatusFlowDefinition,
   validateFlow,
   validateStatusFlow,
@@ -39,13 +43,25 @@ export const createTypeArgs = z.object({
   flowMode: z.enum(["node", "state"]).default("node"),
 });
 export const createRoleArgs = z.object({ id: z.string(), typeId: z.string(), key, name: z.string().min(1) });
+const fieldOptions = z
+  .array(
+    z.object({
+      value: z.string().min(1),
+      label: z.string().trim().min(1),
+      color: z.string().max(32).optional(),
+      /** 级联字段的上级选项值。 */
+      parent: z.string().optional(),
+      disabled: z.boolean().optional(),
+    }),
+  )
+  .max(2000);
 export const createFieldArgs = z.object({
   id: z.string(),
   typeId: z.string(),
   key,
   name: z.string().min(1),
   dataType: z.enum([...EDITABLE_FIELD_TYPES, "formula"]),
-  options: z.array(z.object({ value: z.string().min(1), label: z.string().min(1) })).optional(),
+  options: fieldOptions.optional(),
   /** 公式字段的公式，字段可以写成 {字段名}。 */
   formula: z.string().max(2000).optional(),
 });
@@ -90,6 +106,47 @@ export const condition: z.ZodType<Condition, Condition> = z.lazy(() =>
     z.object({ kind: z.literal("any"), items: z.array(condition) }),
   ]),
 );
+
+/** 字段配置（见 engine 的 FieldConfig）。 */
+export const fieldConfigSchema = z.object({
+  description: z.string().max(2000).nullish(),
+  alias: z.string().max(64).nullish(),
+  validWhen: condition.nullish(),
+  showWhen: condition.nullish(),
+  requiredWhen: condition.nullish(),
+  defaultValue: z
+    .union([
+      z.object({ mode: z.literal("fixed"), value: z.json() }),
+      z.object({
+        mode: z.literal("conditional"),
+        rules: z.array(z.object({ when: condition, value: z.json() })).max(100),
+        combine: z.enum(["first", "union"]).optional(),
+      }),
+    ])
+    .nullish(),
+  unique: z.boolean().nullish(),
+  number: z
+    .object({
+      precision: z.number().int().min(0).max(10).optional(),
+      thousands: z.boolean().optional(),
+      scale: z.enum(["raw", "percent", "permille", "thousand", "tenThousand", "million"]).optional(),
+      symbol: z.string().max(8).optional(),
+      symbolPosition: z.enum(["before", "after"]).optional(),
+    })
+    .nullish(),
+  leafOnly: z.boolean().nullish(),
+  optionWhen: z.record(z.string(), condition).nullish(),
+  exclusiveOptions: z.array(z.string()).nullish(),
+});
+
+/** 改字段：名称、选项、必填和配置。字段类型和键建好后不能改。 */
+export const updateFieldArgs = z.object({
+  id: z.string(),
+  name: z.string().trim().min(1).optional(),
+  options: fieldOptions.optional(),
+  required: z.boolean().optional(),
+  config: fieldConfigSchema.nullable().optional(),
+});
 
 export const flowDefinitionSchema = z.object({
   key: z.string(),
@@ -201,8 +258,10 @@ export async function setFieldAccess(tx: Transaction, args: z.output<typeof setF
 
 export async function createField(tx: Transaction, args: z.output<typeof createFieldArgs>, userID: string) {
   const type = await adminType(tx, args.typeId, userID);
-  const isOptions = args.dataType === "select" || args.dataType === "multiSelect";
+  const isOptions = OPTION_FIELD_TYPES.includes(args.dataType);
   if (isOptions && !args.options?.length) throw new Error("选项字段至少要有一个选项。");
+  const optionError = isOptions ? checkOptions(args.dataType, args.options ?? []) : null;
+  if (optionError) throw new Error(optionError);
   if (type.fields.some((f) => f.key === args.key || f.name === args.name))
     throw new Error(`已经有字段「${args.name}」了。`);
   const formula =
@@ -214,6 +273,7 @@ export async function createField(tx: Transaction, args: z.output<typeof createF
     options: isOptions ? (args.options ?? []) : null,
     formula,
     required: false,
+    config: null,
     viewRoles: null,
     editRoles: null,
     sort: type.fields.length,
@@ -264,6 +324,47 @@ export async function setFormula(tx: Transaction, args: z.output<typeof setFormu
   const formula = checkFormula(type.fields, field.key, args.formula);
   await tx.mutate.fieldDef.update({ id: args.id, formula });
   await recomputeType(tx, field.typeId);
+}
+
+/**
+ * 改字段的名称、选项、必填和配置（帮助说明、对接标识、有效性、条件显示和必填、默认值、数字格式…）。
+ * 配置里的条件只能引用同一类型的其他字段；对接标识在类型内唯一。
+ * 默认值只在新建时套用，改了不影响已有工作项。
+ */
+export async function updateField(tx: Transaction, args: z.output<typeof updateFieldArgs>, userID: string) {
+  const field = await tx.run(zql.fieldDef.where("id", args.id).one());
+  if (!field) throw new Error("字段不存在。");
+  const type = await adminType(tx, field.typeId, userID);
+  const others = type.fields.filter((f) => f.id !== field.id);
+  const name = args.name ?? field.name;
+  if (others.some((f) => f.name === name)) throw new Error(`已经有字段「${name}」了。`);
+  const dataType = field.dataType as FieldDataType;
+  const options = args.options ?? field.options ?? [];
+  if (args.options) {
+    if (!OPTION_FIELD_TYPES.includes(dataType)) throw new Error(`「${name}」没有选项。`);
+    if (options.length === 0) throw new Error("选项字段至少要有一个选项。");
+    const error = checkOptions(dataType, options);
+    if (error) throw new Error(error);
+  }
+  const config = args.config === undefined ? (field.config ?? null) : args.config;
+  if (config) {
+    const error = checkFieldConfig(
+      { key: field.key, name, dataType, options },
+      config,
+      type.fields.map((f) => f.key),
+    );
+    if (error) throw new Error(error);
+    if (config.leafOnly && !CASCADE_FIELD_TYPES.includes(dataType)) throw new Error("只有级联字段能要求选到最后一级。");
+    if (config.alias && others.some((f) => f.config?.alias === config.alias || f.key === config.alias))
+      throw new Error(`对接标识「${config.alias}」已经被别的字段用了。`);
+  }
+  await tx.mutate.fieldDef.update({
+    id: field.id,
+    name,
+    ...(args.options && { options }),
+    ...(args.required !== undefined && { required: args.required }),
+    ...(args.config !== undefined && { config: args.config }),
+  });
 }
 
 /** 新模板带一个草稿 v1：节点流只有“开始”节点；状态流是“待处理 → 处理中 → 已完成”的常用流转。 */

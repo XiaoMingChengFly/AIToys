@@ -1,9 +1,11 @@
 import {
+  applyDefaults,
   dayInTimeZone,
   dayToTimestamp,
   FlowEngine,
   type FlowEvent,
   isFinal,
+  missingRequired,
   nodeFlowOf,
   normalizeFieldValue,
   resolveOwners,
@@ -77,11 +79,24 @@ export async function createWorkItem(
   await requireWriter(tx, type.spaceId, userID);
   await assertRoleMembers(tx, type.spaceId, Object.values(args.roles).flat());
   // 字段值先按类型整理成规范形式，流程引擎按整理后的值判断出现条件
-  const fields: Record<string, unknown> = {};
+  const given: Record<string, unknown> = {};
   for (const [fieldKey, input] of Object.entries(args.fields)) {
     const value = normalizeFieldValue(await fieldDefOf(tx, args.typeId, fieldKey), input);
-    if (value !== null) fields[fieldKey] = value;
+    if (value !== null) given[fieldKey] = value;
   }
+  // 没填的字段套默认值，再检查必填（有效且显示出来的必填字段）
+  const defs = await tx.run(zql.fieldDef.where("typeId", args.typeId).orderBy("sort", "asc"));
+  const fields: Record<string, unknown> = {};
+  for (const [fieldKey, value] of Object.entries(applyDefaults(defs, given))) {
+    const def = defs.find((f) => f.key === fieldKey);
+    const normalized = def && !(fieldKey in given) ? normalizeFieldValue(def, value) : value;
+    if (normalized !== null) fields[fieldKey] = normalized;
+  }
+  const missing = missingRequired(
+    defs.filter((f) => f.dataType !== "attachment" && f.dataType !== "formula"),
+    fields,
+  );
+  if (missing.length > 0) throw new Error(`请填写必填字段：${missing.map((f) => f.name).join("、")}。`);
 
   // 节点流和状态流都从类型的流程模板（默认第一个）的当前发布版本开始
   const templates = zql.flowTemplate.where("typeId", args.typeId);

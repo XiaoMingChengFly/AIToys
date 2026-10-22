@@ -76,6 +76,8 @@ import {
   setFormulaArgs,
   setLayout,
   setLayoutArgs,
+  updateField,
+  updateFieldArgs,
 } from "./templates.ts";
 import { createView, createViewArgs, deleteView, deleteViewArgs } from "./views.ts";
 import {
@@ -197,6 +199,7 @@ export const mutators = defineMutators({
     create: defineMutator(createFieldArgs, ({ tx, args, ctx }) => createField(tx, args, ctx.userID)),
     setAccess: defineMutator(setFieldAccessArgs, ({ tx, args, ctx }) => setFieldAccess(tx, args, ctx.userID)),
     setFormula: defineMutator(setFormulaArgs, ({ tx, args, ctx }) => setFormula(tx, args, ctx.userID)),
+    update: defineMutator(updateFieldArgs, ({ tx, args, ctx }) => updateField(tx, args, ctx.userID)),
   },
   flowTemplate: {
     create: defineMutator(createTemplateArgs, ({ tx, args, ctx }) => createTemplate(tx, args, ctx.userID)),
