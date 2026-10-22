@@ -317,10 +317,9 @@ export function TypePage() {
                 <Label className="flex flex-col gap-1.5">
                   {CASCADE_FIELD_TYPES.includes(newType)
                     ? "选项（逗号分隔，用 / 写层级）"
-                    : "选项（选项类字段用，逗号分隔）"}
+                    : "选项（单选、多选用，逗号分隔）"}
                   <Input
                     name="options"
-                    disabled={!OPTION_FIELD_TYPES.includes(newType)}
                     placeholder={CASCADE_FIELD_TYPES.includes(newType) ? "华东/上海，华东/杭州，华北" : "是，否"}
                   />
                 </Label>
@@ -492,14 +491,7 @@ function FieldRow({
     <>
       <tr className="border-b border-line-subtle">
         <td className="py-1.5 pr-4">
-          <button
-            type="button"
-            className="text-left hover:text-brand-500"
-            aria-label={`配置字段 ${field.name}`}
-            onClick={onConfigure}
-          >
-            {field.name}
-          </button>
+          {field.name}
           {rules(field) && <span className="ml-1.5 text-xs text-fg-subtle">{rules(field)}</span>}
         </td>
         <td className="py-1.5 pr-4 text-fg-muted">
@@ -546,6 +538,9 @@ function FieldRow({
         </td>
         <td className="py-1.5 text-xs text-fg-muted">
           {summary}
+          <Button variant="link" size="sm" className="ml-2" aria-label={`配置字段 ${field.name}`} onClick={onConfigure}>
+            {canManage ? "配置" : "查看配置"}
+          </Button>
           {canManage && (
             <Button
               variant="link"

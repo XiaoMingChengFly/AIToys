@@ -11,17 +11,29 @@ const control =
  * 输入框（Semi Input）。对外仍是原生 input 的属性：onChange 收到原生事件，name、required 照常进表单。
  * className 加在 Semi 的外层容器上。
  */
-export function Input({ className, onChange, ...props }: Omit<React.ComponentProps<"input">, "size" | "prefix">) {
+export function Input({
+  className,
+  onChange,
+  readOnly,
+  ...props
+}: Omit<React.ComponentProps<"input">, "size" | "prefix">) {
   return (
-    <SemiInput {...(props as Record<string, unknown>)} className={className} onChange={(_value, e) => onChange?.(e)} />
+    <SemiInput
+      {...(props as Record<string, unknown>)}
+      // Semi 的只读属性叫 readonly
+      readonly={readOnly}
+      className={className}
+      onChange={(_value, e) => onChange?.(e)}
+    />
   );
 }
 
 /** 多行输入框（Semi TextArea），onChange 同样收到原生事件。 */
-export function Textarea({ className, onChange, ...props }: React.ComponentProps<"textarea">) {
+export function Textarea({ className, onChange, readOnly, ...props }: React.ComponentProps<"textarea">) {
   return (
     <SemiTextArea
       {...(props as Record<string, unknown>)}
+      readonly={readOnly}
       autosize={{ minRows: 3 }}
       className={className}
       // Semi 把事件类型标成了 MouseEvent，实际收到的是 textarea 的 change 事件
