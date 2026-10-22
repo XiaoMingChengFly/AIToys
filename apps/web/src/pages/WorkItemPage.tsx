@@ -740,8 +740,11 @@ function Diagram({
       source: e.from,
       target: e.to,
       type: "smoothstep",
-      style: { stroke: done ? "#34c724" : "#bbbfc4", strokeWidth: 1.5 },
-      markerEnd: { type: MarkerType.ArrowClosed, color: done ? "#34c724" : "#bbbfc4" },
+      style: { stroke: done ? "var(--color-success-500)" : "var(--color-fg-disabled)", strokeWidth: 1.5 },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: done ? "var(--color-success-500)" : "var(--color-fg-disabled)",
+      },
     };
   });
   return (
@@ -756,7 +759,7 @@ function Diagram({
       proOptions={{ hideAttribution: true }}
       className="readonly bg-canvas"
     >
-      <Background color="#dee0e3" gap={20} />
+      <Background color="var(--color-line)" gap={20} />
       <Controls showInteractive={false} />
     </ReactFlow>
   );

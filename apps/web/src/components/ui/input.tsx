@@ -1,16 +1,33 @@
+import { Input as SemiInput, TextArea as SemiTextArea } from "@douyinfe/semi-ui";
 import { ChevronDown } from "lucide-react";
 import type * as React from "react";
 import { cn } from "@/lib/utils";
 
+/** 和 Semi 输入框同样的外观（灰底、无边框，聚焦时主色描边），给原生下拉框用。 */
 const control =
-  "w-full rounded-md border border-line bg-surface px-2.5 text-sm text-fg transition-colors placeholder:text-fg-subtle hover:border-brand-300 focus-visible:border-brand-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-100 disabled:cursor-not-allowed disabled:bg-canvas disabled:text-fg-disabled";
+  "w-full rounded-[var(--semi-border-radius-small)] border border-transparent bg-hover px-3 text-sm text-fg transition-colors hover:bg-pressed focus-visible:border-brand-500 focus-visible:bg-surface focus-visible:outline-none disabled:cursor-not-allowed disabled:text-fg-disabled";
 
-export function Input({ className, ...props }: React.ComponentProps<"input">) {
-  return <input className={cn(control, "h-8", className)} {...props} />;
+/**
+ * 输入框（Semi Input）。对外仍是原生 input 的属性：onChange 收到原生事件，name、required 照常进表单。
+ * className 加在 Semi 的外层容器上。
+ */
+export function Input({ className, onChange, ...props }: Omit<React.ComponentProps<"input">, "size" | "prefix">) {
+  return (
+    <SemiInput {...(props as Record<string, unknown>)} className={className} onChange={(_value, e) => onChange?.(e)} />
+  );
 }
 
-export function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
-  return <textarea className={cn(control, "min-h-20 py-1.5 leading-relaxed", className)} {...props} />;
+/** 多行输入框（Semi TextArea），onChange 同样收到原生事件。 */
+export function Textarea({ className, onChange, ...props }: React.ComponentProps<"textarea">) {
+  return (
+    <SemiTextArea
+      {...(props as Record<string, unknown>)}
+      autosize={{ minRows: 3 }}
+      className={className}
+      // Semi 把事件类型标成了 MouseEvent，实际收到的是 textarea 的 change 事件
+      onChange={(_value, e) => onChange?.(e as unknown as React.ChangeEvent<HTMLTextAreaElement>)}
+    />
+  );
 }
 
 /** 原生下拉框加上统一的外观：键盘、读屏和测试都按原生 select 工作。 */

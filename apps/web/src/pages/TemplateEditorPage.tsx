@@ -84,8 +84,8 @@ function toEdge({ from, to }: { from: string; to: string }): Edge {
     source: from,
     target: to,
     type: "smoothstep",
-    style: { stroke: "#bbbfc4", strokeWidth: 1.5 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: "#bbbfc4" },
+    style: { stroke: "var(--color-fg-disabled)", strokeWidth: 1.5 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: "var(--color-fg-disabled)" },
   };
 }
 
@@ -256,7 +256,7 @@ function Editor({ template, type }: { template: Template; type: TypeConfig }) {
             proOptions={{ hideAttribution: true }}
             className="bg-canvas"
           >
-            <Background color="#dee0e3" gap={20} />
+            <Background color="var(--color-line)" gap={20} />
             <Controls showInteractive={false} />
           </ReactFlow>
         </div>
