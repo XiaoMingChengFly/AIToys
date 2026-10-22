@@ -1,3 +1,4 @@
+import { fieldStates } from "@fp/engine";
 import { defineMutator, defineMutators, type Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import {
@@ -126,12 +127,25 @@ export async function setFieldValue(tx: Transaction, args: z.output<typeof setFi
   if (!isAdmin && field.editRoles?.length && !hasAnyRole(field.editRoles, await myRoles(tx, item.id, userID)))
     throw new Error(`你没有权限修改「${field.name}」。`);
   const { from, to, created } = await writeFieldValue(tx, item, args.fieldKey, args.value);
+  if (to === null) await assertNotRequired(tx, item, field);
   if (created) await syncFieldAccess(tx, args.workItemId);
   // 先重算公式（流转条件可能用到），再重算流程，最后是汇总了这个工作项的上级
   await recomputeFormulas(tx, args.workItemId);
   const events = await recomputeFlow(tx, args.workItemId, userID);
   await recomputeParentFormulas(tx, args.workItemId);
   return { spaceId: item.spaceId, from, to, events };
+}
+
+/** 清空字段时检查：按当前的字段值，它要是必填的（有效、显示且必填）就不能清空。 */
+async function assertNotRequired(
+  tx: Transaction,
+  item: { id: string; typeId: string },
+  field: { key: string; name: string },
+) {
+  const defs = await tx.run(zql.fieldDef.where("typeId", item.typeId));
+  const rows = await tx.run(zql.fieldValue.where("workItemId", item.id));
+  const values = Object.fromEntries(rows.map((r) => [r.fieldKey, r.value]));
+  if (fieldStates(defs, values)[field.key]?.required) throw new Error(`「${field.name}」是必填字段，不能清空。`);
 }
 
 export const mutators = defineMutators({

@@ -1,9 +1,17 @@
-import { FIELD_TYPE_LABEL, type FieldDataType, FORMULA_FUNCTIONS } from "@fp/engine";
+import {
+  CASCADE_FIELD_TYPES,
+  FIELD_TYPE_LABEL,
+  type FieldDataType,
+  type FieldOption,
+  FORMULA_FUNCTIONS,
+  OPTION_FIELD_TYPES,
+} from "@fp/engine";
 import { mutators, queries } from "@fp/sync";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
+import { FieldConfigSheet, type FieldPatch } from "@/components/FieldConfigSheet";
 import { LayoutEditor } from "@/components/LayoutEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,10 +19,40 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { ErrorBanner, PageBody, PageHeader } from "@/components/ui/page";
 import { newId } from "@/lib/utils";
 
-/** 新建字段时可选的类型，常用的在前。 */
-const DATA_TYPES = (
-  ["select", "multiSelect", "text", "number", "date", "user", "link", "bool", "formula"] as const
-).map((value) => ({ value, label: FIELD_TYPE_LABEL[value] }));
+/** 新建字段时可选的类型，按飞书项目的字段类型分组。 */
+const TYPE_GROUPS = [
+  ["文本", ["text", "textarea", "richText"]],
+  ["选项", ["select", "multiSelect", "cascadeSelect", "cascadeMulti", "radio"]],
+  ["人员", ["singleUser", "user"]],
+  ["日期", ["date", "dateRange", "datetime"]],
+  ["其他", ["number", "bool", "link", "docLink", "attachment", "phone", "email", "signal", "multiSignal", "formula"]],
+] as const satisfies readonly (readonly [string, readonly FieldDataType[]])[];
+type NewFieldType = (typeof TYPE_GROUPS)[number][1][number];
+
+/**
+ * 新字段的选项：逗号分隔；级联字段每项可以写成路径「华东/上海」，缺的上级一并建出来。
+ */
+function parseOptions(source: string, cascade: boolean): (FieldOption & { label: string })[] {
+  const options: (FieldOption & { label: string })[] = [];
+  for (const item of source
+    .split(/[,，、\n]/)
+    .map((o) => o.trim())
+    .filter(Boolean)) {
+    let parent: string | undefined;
+    for (const part of (cascade ? item.split("/") : [item]).map((p) => p.trim()).filter(Boolean)) {
+      const found = options.find((o) => o.label === part && o.parent === parent);
+      if (found) {
+        parent = found.value;
+        continue;
+      }
+      let value = part;
+      for (let n = 2; options.some((o) => o.value === value); n++) value = `${part}-${n}`;
+      options.push({ value, label: part, ...(parent && { parent }) });
+      parent = value;
+    }
+  }
+  return options;
+}
 
 /** 公式里的 {字段键} 换成 {字段名} 显示。 */
 export function displayFormula(source: string, fields: readonly { key: string; name: string }[]) {
@@ -30,7 +68,10 @@ export function TypePage() {
   const zero = useZero();
   const [type, result] = useQuery(queries.types.byId({ id: typeId }));
   const [error, setError] = useState<string | null>(null);
-  const [newType, setNewType] = useState<(typeof DATA_TYPES)[number]["value"]>("select");
+  const [newType, setNewType] = useState<NewFieldType>("select");
+  const [configuring, setConfiguring] = useState<string | null>(null);
+  const [space] = useQuery(queries.spaces.byId({ id: type?.spaceId ?? "" }));
+  const members = (space?.members ?? []).map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId }));
   useActiveSpace(type?.spaceId);
 
   if (!type)
@@ -213,6 +254,7 @@ export function TypePage() {
                   fields={type.fields}
                   roles={type.roles}
                   canManage={isAdmin}
+                  onConfigure={() => setConfiguring(f.id)}
                   onFormula={async (formula) => {
                     setError(null);
                     const outcome = await zero.mutate(mutators.fieldDef.setFormula({ id: f.id, formula })).client;
@@ -236,18 +278,14 @@ export function TypePage() {
                 const name = text(data, "name");
                 if (!name) return null;
                 const dataType = newType;
-                const options = text(data, "options")
-                  .split(/[,，、]/)
-                  .map((o) => o.trim())
-                  .filter(Boolean)
-                  .map((o) => ({ value: o, label: o }));
+                const options = parseOptions(text(data, "options"), CASCADE_FIELD_TYPES.includes(dataType));
                 return mutators.fieldDef.create({
                   id: newId(),
                   typeId,
                   key: name,
                   name,
                   dataType,
-                  ...((dataType === "select" || dataType === "multiSelect") && { options }),
+                  ...(OPTION_FIELD_TYPES.includes(dataType) && { options }),
                   ...(dataType === "formula" && { formula: text(data, "formula") }),
                 });
               })}
@@ -259,10 +297,14 @@ export function TypePage() {
               <Label className="flex flex-col gap-1.5">
                 类型
                 <Select name="dataType" value={newType} onChange={(e) => setNewType(e.target.value as typeof newType)}>
-                  {DATA_TYPES.map((d) => (
-                    <option key={d.value} value={d.value}>
-                      {d.label}
-                    </option>
+                  {TYPE_GROUPS.map(([group, types]) => (
+                    <optgroup key={group} label={group}>
+                      {types.map((t) => (
+                        <option key={t} value={t}>
+                          {FIELD_TYPE_LABEL[t]}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </Select>
               </Label>
@@ -273,8 +315,14 @@ export function TypePage() {
                 </Label>
               ) : (
                 <Label className="flex flex-col gap-1.5">
-                  选项（单选、多选用，逗号分隔）
-                  <Input name="options" placeholder="是，否" />
+                  {CASCADE_FIELD_TYPES.includes(newType)
+                    ? "选项（逗号分隔，用 / 写层级）"
+                    : "选项（选项类字段用，逗号分隔）"}
+                  <Input
+                    name="options"
+                    disabled={!OPTION_FIELD_TYPES.includes(newType)}
+                    placeholder={CASCADE_FIELD_TYPES.includes(newType) ? "华东/上海，华东/杭州，华北" : "是，否"}
+                  />
                 </Label>
               )}
               <Button type="submit" variant="outline">
@@ -284,6 +332,27 @@ export function TypePage() {
             </form>
           )}
         </Section>
+
+        {(() => {
+          const field = type.fields.find((f) => f.id === configuring);
+          return field ? (
+            <FieldConfigSheet
+              key={field.id}
+              field={field}
+              fields={type.fields}
+              members={members}
+              canManage={isAdmin}
+              onClose={() => setConfiguring(null)}
+              onSave={async (patch: FieldPatch) => {
+                // 默认值里的值是 JSON，配置的类型比 mutator 参数宽，交给 mutator 校验
+                const outcome = await zero.mutate(
+                  mutators.fieldDef.update({ id: field.id, ...patch, config: patch.config as never }),
+                ).client;
+                return outcome.type === "error" ? outcome.error.message : null;
+              }}
+            />
+          ) : null;
+        })()}
 
         <Section title="详情页布局">
           <LayoutEditor
@@ -343,10 +412,31 @@ type FieldDef = {
   name: string;
   dataType: string;
   formula: string | null;
+  required: boolean | null;
   options: readonly { label: string }[] | null;
+  config: {
+    description?: string | null;
+    validWhen?: unknown;
+    showWhen?: unknown;
+    requiredWhen?: unknown;
+    defaultValue?: unknown;
+  } | null;
   viewRoles: readonly string[] | null;
   editRoles: readonly string[] | null;
 };
+
+/** 字段上配了哪些规则，一行概括。 */
+function rules(field: FieldDef): string {
+  const c = field.config ?? {};
+  return [
+    field.required ? "必填" : c.requiredWhen ? "条件必填" : "",
+    c.validWhen ? "有效性" : "",
+    c.showWhen ? "条件显示" : "",
+    c.defaultValue ? "默认值" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 /** 字段一行：名称、类型、选项、权限。管理员展开后按角色设置谁能看、谁能改。 */
 function FieldRow({
@@ -356,6 +446,7 @@ function FieldRow({
   canManage,
   onAccess,
   onFormula,
+  onConfigure,
 }: {
   field: FieldDef;
   fields: readonly { key: string; name: string }[];
@@ -363,6 +454,7 @@ function FieldRow({
   canManage: boolean;
   onAccess: (viewRoles: string[], editRoles: string[]) => void;
   onFormula: (formula: string) => Promise<boolean>;
+  onConfigure: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -399,7 +491,17 @@ function FieldRow({
   return (
     <>
       <tr className="border-b border-line-subtle">
-        <td className="py-1.5 pr-4">{field.name}</td>
+        <td className="py-1.5 pr-4">
+          <button
+            type="button"
+            className="text-left hover:text-brand-500"
+            aria-label={`配置字段 ${field.name}`}
+            onClick={onConfigure}
+          >
+            {field.name}
+          </button>
+          {rules(field) && <span className="ml-1.5 text-xs text-fg-subtle">{rules(field)}</span>}
+        </td>
         <td className="py-1.5 pr-4 text-fg-muted">
           {FIELD_TYPE_LABEL[field.dataType as FieldDataType] ?? field.dataType}
         </td>

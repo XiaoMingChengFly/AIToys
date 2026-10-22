@@ -1,4 +1,4 @@
-import { visibleLayoutFields } from "@fp/engine";
+import { applyDefaults, availableOptions, fieldStates, missingRequired, visibleLayoutFields } from "@fp/engine";
 import { mutators, queries, type WorkItemFilterArgs } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
@@ -8,7 +8,7 @@ import { Columns3, GanttChartSquare, List, ListTree, Plus } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
 import { Board } from "@/components/Board";
-import { FieldInput, type FieldInputValue } from "@/components/FieldInput";
+import { FieldInput, type FieldInputValue, FieldLabel } from "@/components/FieldInput";
 import { FilterBar } from "@/components/FilterBar";
 import { type PickerMember, RolePicker, toggled } from "@/components/RolePicker";
 import { SpaceGantt } from "@/components/SpaceGantt";
@@ -16,7 +16,7 @@ import { TreeView } from "@/components/TreeView";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/input";
-import { EmptyState, PageBody, PageHeader } from "@/components/ui/page";
+import { EmptyState, ErrorBanner, PageBody, PageHeader } from "@/components/ui/page";
 import { Segmented } from "@/components/ui/tabs";
 import { StageTag, StatusTag } from "@/components/ui/tag";
 import { env } from "@/lib/env";
@@ -347,42 +347,71 @@ function CreateWorkItemForm({
   const zero = useZero();
   const navigate = useNavigate();
   const [name, setName] = useState("");
-  const [fields, setFields] = useState<Record<string, FieldInputValue>>({});
+  // 用户动过的字段；没动过的字段按默认值规则补上（条件默认值随别的字段变化）
+  const [touched, setTouched] = useState<Record<string, FieldInputValue>>({});
+  const [error, setError] = useState<string | null>(null);
+  const fields: Record<string, unknown> = {
+    ...applyDefaults(type.fields, Object.fromEntries(Object.entries(touched).filter(([, v]) => v !== null))),
+    ...touched,
+  };
+  const states = fieldStates(type.fields, fields);
   // 默认所有角色都由创建人担任，可以在下面改
   const [assigned, setAssigned] = useState<Record<string, string[]>>(() =>
     Object.fromEntries(type.roles.map((r) => [r.key, [String(zero.userID)]])),
   );
   // 新建时可以直接填的字段（公式字段由系统计算），按详情页布局的顺序，布局里隐藏的不显示
+  // 系统外信号由外部系统写入，附件要先有工作项才能上传，都不在新建表单里；按规则不显示的也不显示
   const editableFields = visibleLayoutFields(type.fields, type.detailLayout).filter(
-    (f) => f.dataType !== "formula" && f.dataType !== "relation",
+    (f) => !["formula", "relation", "signal", "multiSignal"].includes(f.dataType) && states[f.key]?.visible !== false,
   );
 
   async function create(event: FormEvent) {
     event.preventDefault();
     if (!name.trim()) return;
-    const id = newId();
-    const values = Object.fromEntries(
-      Object.entries(fields).filter(([, v]) => v !== null && v !== "" && !(Array.isArray(v) && v.length === 0)),
+    const missing = missingRequired(
+      type.fields.filter((f) => f.dataType !== "attachment"),
+      fields,
     );
-    zero.mutate(mutators.workItem.create({ id, typeId: type.id, name: name.trim(), fields: values, roles: assigned }));
+    if (missing.length > 0) return setError(`请填写必填字段：${missing.map((f) => f.name).join("、")}。`);
+    const id = newId();
+    // 只交可见（有效且显示）字段的值，被规则藏起来的字段不带
+    const values = Object.fromEntries(
+      Object.entries(fields).filter(
+        ([k, v]) => states[k]?.visible !== false && v !== null && v !== "" && !(Array.isArray(v) && v.length === 0),
+      ),
+    );
+    setError(null);
+    const outcome = await zero.mutate(
+      mutators.workItem.create({ id, typeId: type.id, name: name.trim(), fields: values as never, roles: assigned }),
+    ).client;
+    if (outcome.type === "error") return setError(outcome.error.message);
     await navigate({ to: "/items/$itemId", params: { itemId: id } });
   }
 
   return (
     <form className="flex flex-col gap-4" onSubmit={create}>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <Field label={`${type.name}名称`}>
         <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
       </Field>
       {editableFields.length > 0 && (
         <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
           {editableFields.map((f) => (
-            <Field key={f.key} label={f.name}>
+            <Field
+              key={f.key}
+              label={
+                <FieldLabel name={f.name} required={states[f.key]?.required} description={f.config?.description} />
+              }
+              className={f.dataType === "richText" || f.dataType === "textarea" ? "sm:col-span-2" : undefined}
+            >
               <FieldInput
                 field={f}
+                label={f.name}
                 value={fields[f.key] ?? null}
                 members={members}
+                options={availableOptions(f, fields, fields[f.key])}
                 live
-                onChange={(value) => setFields((prev) => ({ ...prev, [f.key]: value }))}
+                onChange={(value) => setTouched((prev) => ({ ...prev, [f.key]: value }))}
               />
             </Field>
           ))}

@@ -1,10 +1,12 @@
 import {
+  availableOptions,
   type Day,
   dayFromIso,
   dayInTimeZone,
   dayToIso,
   evaluate,
   FlowGraph,
+  fieldStates,
   layoutFields,
   type NodeState,
   nodeFlowOf,
@@ -26,7 +28,7 @@ import { useActiveSpace } from "@/components/AppShell";
 import { AttachmentsCard } from "@/components/AttachmentsCard";
 import { CommentsCard } from "@/components/CommentsCard";
 import { CompleteNodeDialog } from "@/components/CompleteNodeDialog";
-import { FieldInput, type FieldInputValue, type FieldMember } from "@/components/FieldInput";
+import { FieldInput, type FieldInputValue, FieldLabel, type FieldMember } from "@/components/FieldInput";
 import { GanttChart } from "@/components/GanttChart";
 import { NodeTasks } from "@/components/NodeTasks";
 import { RelationsCard } from "@/components/RelationsCard";
@@ -380,7 +382,7 @@ export function WorkItemPage() {
 
             <AttachmentsCard
               workItemId={item.id}
-              attachments={item.attachments}
+              attachments={item.attachments.filter((a) => !a.fieldKey)}
               me={me}
               isAdmin={isAdmin}
               canWrite={canWrite}
@@ -637,11 +639,16 @@ function FieldsPanel({
 }) {
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
   const values = new Map(item.fieldValues.map((f) => [f.fieldKey, f.value]));
+  const record = Object.fromEntries(values);
   const allowed = (roles: readonly string[]) => isAdmin || hasAnyRole(roles, myRoles);
+  // 字段规则：无效或不满足显示条件的字段不显示
+  const states = fieldStates(item.type?.fields ?? [], record);
   const fields = (item.type?.fields ?? []).filter((f) => {
     const roles = fieldViewRoles(f);
-    return !roles || allowed(roles);
+    return (!roles || allowed(roles)) && states[f.key]?.visible !== false;
   });
+  const attachments = item.attachments.map((a) => ({ id: a.id, name: a.name, size: a.size }));
+  const wide = (dataType: string) => dataType === "richText" || dataType === "textarea";
   return layoutFields(fields, item.type?.detailLayout).map((group) => {
     // 默认收起的分组点一下展开，其余的点一下收起
     const open = group.collapsed === toggled.has(group.name);
@@ -670,14 +677,28 @@ function FieldsPanel({
         {open && (
           <div className="flex flex-col gap-2">
             {group.fields.map((field) => (
-              <div key={field.key} className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-3">
-                <span className="truncate text-fg-muted" title={field.name}>
-                  {field.name}
+              <div
+                key={field.key}
+                className={cn(
+                  "grid gap-3",
+                  wide(field.dataType) ? "grid-cols-1 gap-1.5" : "grid-cols-[7rem_minmax(0,1fr)] items-center",
+                )}
+              >
+                <span className="min-w-0 text-fg-muted" title={field.name}>
+                  <FieldLabel
+                    name={field.name}
+                    required={states[field.key]?.required}
+                    description={field.config?.description}
+                  />
                 </span>
                 <FieldInput
                   field={field}
+                  label={field.name}
                   value={values.get(field.key) ?? null}
                   members={members}
+                  options={availableOptions(field, record, values.get(field.key) ?? null)}
+                  workItemId={item.id}
+                  attachments={attachments}
                   readOnly={!allowed(field.editRoles ?? [])}
                   onChange={(value) => onSet(field.key, value)}
                 />
