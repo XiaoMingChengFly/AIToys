@@ -35,7 +35,7 @@ export function AppShell({ user, children }: { user: { id: string; name: string 
     <ActiveSpace.Provider value={setSpaceId}>
       <div className="flex h-full">
         <Sidebar spaceId={spaceId} user={user} />
-        <main className="flex min-w-0 flex-1 flex-col overflow-auto">{children}</main>
+        <main className="relative flex min-w-0 flex-1 flex-col overflow-auto">{children}</main>
       </div>
     </ActiveSpace.Provider>
   );

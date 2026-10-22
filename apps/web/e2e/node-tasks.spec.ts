@@ -22,7 +22,7 @@ test("a node's tasks and completion form gate its confirm", async ({ page }) => 
   await page.getByRole("link", { name: "默认流程" }).click();
 
   const node = (name: string) => page.locator(".react-flow__node", { hasText: name });
-  const editor = page.locator("aside");
+  const editor = page.getByRole("main");
   await node("开始").click();
   await page.getByRole("button", { name: "添加节点" }).click();
   await editor.getByLabel("节点名称").fill("开发");
@@ -37,7 +37,7 @@ test("a node's tasks and completion form gate its confirm", async ({ page }) => 
 
   await openItems(page);
   await createItem(page, "导出报表", { label: "需求名称" });
-  const current = page.locator("aside").getByRole("region", { name: "开发" });
+  const current = page.getByRole("main").getByRole("region", { name: "开发" });
   const tasks = current.getByRole("list", { name: "开发的子任务" });
   await expect(tasks.getByText("自测")).toBeVisible();
 
@@ -67,7 +67,7 @@ test("a node's tasks and completion form gate its confirm", async ({ page }) => 
   await page.getByRole("dialog").getByRole("button", { name: "确认完成" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByText("流程已走完。")).toBeVisible();
-  await expect(page.locator("aside").getByPlaceholder("未填写")).toHaveValue("1.0");
+  await expect(page.getByRole("main").getByPlaceholder("未填写")).toHaveValue("1.0");
 
   // 完成的节点上，子任务只读
   await node("开发").click();

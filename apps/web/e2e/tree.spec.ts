@@ -23,7 +23,7 @@ test("the tree view nests work items by the chosen hierarchy and expands level b
     ["新品 B", "新品 C"],
   ]) {
     await page.getByRole("link", { name: from }).click();
-    const group = page.locator("aside").getByRole("region", { name: "子项目" });
+    const group = page.getByRole("main").getByRole("region", { name: "子项目" });
     await group.getByLabel("添加子项目").selectOption({ label: to });
     await expect(group.getByRole("link", { name: to })).toBeVisible();
     await openItems(page);

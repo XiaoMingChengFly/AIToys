@@ -7,7 +7,7 @@ test("a sub-item-driven node completes once its sub-items are done", async ({ pa
 
   // 新品走到“需求评审”：它由子工作项驱动
   await createItem(page, "新品 S");
-  const panel = page.locator("aside");
+  const panel = page.getByRole("main");
   await panel.getByLabel("关联需求SKU流程").fill("SKU-S");
   await panel.getByLabel("关联需求SKU流程").blur();
   await panel.getByRole("region", { name: "需求立项提案" }).getByRole("button", { name: "确认完成" }).click();

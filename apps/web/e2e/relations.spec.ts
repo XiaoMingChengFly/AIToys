@@ -21,14 +21,14 @@ test("define a relation on a type and link two work items with it", async ({ pag
 
   // 新品 B 的前置项目选新品 A
   await page.getByRole("link", { name: "新品 B" }).click();
-  const group = page.locator("aside").getByRole("region", { name: "前置项目" });
+  const group = page.getByRole("main").getByRole("region", { name: "前置项目" });
   await group.getByLabel("添加前置项目").selectOption({ label: "新品 A" });
   await expect(group.getByRole("link", { name: "新品 A" })).toBeVisible();
 
   // 新品 A 上能看到反向关联，点回新品 B 后取消关联
   await group.getByRole("link", { name: "新品 A" }).click();
   await expect(page.getByRole("heading", { name: "新品 A" })).toBeVisible();
-  const backlinks = page.locator("aside").getByRole("region", { name: "被关联" });
+  const backlinks = page.getByRole("main").getByRole("region", { name: "被关联" });
   await expect(backlinks).toContainText("新品 B（前置项目）");
   await backlinks.getByRole("link", { name: "新品 B" }).click();
   await expect(page.getByRole("heading", { name: "新品 B" })).toBeVisible();

@@ -24,7 +24,7 @@ test("configure a type from scratch, draw and publish its flow, then create a wo
 
   // 画流程：开始 → 修复 → 验证（只在需要测试时出现）
   const node = (name: string) => page.locator(".react-flow__node", { hasText: name });
-  const panel = page.locator("aside");
+  const panel = page.getByRole("main");
   await node("开始").click();
   await page.getByRole("button", { name: "添加节点" }).click();
   await panel.getByLabel("节点名称").fill("修复");

@@ -124,6 +124,8 @@ export function SpacePage() {
         <SideSheet
           visible
           width="72%"
+          // 挂在内容区里（左侧导航不被盖住），和飞书项目的抽屉一样
+          getPopupContainer={() => document.querySelector("main") ?? document.body}
           bodyStyle={{ padding: 0 }}
           title={
             <Link to="/items/$itemId" params={{ itemId: openItem }} className="text-sm font-normal text-brand-500">
