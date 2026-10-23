@@ -19,6 +19,8 @@ import {
   deleteTaskArgs,
   mutators,
   nodeActionArgs,
+  pressButton,
+  pressButtonArgs,
   removeRelation,
   removeRelationArgs,
   rollbackNode,
@@ -36,6 +38,8 @@ import {
   transitionStatus,
   updateTask,
   updateTaskArgs,
+  upgradeArgs,
+  upgradeWorkItem,
 } from "@fp/sync";
 import { defineMutator, defineMutators } from "@rocicorp/zero";
 import type { DrizzleTransaction } from "@rocicorp/zero/server/adapters/drizzle";
@@ -56,7 +60,8 @@ function append(tx: Parameters<typeof drizzleTx>[0], ctx: ZeroContext, events: N
 
 /** 引擎事件转成 event_log 记录。由人触发的事件（确认、回滚、状态流转）带 by，其余是流程自己推进的，actor 为空。 */
 function flowEvents(spaceId: string, workItemId: string, events: (FlowEvent | StatusEvent)[]): NewEvent[] {
-  return events.map(({ type, ...payload }) => ({
+  // 节点事件改字段的要求由共享逻辑写进字段，字段改动另外记，这里不重复
+  return events.filter((e) => e.type !== "fieldAssigned").map(({ type, ...payload }) => ({
     spaceId,
     workItemId,
     kind: type,
@@ -170,6 +175,26 @@ export const serverMutators = defineMutators(mutators, {
           payload: { ...c },
           actor: ctx.userID,
         })),
+        ...flowEvents(spaceId, args.workItemId, events),
+      ]);
+    }),
+    press: defineMutator(pressButtonArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, events, fieldChanges } = await pressButton(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        ...fieldChanges.map((c) => ({
+          spaceId,
+          workItemId: args.workItemId,
+          kind: "fieldChanged",
+          payload: { ...c },
+          actor: ctx.userID,
+        })),
+        ...flowEvents(spaceId, args.workItemId, events),
+      ]);
+    }),
+    upgrade: defineMutator(upgradeArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, events, from, to } = await upgradeWorkItem(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        { spaceId, workItemId: args.workItemId, kind: "templateUpgraded", payload: { from, to }, actor: ctx.userID },
         ...flowEvents(spaceId, args.workItemId, events),
       ]);
     }),

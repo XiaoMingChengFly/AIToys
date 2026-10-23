@@ -34,6 +34,10 @@ import {
   setRoleMembers,
   setRolePresence,
   setRolePresenceArgs,
+  pressButton,
+  pressButtonArgs,
+  upgradeArgs,
+  upgradeWorkItem,
 } from "./flow.ts";
 import { recomputeFormulas, recomputeParentFormulas } from "./formulas.ts";
 import {
@@ -256,6 +260,12 @@ export const mutators = defineMutators({
     }),
     completeBySubItems: defineMutator(nodeActionArgs, async ({ tx, args, ctx }) => {
       await completeBySubItems(tx, args, ctx.userID);
+    }),
+    press: defineMutator(pressButtonArgs, async ({ tx, args, ctx }) => {
+      await pressButton(tx, args, ctx.userID);
+    }),
+    upgrade: defineMutator(upgradeArgs, async ({ tx, args, ctx }) => {
+      await upgradeWorkItem(tx, args, ctx.userID);
     }),
   },
   task: {

@@ -17,6 +17,67 @@ export interface NodeFormField {
   required?: boolean;
 }
 
+/** 完成结论的一个选项，如「已通过」「未通过」「有条件通过」。 */
+export interface ConclusionOption {
+  value: string;
+  label: string;
+  /** 算不算通过：节点在流程图上按它显示「已通过 / 未通过」，流转条件也可以判断。 */
+  passed?: boolean;
+}
+
+/** 节点的完成结论与意见。 */
+export interface NodeConclusion {
+  options: ConclusionOption[];
+  /** 每位负责人各填各的（会签时常用），整体结论按 aggregate 汇总；否则只填一个整体结论。 */
+  perOwner?: boolean;
+  /** 个人结论怎么汇总：majority 少数服从多数（平票取靠前的选项），veto 一票否决（有人选了不通过的就不通过）。 */
+  aggregate?: "majority" | "veto";
+  /** 完成时必须选结论。 */
+  required?: boolean;
+  /** 完成时必须写意见。 */
+  commentRequired?: boolean;
+}
+
+/** 节点上的自定义按钮。 */
+export interface NodeButton {
+  key: string;
+  label: string;
+  style?: "primary" | "default" | "warning";
+  /** complete：完成节点（可带结论）；assign：只改字段值，不完成节点。 */
+  action: "complete" | "assign";
+  /** 按下时记下的完成结论。 */
+  conclusion?: string;
+  /** 按下时写入的字段值。 */
+  assignments?: { field: string; value: string | number | boolean | string[] | null }[];
+  /** 只有这些角色能按；为空时节点负责人能按。 */
+  roles?: string[];
+}
+
+/** 节点自己的字段（不是工作项字段），值记在节点实例上。 */
+export interface NodeFieldDefinition {
+  key: string;
+  name: string;
+  dataType: "text" | "number" | "date" | "select" | "multiSelect";
+  options?: { value: string; label: string }[];
+  /** 完成节点前必须填。 */
+  required?: boolean;
+}
+
+/** 节点到达或完成时触发的动作。 */
+export type NodeEventAction =
+  /** 改工作项状态（阶段）；onlyFrom 不为空时，只有当前状态在其中才改。 */
+  | { kind: "setStage"; stage: string; onlyFrom?: string[] }
+  /** 改工作项字段的值。 */
+  | { kind: "setField"; field: string; value: string | number | boolean | string[] | null };
+
+/** 相对排期：节点的计划结束日按某个日期字段推算（如从上市日倒推）。 */
+export interface RelativeSchedule {
+  /** 作为基准的日期字段。 */
+  field: string;
+  /** 相对基准偏移的工作日，负数是往前推。 */
+  offset: number;
+}
+
 export interface NodeDefinition {
   key: string;
   name: string;
@@ -36,6 +97,18 @@ export interface NodeDefinition {
   stageOnArrival?: string;
   /** 预估工期（工作日）。不填时需要人确认的节点按 1 天，自动节点按 0 天（里程碑）。 */
   duration?: number;
+  /** 里程碑：只有截止日期，不占工期。 */
+  milestone?: boolean;
+  /** 限制节点：只有空间管理员能完成、回滚。 */
+  restricted?: boolean;
+  conclusion?: NodeConclusion;
+  buttons?: NodeButton[];
+  fields?: NodeFieldDefinition[];
+  /** 节点到达时触发。 */
+  onArrive?: NodeEventAction[];
+  /** 节点完成时触发。 */
+  onComplete?: NodeEventAction[];
+  schedule?: RelativeSchedule;
   /** 编辑器里的画布坐标。引擎不使用；没有时按层级自动布局。 */
   position?: { x: number; y: number };
 }
@@ -51,6 +124,12 @@ export interface FlowDefinition {
   version: number;
   nodes: NodeDefinition[];
   edges: EdgeDefinition[];
+  /**
+   * 状态计算规则：从上到下第一个满足的条件组决定工作项状态（阶段），都不满足时按节点事件。
+   * 条件可以用字段，也可以用节点状态：字段键写成 `$node.节点键`，值是 notStarted / inProgress / completed / skipped，
+   * 结论写成 `$conclusion.节点键`。
+   */
+  stageRules?: { when: Condition; stage: string }[];
 }
 
 /** 流程图的只读索引：按键查节点、前序、后续、末端节点。 */

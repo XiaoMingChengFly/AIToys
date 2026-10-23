@@ -196,6 +196,12 @@ const detailLayoutSchema = z.object({
   labelPosition: z.enum(["side", "top"]).optional(),
 });
 
+const fieldValueInput = z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()]);
+const nodeEventAction = z.union([
+  z.object({ kind: z.literal("setStage"), stage: z.string().trim().min(1), onlyFrom: z.array(z.string()).optional() }),
+  z.object({ kind: z.literal("setField"), field: z.string(), value: fieldValueInput }),
+]);
+
 export const flowDefinitionSchema = z.object({
   key: z.string(),
   version: z.number().int(),
@@ -213,9 +219,56 @@ export const flowDefinitionSchema = z.object({
       tasks: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
       duration: z.number().int().min(0).max(999).optional(),
       position: z.object({ x: z.number(), y: z.number() }).optional(),
+      milestone: z.boolean().optional(),
+      restricted: z.boolean().optional(),
+      conclusion: z
+        .object({
+          options: z
+            .array(z.object({ value: z.string().min(1), label: z.string().min(1), passed: z.boolean().optional() }))
+            .min(1)
+            .max(20),
+          perOwner: z.boolean().optional(),
+          aggregate: z.enum(["majority", "veto"]).optional(),
+          required: z.boolean().optional(),
+          commentRequired: z.boolean().optional(),
+        })
+        .optional(),
+      buttons: z
+        .array(
+          z.object({
+            key: z.string().min(1),
+            label: z.string().trim().min(1).max(20),
+            style: z.enum(["primary", "default", "warning"]).optional(),
+            action: z.enum(["complete", "assign"]),
+            conclusion: z.string().optional(),
+            assignments: z.array(z.object({ field: z.string(), value: fieldValueInput })).max(20).optional(),
+            roles: z.array(z.string()).optional(),
+          }),
+        )
+        .max(10)
+        .optional(),
+      fields: z
+        .array(
+          z.object({
+            key: z.string().min(1),
+            name: z.string().trim().min(1).max(40),
+            dataType: z.enum(["text", "number", "date", "select", "multiSelect"]),
+            options: z.array(z.object({ value: z.string().min(1), label: z.string().min(1) })).optional(),
+            required: z.boolean().optional(),
+          }),
+        )
+        .max(50)
+        .optional(),
+      onArrive: z.array(nodeEventAction).max(20).optional(),
+      onComplete: z.array(nodeEventAction).max(20).optional(),
+      schedule: z.object({ field: z.string(), offset: z.number().int().min(-999).max(999) }).optional(),
     }),
   ),
   edges: z.array(z.object({ from: z.string(), to: z.string() })),
+  stageRules: z
+    .array(z.object({ when: condition, stage: z.string().trim().min(1) }))
+    .max(50)
+    .optional(),
 });
 
 export const statusFlowDefinitionSchema = z.object({
@@ -608,7 +661,29 @@ export function checkReferences(
         if (!fields.has(field)) errors.push(`节点「${node.name}」的条件用到的字段「${field}」不存在。`);
     for (const { field } of node.form ?? [])
       if (!fields.has(field)) errors.push(`节点「${node.name}」的完成表单用到的字段「${field}」不存在。`);
+    const assigned = [
+      ...(node.buttons ?? []).flatMap((b) => (b.assignments ?? []).map((a) => a.field)),
+      ...[...(node.onArrive ?? []), ...(node.onComplete ?? [])].flatMap((a) => (a.kind === "setField" ? [a.field] : [])),
+    ];
+    for (const field of assigned)
+      if (!fields.has(field)) errors.push(`节点「${node.name}」要改的字段「${field}」不存在。`);
+    if (node.schedule && !fields.has(node.schedule.field))
+      errors.push(`节点「${node.name}」相对排期的基准字段「${node.schedule.field}」不存在。`);
+    for (const b of node.buttons ?? []) {
+      for (const role of b.roles ?? [])
+        if (!roles.has(role)) errors.push(`节点「${node.name}」按钮「${b.label}」的角色「${role}」不存在。`);
+      if (b.conclusion && !node.conclusion?.options.some((o) => o.value === b.conclusion))
+        errors.push(`节点「${node.name}」按钮「${b.label}」的结论不在结论选项里。`);
+    }
   }
+  // 状态计算规则可以用节点状态（$node.键）和结论（$conclusion.键），其余要是字段
+  const nodeKeys = new Set(definition.nodes.map((n) => n.key));
+  for (const rule of definition.stageRules ?? [])
+    for (const field of fieldsOf(rule.when)) {
+      const [prefix, key] = field.startsWith("$") ? field.split(".", 2) : [null, null];
+      if (prefix ? !nodeKeys.has(key ?? "") : !fields.has(field))
+        errors.push(`状态计算规则用到的「${field}」不存在。`);
+    }
   return errors;
 }
 

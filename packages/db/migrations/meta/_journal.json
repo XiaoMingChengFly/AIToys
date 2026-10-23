@@ -134,6 +134,13 @@
       "when": 1792678278371,
       "tag": "0018_roles_business_lines",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792722799362,
+      "tag": "0019_node_conclusions",
+      "breakpoints": true
     }
   ]
 }

@@ -156,6 +156,7 @@ export async function createWorkItem(
               { start: null, end: null, pinned: false, actualEnd: n.state === "completed" ? today : null },
             ]),
           ),
+          fields,
         )
       : {};
 
@@ -215,8 +216,13 @@ export async function createWorkItem(
 
   await syncFieldAccess(tx, args.id);
   const events: FlowEvent[] = [...(flow?.events ?? [])];
+  // 开始时就到达或完成的节点上的事件可能要改字段：写进去，再重算流程
+  const assigned = events.filter((e) => e.type === "fieldAssigned");
+  for (const e of assigned)
+    if (e.type === "fieldAssigned")
+      await writeFieldValue(tx, { id: args.id, typeId: args.typeId, spaceId: type.spaceId }, e.field, e.value);
   // 公式在服务端算；算出的值可能让流程的出现条件、自动节点有变化
-  if ((await recomputeFormulas(tx, args.id)).length > 0 && definition)
+  if (((await recomputeFormulas(tx, args.id)).length > 0 || assigned.length > 0) && definition)
     events.push(...(await recomputeFlow(tx, args.id, userID)));
   return { spaceId: type.spaceId, flowVersionId, events };
 }

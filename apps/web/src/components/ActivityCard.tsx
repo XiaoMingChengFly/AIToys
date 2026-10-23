@@ -47,6 +47,8 @@ export function describeEvent(kind: string, p: Payload, ctx: ActivityContext): s
       return `回滚到${node()}`;
     case "stageChanged":
       return `阶段变为「${str(p.to)}」`;
+    case "templateUpgraded":
+      return "把流程升级到了模板的最新版本";
     case "statusChanged":
       return `把状态从「${ctx.statusName(str(p.from))}」改为「${ctx.statusName(str(p.to))}」`;
     case "nodePlanChanged": {

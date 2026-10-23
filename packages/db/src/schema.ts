@@ -529,6 +529,13 @@ export const nodeInstance = pgTable(
     actualEnd: timestamp("actual_end", { withTimezone: true, mode: "date" }),
     /** 计划日期被人手动改过，排期重算时不覆盖。 */
     plannedPinned: boolean("planned_pinned").notNull().default(false),
+    /** 整体完成结论（结论选项值）和意见。 */
+    conclusion: text("conclusion"),
+    comment: text("comment"),
+    /** 每位负责人的个人结论和意见：用户 id → { value, comment }。 */
+    verdicts: jsonb("verdicts").$type<Record<string, { value: string | null; comment?: string | null }>>(),
+    /** 节点字段的值：节点字段键 → 值。 */
+    fields: jsonb("fields").$type<Record<string, unknown>>(),
     updatedAt: updatedAt(),
   },
   (t) => [uniqueIndex("node_instance_work_item_node").on(t.workItemId, t.nodeKey)],
