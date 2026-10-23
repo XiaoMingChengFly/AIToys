@@ -404,6 +404,9 @@ function CreateWorkItemForm({
   const zero = useZero();
   const navigate = useNavigate();
   const [name, setName] = useState("");
+  // 一个类型有多套已发布的流程（如 OEM、ODM、包装变更）时，新建时选用哪套
+  const flows = type.flowTemplates.filter((t) => t.currentVersionId);
+  const [templateId, setTemplateId] = useState(flows[0]?.id ?? "");
   // 用户动过的字段；没动过的字段按默认值规则补上（条件默认值随别的字段变化）
   const [touched, setTouched] = useState<Record<string, FieldInputValue>>({});
   const [error, setError] = useState<string | null>(null);
@@ -455,6 +458,7 @@ function CreateWorkItemForm({
         id,
         typeId: type.id,
         name: name.trim(),
+        ...(templateId && { flowTemplateId: templateId }),
         fields: values as never,
         roles: assigned,
         roleOverrides: overrides,
@@ -467,6 +471,17 @@ function CreateWorkItemForm({
   return (
     <form className="flex flex-col gap-4" onSubmit={create}>
       {error && <ErrorBanner>{error}</ErrorBanner>}
+      {flows.length > 1 && (
+        <Field label="流程类型">
+          <Select value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+            {flows.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
       <Field label={`${type.name}名称`}>
         <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
       </Field>

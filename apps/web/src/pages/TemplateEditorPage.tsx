@@ -26,6 +26,7 @@ import { ChevronRight, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
 import { ConditionEditor } from "@/components/ConditionEditor";
+import { flowConditionFields, NodeAdvancedEditor, StageRulesEditor } from "@/components/NodeAdvancedEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -89,12 +90,18 @@ function toEdge({ from, to }: { from: string; to: string }): Edge {
   };
 }
 
-function toDefinition(base: FlowDefinition, nodes: EditorNode[], edges: Edge[]): FlowDefinition {
+function toDefinition(
+  base: FlowDefinition,
+  nodes: EditorNode[],
+  edges: Edge[],
+  stageRules: NonNullable<FlowDefinition["stageRules"]>,
+): FlowDefinition {
   return {
     key: base.key,
     version: base.version,
     nodes: nodes.map((n) => ({ ...n.data, position: { x: Math.round(n.position.x), y: Math.round(n.position.y) } })),
     edges: edges.map((e) => ({ from: e.source, to: e.target })),
+    ...(stageRules.length > 0 && { stageRules }),
   };
 }
 
@@ -106,10 +113,11 @@ function Editor({ template, type }: { template: Template; type: TypeConfig }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<EditorNode>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
   const [dirty, setDirty] = useState(false);
+  const [stageRules, setStageRules] = useState(base.stageRules ?? []);
   const [message, setMessage] = useState<{ kind: "error" | "info"; text: string } | null>(null);
 
   const isAdmin = type.space?.members.some((m) => m.role === "admin") ?? false;
-  const definition = toDefinition(base, nodes, edges);
+  const definition = toDefinition(base, nodes, edges, stageRules);
   const validation = validateFlow(definition);
   const errors = [
     ...validation.errors,
@@ -311,6 +319,23 @@ function Editor({ template, type }: { template: Template; type: TypeConfig }) {
 
           <Card>
             <CardHeader>
+              <CardTitle>状态计算规则</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StageRulesEditor
+                value={stageRules}
+                conditionFields={flowConditionFields(definition, type.fields)}
+                readOnly={!isAdmin}
+                onChange={(next) => {
+                  setStageRules(next);
+                  setDirty(true);
+                }}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>检查</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-1 text-sm">
@@ -474,6 +499,7 @@ function NodePanel({
           />
           <FormEditor value={data.form ?? []} fields={type.fields} onChange={(form) => onChange({ form })} />
           <TasksEditor value={data.tasks ?? []} onChange={(tasks) => onChange({ tasks })} />
+          <NodeAdvancedEditor data={data} fields={type.fields} roles={type.roles} onChange={onChange} />
           <div className="flex items-center justify-between">
             <span className="text-xs text-fg-subtle">键：{data.key}</span>
             <Button variant="ghost" size="sm" className="text-danger-600" onClick={onDelete}>

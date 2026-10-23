@@ -27,13 +27,13 @@ import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
 import { Background, Controls, type Edge, MarkerType, type Node, Position, ReactFlow } from "@xyflow/react";
-import { Check, ChevronRight, CircleCheck, CircleDashed, CircleDot, Undo2 } from "lucide-react";
+import { Check, ChevronRight, CircleCheck, CircleDashed, CircleDot, Diamond, Undo2 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { ActivityCard } from "@/components/ActivityCard";
 import { useActiveSpace } from "@/components/AppShell";
 import { AttachmentsCard } from "@/components/AttachmentsCard";
 import { CommentsCard } from "@/components/CommentsCard";
-import { CompleteNodeDialog } from "@/components/CompleteNodeDialog";
+import { CompleteNodeDialog, needsCompletionDialog } from "@/components/CompleteNodeDialog";
 import { FieldInput, type FieldInputValue, FieldLabel, type FieldMember } from "@/components/FieldInput";
 import { GanttChart } from "@/components/GanttChart";
 import { NodeTasks } from "@/components/NodeTasks";
@@ -153,10 +153,23 @@ export function WorkItemView({ itemId }: { itemId: string }) {
       }),
     );
   const canPlan = canOperate;
+  // 有完成表单、完成结论或节点字段的节点先弹窗填写
   const confirm = (nodeKey: string) =>
-    graph?.node(nodeKey).form?.length
+    graph && needsCompletionDialog(graph.node(nodeKey))
       ? setCompleting(nodeKey)
       : run(mutators.node.confirm({ workItemId: item.id, nodeKey }));
+  const press = (nodeKey: string, buttonKey: string) =>
+    run(mutators.node.press({ workItemId: item.id, nodeKey, buttonKey }));
+  /** 节点的结论显示名。 */
+  const conclusionLabel = (nodeKey: string) => {
+    const value = states.get(nodeKey)?.conclusion;
+    return value ? (graph?.node(nodeKey).conclusion?.options.find((o) => o.value === value)?.label ?? value) : null;
+  };
+  // 模板有了新版本时可以升级（工作项负责人和空间管理员）
+  const template = space?.workItemTypes
+    .flatMap((t) => t.flowTemplates)
+    .find((t) => t.id === item.flowVersion?.templateId);
+  const canUpgrade = !!graph && !!template?.currentVersionId && template.currentVersionId !== item.flowVersionId;
   const rollback = (nodeKey: string) => run(mutators.node.rollback({ workItemId: item.id, nodeKey }));
 
   const members = space?.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId })) ?? [];
@@ -359,6 +372,11 @@ export function WorkItemView({ itemId }: { itemId: string }) {
         <div className="flex min-h-8 items-center gap-2.5">
           <h1 className="truncate text-xl font-semibold">{item.name}</h1>
           <StatusTag status={item.status} />
+          {canUpgrade && canWrite && (
+            <Button size="sm" variant="outline" onClick={() => run(mutators.node.upgrade({ workItemId: item.id }))}>
+              升级到模板最新版本
+            </Button>
+          )}
           {item.stage && <StageTag stage={item.stage} />}
           <span className="ml-auto text-xs text-fg-subtle">
             创建于 {formatTime(item.createdAt)} · 更新于 {formatTime(item.updatedAt)}
@@ -472,11 +490,25 @@ export function WorkItemView({ itemId }: { itemId: string }) {
                           />
                         )}
                         {nodeTasks(node.key, node.name, false)}
-                        {canConfirm && (
-                          <div>
-                            <Button size="sm" onClick={() => confirm(node.key)}>
-                              {bySubItems ? "手动完成" : "确认完成"}
-                            </Button>
+                        {(canConfirm || (node.buttons?.length && canWrite)) && (
+                          <div className="flex flex-wrap gap-2">
+                            {canConfirm && (
+                              <Button size="sm" onClick={() => confirm(node.key)}>
+                                {bySubItems ? "手动完成" : "确认完成"}
+                              </Button>
+                            )}
+                            {node.buttons?.map((b) => (
+                              <Button
+                                key={b.key}
+                                size="sm"
+                                variant={
+                                  b.style === "primary" ? "default" : b.style === "warning" ? "danger" : "outline"
+                                }
+                                onClick={() => press(node.key, b.key)}
+                              >
+                                {b.label}
+                              </Button>
+                            ))}
                           </div>
                         )}
                       </section>
@@ -498,7 +530,28 @@ export function WorkItemView({ itemId }: { itemId: string }) {
                   <div className="flex items-center gap-2">
                     <span className="text-fg-muted">状态：</span>
                     <NodeStateTag state={states.get(selectedNode.key)?.state ?? "notStarted"} />
+                    {selectedNode.milestone && <Tag tone="violet">里程碑</Tag>}
                   </div>
+                  {conclusionLabel(selectedNode.key) && (
+                    <div className="flex flex-col gap-1">
+                      <span>
+                        <span className="text-fg-muted">完成结论：</span>
+                        {conclusionLabel(selectedNode.key)}
+                      </span>
+                      {states.get(selectedNode.key)?.comment && (
+                        <span className="text-fg-muted">意见：{states.get(selectedNode.key)?.comment}</span>
+                      )}
+                    </div>
+                  )}
+                  {(selectedNode.fields ?? []).map((f) => {
+                    const v = states.get(selectedNode.key)?.fields?.[f.key];
+                    return (
+                      <span key={f.key}>
+                        <span className="text-fg-muted">{f.name}：</span>
+                        {v === null || v === undefined || v === "" ? "—" : Array.isArray(v) ? v.join("、") : String(v)}
+                      </span>
+                    );
+                  })}
                   {selectedNode.completion === "subItemDriven" &&
                     states.get(selectedNode.key)?.state !== "inProgress" && (
                       <SubItems
@@ -594,6 +647,7 @@ export function WorkItemView({ itemId }: { itemId: string }) {
           node={completingNode}
           fields={item.type?.fields ?? []}
           values={new Map(item.fieldValues.map((f) => [f.fieldKey, f.value]))}
+          nodeValues={states.get(completingNode.key)?.fields ?? {}}
           members={members}
           open
           onOpenChange={(open) => !open && setCompleting(null)}
@@ -969,7 +1023,7 @@ function Diagram({
   onSelect,
 }: {
   graph: FlowGraph;
-  states: Map<string, { state: NodeState | null }>;
+  states: Map<string, { state: NodeState | null; conclusion?: string | null }>;
   selected: string | null;
   onSelect: (nodeKey: string) => void;
 }) {
@@ -991,8 +1045,20 @@ function Diagram({
       data: {
         label: (
           <div className="flex items-center gap-2 text-left" title={`${n.name}（${STATE_LABEL[state]}）`}>
-            {STATE_ICON[state]}
+            {n.milestone ? <Diamond className="size-4 shrink-0 text-violet-600" /> : STATE_ICON[state]}
             <span className={cn("min-w-0 flex-1 truncate", state === "skipped" && "line-through")}>{n.name}</span>
+            {(() => {
+              // 有完成结论的已完成节点，显示结论（已通过 / 未通过）
+              const value = states.get(n.key)?.conclusion;
+              const option = value ? n.conclusion?.options.find((o) => o.value === value) : undefined;
+              return option ? (
+                <span
+                  className={cn("shrink-0 text-xs", option.passed === false ? "text-danger-600" : "text-success-600")}
+                >
+                  {option.label}
+                </span>
+              ) : null;
+            })()}
             <span className="sr-only">{STATE_LABEL[state]}</span>
           </div>
         ),
