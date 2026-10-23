@@ -24,6 +24,8 @@ interface View {
   name: string;
   filter: WorkItemFilterArgs;
   createdBy: string;
+  /** 列表的显示设置（列、排序、分组、着色）。 */
+  display?: unknown;
 }
 
 /** 是否和当前筛选条件相同（按有值的条件比较）。 */
@@ -48,6 +50,8 @@ export function FilterBar({
   views,
   isAdmin,
   actions,
+  display,
+  onView,
 }: {
   spaceId: string;
   filter: WorkItemFilterArgs;
@@ -59,6 +63,10 @@ export function FilterBar({
   isAdmin: boolean;
   /** 视图页签右边的操作，如切换列表和甘特图。 */
   actions?: ReactNode;
+  /** 当前列表的显示设置，保存视图时一起存。 */
+  display?: unknown;
+  /** 选中一个视图（除了筛选，还要套用它的显示设置）。 */
+  onView?: (view: View) => void;
 }) {
   const zero = useZero();
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +113,13 @@ export function FilterBar({
     event.preventDefault();
     const form = event.currentTarget;
     const name = String(new FormData(form).get("name") ?? "").trim();
-    if (name && (await run(mutators.view.create({ id: newId(), spaceId, name, filter })))) form.reset();
+    if (
+      name &&
+      (await run(
+        mutators.view.create({ id: newId(), spaceId, name, filter, ...(display ? { display: display as never } : {}) }),
+      ))
+    )
+      form.reset();
   }
 
   const tab = (active: boolean) =>
@@ -129,7 +143,10 @@ export function FilterBar({
                   type="button"
                   role="tab"
                   aria-selected={active}
-                  onClick={() => onChange(view.filter)}
+                  onClick={() => {
+                    onChange(view.filter);
+                    onView?.(view);
+                  }}
                   className="cursor-pointer"
                 >
                   {view.name}

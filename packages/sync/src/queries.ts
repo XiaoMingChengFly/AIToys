@@ -10,6 +10,10 @@ import { workItemFilter } from "./views.ts";
  */
 
 const spaceItemsArgs = z.object({ spaceId: z.string(), filter: workItemFilter.optional() });
+/** 列表页的页签：全部、最近浏览、我创建的、我参与的、我关注的、我收藏的。 */
+const listArgs = spaceItemsArgs.extend({
+  tab: z.enum(["all", "recent", "created", "involved", "followed", "starred"]).default("all"),
+});
 
 /** 范围筛选的边界：数字原样；日期（YYYY-MM-DD）换成检索列里的天数。 */
 function rangeBound(value: number | string | undefined): number | null {
@@ -211,6 +215,28 @@ export const queries = defineQueries({
         .related("nodes", (n) => n.related("confirmations"))
         .orderBy("createdAt", "asc"),
     ),
+    /**
+     * 列表页：工作项连同列里要显示的东西（字段值、角色成员、节点负责人、自己的关注收藏和浏览记录）。
+     * 页签：我参与的 = 担任任一角色或是节点负责人（负责人从角色来，按角色算）。
+     */
+    list: defineQuery(listArgs, ({ args, ctx }) => {
+      let q = spaceItems(args, ctx.userID);
+      const me = ctx.userID;
+      if (args.tab === "created") q = q.where("createdBy", me);
+      if (args.tab === "involved") q = q.whereExists("roleMembers", (r) => r.where("userId", me));
+      if (args.tab === "followed") q = q.whereExists("marks", (m) => m.where("userId", me).where("kind", "follow"));
+      if (args.tab === "starred") q = q.whereExists("marks", (m) => m.where("userId", me).where("kind", "star"));
+      if (args.tab === "recent") q = q.whereExists("visits", (v) => v.where("userId", me));
+      return q
+        .related("type")
+        .related("flowVersion")
+        .related("fieldValues", visibleFieldValues(me))
+        .related("roleMembers")
+        .related("nodes")
+        .related("marks", (m) => m.where("userId", me))
+        .related("visits", (v) => v.where("userId", me))
+        .orderBy("createdAt", "desc");
+    }),
     byId: defineQuery(z.object({ id: z.string() }), ({ args, ctx }) =>
       zql.workItem
         .where("id", args.id)
@@ -235,6 +261,7 @@ export const queries = defineQueries({
         .related("attachments", (a) => a.related("uploader").orderBy("createdAt", "asc"))
         // 节点子任务；确认节点时乐观执行也要数没完成的子任务
         .related("tasks", (t) => t.orderBy("createdAt", "asc").orderBy("id", "asc"))
+        .related("marks", (m) => m.where("userId", ctx.userID))
         // 子工作项、上级工作项和自定义关联（两个方向）
         .related("outgoing", (r) => r.related("to").related("def"))
         .related("incoming", (r) => r.related("from").related("def"))

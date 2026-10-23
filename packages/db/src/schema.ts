@@ -374,6 +374,16 @@ export type FieldFilter =
   | { field: string; op: "contains"; text: string };
 
 /** 保存下来的工作项视图：空间成员都能看到和使用。 */
+/** 列表视图的显示设置：列、排序、分组、行着色。 */
+export interface ViewDisplay {
+  /** 显示的列（列键，见前端的列定义）和列宽，按顺序。 */
+  columns?: { key: string; width?: number }[];
+  sort?: { key: string; desc?: boolean }[];
+  groupBy?: string | null;
+  /** 行着色：满足条件的行用这个颜色。 */
+  colors?: { when: Condition; color: string }[];
+}
+
 export const savedView = pgTable("saved_view", {
   id: text("id").primaryKey(),
   spaceId: text("space_id")
@@ -381,6 +391,7 @@ export const savedView = pgTable("saved_view", {
     .references(() => space.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   filter: jsonb("filter").$type<WorkItemFilter>().notNull(),
+  display: jsonb("display").$type<ViewDisplay>(),
   createdBy: text("created_by")
     .notNull()
     .references(() => user.id),
@@ -471,6 +482,37 @@ export const fieldViewer = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
   },
   (t) => [primaryKey({ columns: [t.workItemId, t.fieldKey, t.userId] })],
+);
+
+/** 关注、收藏：每人对每个工作项各一条。 */
+export const workItemMark = pgTable(
+  "work_item_mark",
+  {
+    workItemId: text("work_item_id")
+      .notNull()
+      .references(() => workItem.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"follow" | "star">().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.workItemId, t.userId, t.kind] }), index("work_item_mark_user").on(t.userId, t.kind)],
+);
+
+/** 最近浏览：每人对每个工作项只留最后一次。 */
+export const workItemVisit = pgTable(
+  "work_item_visit",
+  {
+    workItemId: text("work_item_id")
+      .notNull()
+      .references(() => workItem.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    visitedAt: timestamp("visited_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.workItemId, t.userId] }), index("work_item_visit_user").on(t.userId, t.visitedAt)],
 );
 
 export const roleMember = pgTable(
@@ -821,7 +863,17 @@ export const automationRuleRelations = relations(automationRule, ({ one, many })
   runs: many(automationRun),
 }));
 
+export const workItemMarkRelations = relations(workItemMark, ({ one }) => ({
+  workItem: one(workItem, { fields: [workItemMark.workItemId], references: [workItem.id] }),
+}));
+
+export const workItemVisitRelations = relations(workItemVisit, ({ one }) => ({
+  workItem: one(workItem, { fields: [workItemVisit.workItemId], references: [workItem.id] }),
+}));
+
 export const workItemRelations = relations(workItem, ({ one, many }) => ({
+  marks: many(workItemMark),
+  visits: many(workItemVisit),
   space: one(space, { fields: [workItem.spaceId], references: [space.id] }),
   type: one(workItemType, { fields: [workItem.typeId], references: [workItemType.id] }),
   flowVersion: one(flowVersion, { fields: [workItem.flowVersionId], references: [flowVersion.id] }),

@@ -179,7 +179,8 @@ async function saveFlow(tx: Transaction, flow: LoadedFlow, before: WorkItemState
 
     // 结论、意见、个人结论、节点字段有变化时写回
     for (const key of ["conclusion", "comment", "verdicts", "fields"] as const)
-      if (JSON.stringify(prev?.[key] ?? null) !== JSON.stringify(next[key] ?? null)) patch(nodeKey, { [key]: next[key] ?? null });
+      if (JSON.stringify(prev?.[key] ?? null) !== JSON.stringify(next[key] ?? null))
+        patch(nodeKey, { [key]: next[key] ?? null });
 
     const had = new Set(prev?.confirmations ?? []);
     const has = new Set(next.confirmations);

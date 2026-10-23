@@ -30,6 +30,8 @@ export default drizzleZeroConfig(schema, {
     fieldViewer: true,
     fieldValueItem: true,
     roleMember: true,
+    workItemMark: true,
+    workItemVisit: true,
     relation: true,
     nodeInstance: true,
     nodeConfirmation: true,

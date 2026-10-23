@@ -27,8 +27,8 @@ import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
 import { Background, Controls, type Edge, MarkerType, type Node, Position, ReactFlow } from "@xyflow/react";
-import { Check, ChevronRight, CircleCheck, CircleDashed, CircleDot, Diamond, Undo2 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { Check, ChevronRight, CircleCheck, CircleDashed, CircleDot, Diamond, Eye, Star, Undo2 } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { ActivityCard } from "@/components/ActivityCard";
 import { useActiveSpace } from "@/components/AppShell";
 import { AttachmentsCard } from "@/components/AttachmentsCard";
@@ -100,6 +100,11 @@ export function WorkItemView({ itemId }: { itemId: string }) {
   /** 当前打开的详情页签。 */
   const [tab, setTab] = useState<string | null>(null);
   useActiveSpace(item?.spaceId);
+  // 打开就记一次浏览（列表的「最近浏览」页签用）
+  const loaded = !!item;
+  useEffect(() => {
+    if (loaded) zero.mutate(mutators.mark.visit({ workItemId: itemId }));
+  }, [loaded, itemId, zero]);
 
   if (!item)
     return (
@@ -372,6 +377,23 @@ export function WorkItemView({ itemId }: { itemId: string }) {
         <div className="flex min-h-8 items-center gap-2.5">
           <h1 className="truncate text-xl font-semibold">{item.name}</h1>
           <StatusTag status={item.status} />
+          {(() => {
+            const marked = new Set(item.marks.map((m) => m.kind));
+            const toggle = (kind: "follow" | "star") =>
+              run(mutators.mark.set({ workItemId: item.id, kind, on: !marked.has(kind) }));
+            return (
+              <span className="flex items-center gap-1">
+                <Button size="sm" variant="ghost" aria-pressed={marked.has("follow")} onClick={() => toggle("follow")}>
+                  <Eye />
+                  {marked.has("follow") ? "已关注" : "关注"}
+                </Button>
+                <Button size="sm" variant="ghost" aria-pressed={marked.has("star")} onClick={() => toggle("star")}>
+                  <Star className={marked.has("star") ? "fill-warning-500 text-warning-500" : undefined} />
+                  {marked.has("star") ? "已收藏" : "收藏"}
+                </Button>
+              </span>
+            );
+          })()}
           {canUpgrade && canWrite && (
             <Button size="sm" variant="outline" onClick={() => run(mutators.node.upgrade({ workItemId: item.id }))}>
               升级到模板最新版本

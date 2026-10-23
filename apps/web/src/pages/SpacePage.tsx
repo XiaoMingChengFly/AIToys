@@ -16,9 +16,8 @@ import { mutators, queries, type WorkItemFilterArgs } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { Columns3, GanttChartSquare, List, ListTree, Plus } from "lucide-react";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
 import { Board } from "@/components/Board";
 import { FieldInput, type FieldInputValue, FieldLabel } from "@/components/FieldInput";
@@ -31,53 +30,13 @@ import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/input";
 import { EmptyState, ErrorBanner, PageBody, PageHeader } from "@/components/ui/page";
 import { Segmented } from "@/components/ui/tabs";
-import { StageTag, StatusTag } from "@/components/ui/tag";
+import { type ListDisplay, WorkItemList } from "@/components/WorkItemList";
 import { env } from "@/lib/env";
 import { withLineOptions } from "@/lib/fields";
 import { newId } from "@/lib/utils";
 import { WorkItemView } from "@/pages/WorkItemPage";
 
 const NO_CALENDAR = { holidays: [], extraWorkdays: [] };
-
-interface Row {
-  id: string;
-  name: string;
-  type: string;
-  stage: string | null;
-  status: string;
-  createdAt: number;
-}
-
-function formatTime(ms: number) {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-const column = createColumnHelper<Row>();
-const columns = [
-  column.accessor("name", {
-    header: "名称",
-    cell: (c) => (
-      // 点名称在右侧抽屉里打开，列表留在后面（像飞书项目一样可以连续看）
-      <Link
-        className="font-medium text-fg hover:text-brand-500"
-        from="/spaces/$spaceId"
-        to="."
-        search={(prev) => ({ ...prev, item: c.row.original.id })}
-      >
-        {c.getValue()}
-      </Link>
-    ),
-  }),
-  column.accessor("type", { header: "类型", cell: (c) => <span className="text-fg-muted">{c.getValue()}</span> }),
-  column.accessor("stage", { header: "阶段", cell: (c) => <StageTag stage={c.getValue()} /> }),
-  column.accessor("status", { header: "状态", cell: (c) => <StatusTag status={c.getValue()} /> }),
-  column.accessor("createdAt", {
-    header: "创建时间",
-    cell: (c) => <span className="text-fg-muted tabular-nums">{formatTime(c.getValue())}</span>,
-  }),
-];
 
 type Space = NonNullable<QueryResultType<ReturnType<typeof queries.spaces.byId>>>;
 type ItemType = Space["workItemTypes"][number];
@@ -181,8 +140,24 @@ function WorkItems({
   isAdmin: boolean;
 }) {
   const [filter, setFilter] = useState<WorkItemFilterArgs>(typeId ? { typeIds: [typeId] } : {});
-  const [items, result] = useQuery(queries.workItems.bySpace({ spaceId: space.id, filter }));
   const [view, setView] = useState<"table" | "tree" | "board" | "gantt">("table");
+  // 列表的显示设置（列、排序、分组、着色）：没套用视图时记在本机，下次打开还是这样
+  const displayKey = `flowen.list.${space.id}.${typeId ?? "all"}`;
+  const [display, setDisplayState] = useState<ListDisplay>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(displayKey) ?? "{}") as ListDisplay;
+    } catch {
+      return {};
+    }
+  });
+  const setDisplay = (next: ListDisplay) => {
+    setDisplayState(next);
+    try {
+      localStorage.setItem(displayKey, JSON.stringify(next));
+    } catch {
+      // 本机存不了就只在这次会话里生效
+    }
+  };
   const types = space.workItemTypes.map((t) => ({
     id: t.id,
     name: t.name,
@@ -190,70 +165,58 @@ function WorkItems({
     fields: t.fields,
   }));
 
-  const rows = useMemo<Row[]>(
-    () =>
-      items.map((i) => ({
-        id: i.id,
-        name: i.name,
-        type: i.type?.name ?? "",
-        stage: i.stage ?? null,
-        status: i.status ?? "inProgress",
-        createdAt: i.createdAt ?? 0,
-      })),
-    [items],
-  );
-  const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
-
   return (
-    <div className="flex min-h-0 flex-col rounded-lg border border-line-subtle bg-surface shadow-card">
-      <div className="border-b border-line-subtle px-4 py-3">
-        <FilterBar
-          spaceId={space.id}
-          filter={filter}
-          onChange={setFilter}
-          types={types}
-          members={members.map((m) => ({ id: m.userId, name: m.name }))}
-          views={space.views.map((v) => ({ ...v, filter: v.filter ?? {} }))}
-          isAdmin={isAdmin}
-          actions={
-            <Segmented
-              label="显示方式"
-              value={view}
-              onChange={setView}
-              items={[
-                [
-                  "table",
-                  <>
-                    <List />
-                    列表
-                  </>,
-                ],
-                [
-                  "tree",
-                  <>
-                    <ListTree />
-                    树形
-                  </>,
-                ],
-                [
-                  "board",
-                  <>
-                    <Columns3 />
-                    看板
-                  </>,
-                ],
-                [
-                  "gantt",
-                  <>
-                    <GanttChartSquare />
-                    甘特图
-                  </>,
-                ],
-              ]}
-            />
-          }
-        />
-      </div>
+    <div className="flex min-h-0 flex-col">
+      {view !== "table" && (
+        <div className="mb-3 rounded-lg border border-line-subtle bg-surface px-4 py-3">
+          <FilterBar
+            spaceId={space.id}
+            filter={filter}
+            onChange={setFilter}
+            types={types}
+            members={members.map((m) => ({ id: m.userId, name: m.name }))}
+            views={space.views.map((v) => ({ ...v, filter: v.filter ?? {} }))}
+            isAdmin={isAdmin}
+            actions={
+              <Segmented
+                label="显示方式"
+                value={view}
+                onChange={setView}
+                items={[
+                  [
+                    "table",
+                    <>
+                      <List />
+                      列表
+                    </>,
+                  ],
+                  [
+                    "tree",
+                    <>
+                      <ListTree />
+                      树形
+                    </>,
+                  ],
+                  [
+                    "board",
+                    <>
+                      <Columns3 />
+                      看板
+                    </>,
+                  ],
+                  [
+                    "gantt",
+                    <>
+                      <GanttChartSquare />
+                      甘特图
+                    </>,
+                  ],
+                ]}
+              />
+            }
+          />
+        </div>
+      )}
       {view === "tree" ? (
         <TreeView
           spaceId={space.id}
@@ -279,42 +242,62 @@ function WorkItems({
           />
         </div>
       ) : (
-        <>
-          <table className="w-full text-sm">
-            <thead>
-              {table.getHeaderGroups().map((group) => (
-                <tr key={group.id} className="border-b border-line-subtle bg-canvas/60 text-left">
-                  {group.headers.map((header) => (
-                    <th key={header.id} className="h-9 px-4 text-xs font-normal text-fg-muted">
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                    </th>
-                  ))}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
-              {table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="border-b border-line-subtle last:border-b-0 hover:bg-hover/50">
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="h-11 px-4">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {rows.length === 0 && result.type === "complete" && (
-            <EmptyState
-              title={Object.values(filter).some((v) => v?.length) ? "没有符合条件的工作项" : "还没有工作项"}
-              description={
-                Object.values(filter).some((v) => v?.length)
-                  ? "换个筛选条件试试。"
-                  : "点右上角的“新建”创建第一个工作项。"
+        <WorkItemList
+          space={space}
+          filter={filter}
+          display={display}
+          onDisplay={setDisplay}
+          toolbar={
+            <FilterBar
+              spaceId={space.id}
+              filter={filter}
+              onChange={setFilter}
+              types={types}
+              members={members.map((m) => ({ id: m.userId, name: m.name }))}
+              views={space.views.map((v) => ({ ...v, filter: v.filter ?? {} }))}
+              isAdmin={isAdmin}
+              display={display}
+              onView={(v) => v.display && setDisplay(v.display as ListDisplay)}
+              actions={
+                <Segmented
+                  label="显示方式"
+                  value={view}
+                  onChange={setView}
+                  items={[
+                    [
+                      "table",
+                      <>
+                        <List />
+                        列表
+                      </>,
+                    ],
+                    [
+                      "tree",
+                      <>
+                        <ListTree />
+                        树形
+                      </>,
+                    ],
+                    [
+                      "board",
+                      <>
+                        <Columns3 />
+                        看板
+                      </>,
+                    ],
+                    [
+                      "gantt",
+                      <>
+                        <GanttChartSquare />
+                        甘特图
+                      </>,
+                    ],
+                  ]}
+                />
               }
             />
-          )}
-        </>
+          }
+        />
       )}
     </div>
   );

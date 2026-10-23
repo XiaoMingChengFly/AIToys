@@ -26,6 +26,8 @@ import {
   confirmNode,
   confirmNodeArgs,
   nodeActionArgs,
+  pressButton,
+  pressButtonArgs,
   recomputeFlow,
   rollbackNode,
   setNodePlan,
@@ -34,12 +36,11 @@ import {
   setRoleMembers,
   setRolePresence,
   setRolePresenceArgs,
-  pressButton,
-  pressButtonArgs,
   upgradeArgs,
   upgradeWorkItem,
 } from "./flow.ts";
 import { recomputeFormulas, recomputeParentFormulas } from "./formulas.ts";
+import { markArgs, recordVisit, setMark, visitArgs } from "./marks.ts";
 import {
   addRelation,
   addRelationArgs,
@@ -90,7 +91,7 @@ import {
   updateRole,
   updateRoleArgs,
 } from "./templates.ts";
-import { createView, createViewArgs, deleteView, deleteViewArgs } from "./views.ts";
+import { createView, createViewArgs, deleteView, deleteViewArgs, updateView, updateViewArgs } from "./views.ts";
 import {
   createWebhook,
   createWebhookArgs,
@@ -159,6 +160,10 @@ async function assertNotRequired(
 }
 
 export const mutators = defineMutators({
+  mark: {
+    set: defineMutator(markArgs, ({ tx, args, ctx }) => setMark(tx, args, ctx.userID)),
+    visit: defineMutator(visitArgs, ({ tx, args, ctx }) => recordVisit(tx, args, ctx.userID)),
+  },
   space: {
     /** 新建空间，创建人成为空间管理员。 */
     create: defineMutator(createSpaceArgs, async ({ tx, args, ctx }) => {
@@ -201,6 +206,7 @@ export const mutators = defineMutators({
   },
   view: {
     create: defineMutator(createViewArgs, ({ tx, args, ctx }) => createView(tx, args, ctx.userID)),
+    update: defineMutator(updateViewArgs, ({ tx, args, ctx }) => updateView(tx, args, ctx.userID)),
     delete: defineMutator(deleteViewArgs, ({ tx, args, ctx }) => deleteView(tx, args, ctx.userID)),
   },
   relationDef: {
