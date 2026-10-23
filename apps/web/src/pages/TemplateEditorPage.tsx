@@ -29,6 +29,7 @@ import { ConditionEditor } from "@/components/ConditionEditor";
 import { flowConditionFields, NodeAdvancedEditor, StageRulesEditor } from "@/components/NodeAdvancedEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Tag } from "@/components/ui/tag";
 import { layoutByDepth } from "@/flow-demo/layout";
@@ -427,8 +428,7 @@ function NodePanel({
             <div className="flex flex-wrap gap-x-3 gap-y-1">
               {type.roles.map((r) => (
                 <Label key={r.key} className="flex items-center gap-1.5 font-normal">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={data.ownerRoles.includes(r.key)}
                     onChange={(e) =>
                       onChange({
@@ -452,8 +452,7 @@ function NodePanel({
                 const operators = data.operatorRoles ?? [];
                 return (
                   <Label key={r.key} className="flex items-center gap-1.5 font-normal">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       aria-label={`可操作：${r.name}`}
                       checked={operators.includes(r.key)}
                       onChange={(e) => {
@@ -534,8 +533,7 @@ function FormEditor({
           <div key={item.field} className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate">{field?.name ?? `${item.field}（不存在）`}</span>
             <Label className="flex items-center gap-1 font-normal text-fg-muted">
-              <input
-                type="checkbox"
+              <Checkbox
                 aria-label={`${field?.name ?? item.field}必填`}
                 checked={item.required === true}
                 onChange={(e) =>

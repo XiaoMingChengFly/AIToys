@@ -1062,6 +1062,9 @@ function Diagram({
     return {
       id: n.key,
       position: positions.get(n.key) ?? { x: 0, y: 0 },
+      // 先给出尺寸，节点不用等测量就能显示（页面切换时测量偶尔不触发，节点会一直隐藏）
+      initialWidth: 184,
+      initialHeight: 36,
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
       data: {

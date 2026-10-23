@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createItem, createSpace, openSettings, signUp } from "./helpers";
+import { choose, createItem, createSpace, openSettings, selectByName, signUp } from "./helpers";
 
 test("number, date, multi-select and people fields can be edited and filtered", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -7,12 +7,12 @@ test("number, date, multi-select and people fields can be edited and filtered", 
   await createSpace(page, `字段 ${suffix}`);
   await openSettings(page);
   await page.getByLabel("新类型名称").fill("任务");
-  await page.getByLabel("流程方式").selectOption("state");
+  await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
   await page.getByRole("main").getByRole("link", { name: /^任务/ }).click();
   const addField = async (name: string, type: string, options = "") => {
     await page.getByLabel("新字段名称").fill(name);
-    await page.locator("select[name=dataType]").selectOption(type);
+    await choose(selectByName(page, "dataType"), type);
     await page.locator("input[name=options]").fill(options);
     await page.getByRole("button", { name: "添加字段" }).click();
     await expect(page.getByRole("cell", { name, exact: true })).toBeVisible();
@@ -60,7 +60,7 @@ test("number, date, multi-select and people fields can be edited and filtered", 
   const rows = page.getByRole("main").getByRole("row");
   await expect(rows.filter({ hasText: "写文档" })).toHaveCount(1);
   await page.getByRole("button", { name: "字段筛选" }).click();
-  await page.getByLabel("筛选字段").selectOption("标签");
+  await choose(page.getByLabel("筛选字段"), "标签");
   await page.getByRole("list", { name: "筛选值" }).getByLabel("后端").check();
   await page.getByRole("button", { name: "应用" }).click();
   await expect(page.getByText("标签：后端")).toBeVisible();
@@ -68,7 +68,7 @@ test("number, date, multi-select and people fields can be edited and filtered", 
   await expect(rows.filter({ hasText: "写文档" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "字段筛选" }).click();
-  await page.getByLabel("筛选字段").selectOption("工时");
+  await choose(page.getByLabel("筛选字段"), "工时");
   await page.getByLabel("最小值").fill("10");
   await page.getByRole("button", { name: "应用" }).click();
   await expect(page.getByText("工时 ≥ 10")).toBeVisible();

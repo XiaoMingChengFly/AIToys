@@ -1,20 +1,18 @@
 import { expect, test } from "@playwright/test";
-import { createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
+import { choose, createItem, createSpace, openItems, openSettings, selectByName, signUp } from "./helpers";
 
-test("admins lay out the detail page in tabs and sections, with hints and a separate create page", async ({
-  page,
-}) => {
+test("admins lay out the detail page in tabs and sections, with hints and a separate create page", async ({ page }) => {
   const suffix = `${Date.now()}`;
   await signUp(page, "Pascal", `layout-${suffix}@example.com`);
   await createSpace(page, `布局 ${suffix}`);
   await openSettings(page);
   await page.getByLabel("新类型名称").fill("缺陷");
-  await page.getByLabel("流程方式").selectOption("state");
+  await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
   await page.getByRole("main").getByRole("link", { name: /^缺陷/ }).click();
   for (const name of ["严重程度", "复现步骤", "预计工时", "内部备注"]) {
     await page.getByLabel("新字段名称").fill(name);
-    await page.locator("select[name=dataType]").selectOption("text");
+    await choose(selectByName(page, "dataType"), "text");
     await page.getByRole("button", { name: "添加字段" }).click();
     await expect(page.getByRole("cell", { name, exact: true })).toBeVisible();
   }
@@ -31,15 +29,15 @@ test("admins lay out the detail page in tabs and sections, with hints and a sepa
   await fieldsSection.getByLabel("分组名称").fill("缺陷信息");
   const section = editor.getByRole("region", { name: "分组 缺陷信息" });
   await section.getByRole("button", { name: "上移复现步骤" }).click();
-  await section.getByLabel("添加字段或控件").selectOption("text:");
+  await choose(section.getByLabel("添加字段或控件"), "text:");
   await section.getByLabel("提示文字内容").fill("线上问题请先写复现步骤");
   // 内部备注不显示；新加一个「排期」页签放预计工时
-  await editor.getByLabel("设为不显示").selectOption({ label: "内部备注" });
+  await choose(editor.getByLabel("设为不显示"), { label: "内部备注" });
   await section.getByRole("button", { name: "移除 预计工时" }).click();
   await editor.getByRole("button", { name: "添加页签" }).click();
   const newTab = editor.getByRole("region", { name: /^页签 页签/ });
   await newTab.getByLabel("页签名称").fill("排期");
-  await editor.getByRole("region", { name: "分组 分组 1" }).getByLabel("添加字段或控件").selectOption({
+  await choose(editor.getByRole("region", { name: "分组 分组 1" }).getByLabel("添加字段或控件"), {
     label: "预计工时",
   });
   await editor.getByRole("button", { name: "保存布局" }).click();

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input, Select } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/ui/page";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -181,8 +182,7 @@ export function BusinessLinesCard({
                 onChange={(admins) => update(line.id, { admins })}
               />
               <label className="flex shrink-0 items-center gap-1 text-xs text-fg-muted">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={line.disabled}
                   disabled={!canManage}
                   onChange={(e) => update(line.id, { disabled: e.target.checked })}
@@ -289,8 +289,7 @@ function AdminsPicker({
           const on = value.includes(m.userId);
           return (
             <label key={m.userId} className="flex h-8 cursor-pointer items-center gap-2 rounded px-2 hover:bg-hover">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={on}
                 onChange={() => onChange(on ? value.filter((v) => v !== m.userId) : [...value, m.userId])}
               />

@@ -11,6 +11,7 @@ import { ArrowDown, ArrowUp, Plus, Settings2, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { ConditionEditor, type ConditionField } from "@/components/ConditionEditor";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/tabs";
 import { cn, newId } from "@/lib/utils";
@@ -483,8 +484,7 @@ function SectionEditor({
           <option value="1">一栏</option>
         </Select>
         <label className="flex items-center gap-1.5 text-fg-muted">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={!!section.collapsed}
             onChange={(e) => onChange({ ...section, collapsed: e.target.checked || undefined })}
           />
@@ -589,8 +589,7 @@ function ItemsEditor({
                     <div className="flex flex-wrap gap-4">
                       {!forCreate && (
                         <label className="flex items-center gap-1.5">
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={!!item.createHidden}
                             onChange={(e) => patch(i, { ...item, createHidden: e.target.checked || undefined })}
                           />
@@ -598,8 +597,7 @@ function ItemsEditor({
                         </label>
                       )}
                       <label className="flex items-center gap-1.5">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={!!item.wide}
                           onChange={(e) => patch(i, { ...item, wide: e.target.checked || undefined })}
                         />

@@ -8,6 +8,13 @@
  * 写在 semi 层里、排在主题包之后，同名变量以这里为准。
  */
 @layer semi {
+  /* 勾选框、单选框的原生 input 盖在装饰层上面，点击和测试都落在真正的控件上 */
+  .semi-checkbox-input,
+  .semi-radio-input {
+    z-index: 1;
+    cursor: pointer;
+  }
+
   body {
     --semi-color-primary: #3370ff;
     --semi-color-primary-hover: #4e83fd;

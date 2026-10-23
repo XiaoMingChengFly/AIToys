@@ -1,6 +1,6 @@
 import { dayInTimeZone, dayToIso, WorkCalendar } from "@fp/engine";
 import { expect, test } from "@playwright/test";
-import { createItem, oemSpace, openItems, openSettings } from "./helpers";
+import { choose, createItem, oemSpace, openItems, openSettings } from "./helpers";
 
 test("a holiday in the space calendar re-plans its work items", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -16,7 +16,7 @@ test("a holiday in the space calendar re-plans its work items", async ({ page })
   // 把需求立项提案开始的那天设成假期
   await openSettings(page);
   await page.getByLabel("日历日期").fill(dayToIso(firstDay));
-  await page.getByLabel("这天").selectOption("放假");
+  await choose(page.getByLabel("这天"), "放假");
   await page.getByRole("button", { name: "加入日历" }).click();
   const holidays = page.getByRole("list", { name: "节假日" });
   await expect(holidays).toContainText(dayToIso(firstDay));

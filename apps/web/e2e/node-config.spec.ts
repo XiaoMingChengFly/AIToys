@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
+import { choose, createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
 
 test("a node with a conclusion and a custom button; the next node sets the status when it starts", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -28,7 +28,7 @@ test("a node with a conclusion and a custom button; the next node sets the statu
   await panel.getByText("自定义按钮", { exact: true }).click();
   await panel.getByRole("button", { name: "添加按钮" }).click();
   await panel.getByLabel("按钮名称").fill("通过");
-  await panel.getByLabel("通过 的结论").selectOption({ label: "结论：已通过" });
+  await choose(panel.getByLabel("通过 的结论"), { label: "结论：已通过" });
 
   await page.getByRole("button", { name: "添加节点" }).click();
   await panel.getByLabel("节点名称").fill("上线");

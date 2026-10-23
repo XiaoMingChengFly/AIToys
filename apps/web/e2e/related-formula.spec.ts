@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
+import { choose, createItem, createSpace, openItems, openSettings, selectByName, signUp } from "./helpers";
 
 test("a formula checks whether related work items exist", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -7,16 +7,16 @@ test("a formula checks whether related work items exist", async ({ page }) => {
   await createSpace(page, `跨工作项公式 ${suffix}`);
   await openSettings(page);
   await page.getByLabel("新类型名称").fill("立项");
-  await page.getByLabel("流程方式").selectOption("state");
+  await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
   await page.getByRole("main").getByRole("link", { name: /^立项/ }).click();
 
   await page.getByLabel("新关联名称").fill("关联风险");
-  await page.getByLabel("关联到").selectOption({ label: "立项" });
+  await choose(page.getByLabel("关联到"), { label: "立项" });
   await page.getByRole("button", { name: "添加关联" }).click();
   await expect(page.getByRole("list", { name: "关联列表" })).toContainText("关联风险");
   await page.getByLabel("新字段名称").fill("是否存在关联风险");
-  await page.locator("select[name=dataType]").selectOption("formula");
+  await choose(selectByName(page, "dataType"), "formula");
   await page.getByLabel("公式", { exact: true }).fill('COUNT(RELATED("关联风险")) > 0');
   await page.getByRole("button", { name: "添加字段" }).click();
   await expect(page.getByRole("cell", { name: 'COUNT(RELATED("关联风险")) > 0' })).toBeVisible();
@@ -35,6 +35,6 @@ test("a formula checks whether related work items exist", async ({ page }) => {
   await expect(flag).toHaveValue("否");
 
   const group = page.getByRole("main").getByRole("region", { name: "关联风险" });
-  await group.getByLabel("添加关联风险").selectOption({ label: "包材风险" });
+  await choose(group.getByLabel("添加关联风险"), { label: "包材风险" });
   await expect(flag).toHaveValue("是", { timeout: 15_000 });
 });

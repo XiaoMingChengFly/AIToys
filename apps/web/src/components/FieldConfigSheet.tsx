@@ -18,6 +18,7 @@ import { type ReactNode, useState } from "react";
 import { ConditionEditor, type ConditionField } from "@/components/ConditionEditor";
 import { FieldInput, type FieldInputValue, type FieldMember } from "@/components/FieldInput";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field, Input, Label, Select, Textarea } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/ui/page";
 import { Segmented } from "@/components/ui/tabs";
@@ -409,7 +410,7 @@ function ReadOnly({ label, value }: { label: string; value: string }) {
 function CheckRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex items-center gap-2 text-sm">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <Checkbox checked={checked} onChange={(e) => onChange(e.target.checked)} />
       {label}
     </label>
   );
@@ -542,8 +543,7 @@ function OptionsEditor({
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pl-1 text-xs text-fg-muted">
               <label className="flex items-center gap-1">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={!!o.disabled}
                   onChange={(e) => update(i, { disabled: e.target.checked || undefined })}
                 />
@@ -551,8 +551,7 @@ function OptionsEditor({
               </label>
               {multi && (
                 <label className="flex items-center gap-1">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={exclusive.includes(o.value)}
                     onChange={(e) =>
                       onExclusive(e.target.checked ? [...exclusive, o.value] : exclusive.filter((v) => v !== o.value))
@@ -690,8 +689,7 @@ function NumberFormatEditor({ value, onChange }: { value: NumberFormat; onChange
         </Select>
       </Field>
       <label className="col-span-2 flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={!!value.thousands}
           onChange={(e) => onChange({ ...value, thousands: e.target.checked || undefined })}
         />

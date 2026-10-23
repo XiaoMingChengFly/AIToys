@@ -1,4 +1,4 @@
-import { expect, type Page, request } from "@playwright/test";
+import { expect, type Locator, type Page, request } from "@playwright/test";
 
 export const API_URL = process.env.API_URL ?? "http://localhost:3000";
 export const PASSWORD = "correct-horse-battery";
@@ -27,8 +27,8 @@ export async function signUp(page: Page, name: string, email: string) {
 /** 新建空间并进入它的工作项页。等自己的管理员身份同步下来，否则客户端会先以为自己不是管理员。 */
 export async function createSpace(page: Page, name: string) {
   await page.getByRole("button", { name: "新建空间" }).first().click();
-  await page.getByRole("dialog").getByLabel("空间名称").fill(name);
-  await page.getByRole("dialog").getByRole("button", { name: "创建" }).click();
+  await page.locator("[role=dialog][aria-modal=true]").getByLabel("空间名称").fill(name);
+  await page.locator("[role=dialog][aria-modal=true]").getByRole("button", { name: "创建" }).click();
   await page.getByRole("link", { name }).click();
   await expect(page.getByRole("button", { name: "导入 OEM 模板" })).toBeVisible();
 }
@@ -53,7 +53,7 @@ export async function createItem(
   options: { label?: string; roles?: string[]; before?: (dialog: ReturnType<Page["getByRole"]>) => Promise<void> } = {},
 ) {
   await page.getByRole("button", { name: /^新建/ }).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.locator("[role=dialog][aria-modal=true]");
   await dialog.getByLabel(options.label ?? "项目名称").fill(name);
   if (options.roles?.length) {
     await dialog.getByText("角色和负责人").click();
@@ -91,4 +91,28 @@ export async function openSettings(page: Page) {
 export async function openAutomations(page: Page) {
   await nav(page).getByRole("link", { name: "自动化" }).click();
   await expect(page.getByRole("heading", { name: "自动化" })).toBeVisible();
+}
+
+/**
+ * 在下拉框（Semi Select）里选一项：先点开，再点选项。
+ * 传字符串时按选项的值或文字找，传 { label } 时只按文字找。
+ */
+export async function choose(select: Locator, option: string | { label: string }) {
+  const page = select.page();
+  const combobox = (await select.getAttribute("role")) === "combobox" ? select : select.getByRole("combobox");
+  await combobox.click();
+  const options = page.locator(".semi-select-option:visible");
+  const exact = (text: string) => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+  const target =
+    typeof option === "string"
+      ? options.filter({ has: page.locator(`[data-value="${option}"]`) }).or(options.filter({ hasText: exact(option) }))
+      : options.filter({ hasText: exact(option.label) });
+  await target.first().click();
+  // 等下拉收起，选中值才算落定
+  await expect(options).toHaveCount(0);
+}
+
+/** 按 name 找表单里的下拉框。 */
+export function selectByName(page: Page | Locator, name: string) {
+  return page.locator(`span:has(> input[name="${name}"])`).getByRole("combobox");
 }

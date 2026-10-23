@@ -5,6 +5,7 @@ import { Bookmark, SlidersHorizontal, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 import type { FieldConfig } from "@/components/FieldInput";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input, Select } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn, newId } from "@/lib/utils";
@@ -361,8 +362,7 @@ function FieldFilters({
                 {choices(field).map((c) => (
                   <li key={c.value}>
                     <label className="flex h-7 items-center gap-2">
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={values.includes(c.value)}
                         onChange={(e) =>
                           setValues(e.target.checked ? [...values, c.value] : values.filter((v) => v !== c.value))

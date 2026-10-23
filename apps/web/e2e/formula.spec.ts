@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
+import { choose, createItem, createSpace, openItems, openSettings, selectByName, signUp } from "./helpers";
 
 test("a formula field is computed from other fields and can be edited", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -7,7 +7,7 @@ test("a formula field is computed from other fields and can be edited", async ({
   await createSpace(page, `公式 ${suffix}`);
   await openSettings(page);
   await page.getByLabel("新类型名称").fill("报价单");
-  await page.getByLabel("流程方式").selectOption("state");
+  await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
   await page
     .getByRole("main")
@@ -16,12 +16,12 @@ test("a formula field is computed from other fields and can be edited", async ({
 
   for (const name of ["数量", "单价"]) {
     await page.getByLabel("新字段名称").fill(name);
-    await page.locator("select[name=dataType]").selectOption("number");
+    await choose(selectByName(page, "dataType"), "number");
     await page.getByRole("button", { name: "添加字段" }).click();
     await expect(page.getByRole("cell", { name, exact: true })).toBeVisible();
   }
   await page.getByLabel("新字段名称").fill("总价");
-  await page.locator("select[name=dataType]").selectOption("formula");
+  await choose(selectByName(page, "dataType"), "formula");
   await page.getByLabel("公式", { exact: true }).fill("{数量} * {不存在}");
   await page.getByRole("button", { name: "添加字段" }).click();
   await expect(page.getByText("公式有误：字段「不存在」不存在。")).toBeVisible();

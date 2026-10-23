@@ -16,6 +16,7 @@ import { ConditionEditor } from "@/components/ConditionEditor";
 import { FieldInput } from "@/components/FieldInput";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input, Label, Select } from "@/components/ui/input";
 import { ErrorBanner, PageBody, PageHeader } from "@/components/ui/page";
 import { newId } from "@/lib/utils";
@@ -146,8 +147,7 @@ export function AutomationsPage() {
                   {isAdmin && (
                     <>
                       <label className="flex items-center gap-1.5 text-sm">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={rule.enabled ?? true}
                           onChange={(e) =>
                             run(
@@ -395,8 +395,7 @@ function RuleForm({
                     <div className="flex flex-wrap gap-2 text-sm">
                       {[...members].map(([userId, memberName]) => (
                         <label key={userId} className="flex items-center gap-1">
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={action.userIds.includes(userId)}
                             onChange={(e) =>
                               updateAction(i, {

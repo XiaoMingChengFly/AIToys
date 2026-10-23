@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
+import { choose, createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
 
 test("the space dashboard counts work items by stage, type and week", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -7,7 +7,7 @@ test("the space dashboard counts work items by stage, type and week", async ({ p
   await createSpace(page, `看板 ${suffix}`);
   await openSettings(page);
   await page.getByLabel("新类型名称").fill("缺陷");
-  await page.getByLabel("流程方式").selectOption("state");
+  await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
   await page.getByRole("main").getByRole("link", { name: /^缺陷/ }).click();
   await page.getByLabel("新模板名称").fill("默认");
@@ -34,6 +34,6 @@ test("the space dashboard counts work items by stage, type and week", async ({ p
   await expect(page.getByRole("region", { name: "延期节点 0" })).toContainText("没有延期的节点");
 
   // 按类型筛选
-  await page.getByLabel("工作项类型").selectOption({ label: "缺陷" });
+  await choose(page.getByLabel("工作项类型"), { label: "缺陷" });
   await expect(overview).toContainText("进行中3");
 });

@@ -5,6 +5,7 @@ import { type ReactNode, useState } from "react";
 import { ConditionEditor, type ConditionField } from "@/components/ConditionEditor";
 import type { FieldMember } from "@/components/FieldInput";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field, Input, Label, Select, Textarea } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/ui/page";
 import { Segmented } from "@/components/ui/tabs";
@@ -312,7 +313,7 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex items-center gap-2 text-sm">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <Checkbox checked={checked} onChange={(e) => onChange(e.target.checked)} />
       {label}
     </label>
   );

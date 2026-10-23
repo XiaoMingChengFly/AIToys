@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { addMember, createSpace, openSettings, registerColleague, signUp } from "./helpers";
+import { addMember, choose, createSpace, openSettings, registerColleague, selectByName, signUp } from "./helpers";
 
 test("business lines drive which roles appear and who is assigned by default", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -20,12 +20,12 @@ test("business lines drive which roles appear and who is assigned by default", a
   await expect(page.getByRole("button", { name: "保存业务线" })).toBeDisabled();
 
   await page.getByLabel("新类型名称").fill("立项");
-  await page.getByLabel("流程方式").selectOption("state");
+  await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
   await page.getByRole("main").getByRole("link", { name: /^立项/ }).click();
 
   await page.getByLabel("新字段名称").fill("业务线");
-  await page.locator("select[name=dataType]").selectOption("businessLine");
+  await choose(selectByName(page, "dataType"), "businessLine");
   await page.getByRole("button", { name: "添加字段" }).click();
   for (const name of ["NPD", "风控审核"]) {
     await page.getByLabel("新角色名称").fill(name);
@@ -38,9 +38,9 @@ test("business lines drive which roles appear and who is assigned by default", a
   await page.getByRole("button", { name: "配置角色 NPD" }).click();
   await sheet.getByLabel("限制为单人").check();
   await sheet.getByRole("tablist", { name: "成员分配" }).getByRole("tab", { name: "按条件默认分配" }).click();
-  await sheet.getByLabel("判断", { exact: true }).selectOption("equal");
-  await sheet.getByLabel("值", { exact: true }).selectOption({ label: "KIMTRUE" });
-  await sheet.getByLabel("给条件组 1 的成员加人").selectOption({ label: "Lin" });
+  await choose(sheet.getByLabel("判断", { exact: true }), "equal");
+  await choose(sheet.getByLabel("值", { exact: true }), { label: "KIMTRUE" });
+  await choose(sheet.getByLabel("给条件组 1 的成员加人"), { label: "Lin" });
   await sheet.getByRole("button", { name: "保存" }).click();
   await expect(sheet).toBeHidden();
   await expect(page.getByText("按条件分配（1 组）")).toBeVisible();
@@ -48,8 +48,8 @@ test("business lines drive which roles appear and who is assigned by default", a
   // 风控审核：只有业务线是 ONCUR 时出现
   await page.getByRole("button", { name: "配置角色 风控审核" }).click();
   await sheet.getByRole("tablist", { name: "出现方式" }).getByRole("tab", { name: "满足条件出现" }).click();
-  await sheet.getByLabel("判断", { exact: true }).selectOption("equal");
-  await sheet.getByLabel("值", { exact: true }).selectOption({ label: "ONCUR" });
+  await choose(sheet.getByLabel("判断", { exact: true }), "equal");
+  await choose(sheet.getByLabel("值", { exact: true }), { label: "ONCUR" });
   await sheet.getByRole("button", { name: "保存" }).click();
   await expect(sheet).toBeHidden();
 
@@ -62,7 +62,7 @@ test("business lines drive which roles appear and who is assigned by default", a
   const nav = page.getByRole("navigation", { name: "主导航" });
   await nav.getByRole("link", { name: "立项" }).click();
   await page.getByRole("button", { name: /^新建/ }).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.locator("[role=dialog][aria-modal=true]");
   await dialog.getByLabel("立项名称").fill("且初精华");
   // 选「KIMTRUE / 且初」：Semi 级联选择
   await dialog.getByRole("combobox", { name: "业务线" }).click();

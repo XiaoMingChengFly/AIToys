@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
+import { choose, createItem, createSpace, openItems, openSettings, selectByName, signUp } from "./helpers";
 
 test("a node's tasks and completion form gate its confirm", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -14,7 +14,7 @@ test("a node's tasks and completion form gate its confirm", async ({ page }) => 
   await page.getByLabel("新角色名称").fill("开发");
   await page.getByRole("button", { name: "添加角色" }).click();
   await page.getByLabel("新字段名称").fill("版本号");
-  await page.locator("select[name=dataType]").selectOption("text");
+  await choose(selectByName(page, "dataType"), "text");
   await page.getByRole("button", { name: "添加字段" }).click();
   await expect(page.getByRole("cell", { name: "版本号", exact: true })).toBeVisible();
   await page.getByLabel("新模板名称").fill("默认流程");
@@ -27,7 +27,7 @@ test("a node's tasks and completion form gate its confirm", async ({ page }) => 
   await page.getByRole("button", { name: "添加节点" }).click();
   await editor.getByLabel("节点名称").fill("开发");
   await editor.getByLabel("开发", { exact: true }).check();
-  await editor.getByLabel("添加表单字段").selectOption("版本号");
+  await choose(editor.getByLabel("添加表单字段"), "版本号");
   await expect(editor.getByLabel("版本号必填")).toBeChecked();
   await editor.getByLabel("预置子任务名称").fill("自测");
   await editor.getByRole("button", { name: "添加", exact: true }).click();
@@ -52,10 +52,10 @@ test("a node's tasks and completion form gate its confirm", async ({ page }) => 
 
   // 子任务没做完不能确认
   await current.getByRole("button", { name: "确认完成" }).click();
-  await page.getByRole("dialog").getByLabel("版本号").fill("1.0");
-  await page.getByRole("dialog").getByRole("button", { name: "确认完成" }).click();
-  await expect(page.getByRole("dialog").getByRole("alert")).toContainText("还有 2 个子任务没完成");
-  await page.getByRole("dialog").getByRole("button", { name: "取消" }).click();
+  await page.locator("[role=dialog][aria-modal=true]").getByLabel("版本号").fill("1.0");
+  await page.locator("[role=dialog][aria-modal=true]").getByRole("button", { name: "确认完成" }).click();
+  await expect(page.locator("[role=dialog][aria-modal=true]").getByRole("alert")).toContainText("还有 2 个子任务没完成");
+  await page.locator("[role=dialog][aria-modal=true]").getByRole("button", { name: "取消" }).click();
 
   await current.getByLabel("完成子任务：自测").check();
   await current.getByLabel("完成子任务：写文档").check();
@@ -63,9 +63,9 @@ test("a node's tasks and completion form gate its confirm", async ({ page }) => 
 
   // 填完成表单后节点完成，版本号写进字段
   await current.getByRole("button", { name: "确认完成" }).click();
-  await page.getByRole("dialog").getByLabel("版本号").fill("1.0");
-  await page.getByRole("dialog").getByRole("button", { name: "确认完成" }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.locator("[role=dialog][aria-modal=true]").getByLabel("版本号").fill("1.0");
+  await page.locator("[role=dialog][aria-modal=true]").getByRole("button", { name: "确认完成" }).click();
+  await expect(page.locator("[role=dialog][aria-modal=true]")).toHaveCount(0);
   await expect(page.getByText("流程已走完。")).toBeVisible();
   await expect(page.getByRole("main").getByPlaceholder("未填写")).toHaveValue("1.0");
 

@@ -11,6 +11,7 @@ import { Plus, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { ConditionEditor, type ConditionField } from "@/components/ConditionEditor";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input, Select } from "@/components/ui/input";
 import { newId } from "@/lib/utils";
 
@@ -65,7 +66,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex items-center gap-1.5 text-sm">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <Checkbox checked={checked} onChange={(e) => onChange(e.target.checked)} />
       {label}
     </label>
   );
@@ -184,11 +185,7 @@ export function NodeAdvancedEditor({
                       onChange={(e) => set({ label: e.target.value })}
                     />
                     <label className="flex items-center gap-1 text-xs text-fg-muted">
-                      <input
-                        type="checkbox"
-                        checked={o.passed !== false}
-                        onChange={(e) => set({ passed: e.target.checked })}
-                      />
+                      <Checkbox checked={o.passed !== false} onChange={(e) => set({ passed: e.target.checked })} />
                       算通过
                     </label>
                     <button
@@ -535,8 +532,7 @@ function ButtonEditor({
           const on = button.roles?.includes(r.key) ?? false;
           return (
             <label key={r.key} className="flex items-center gap-1">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={on}
                 onChange={(e) => {
                   const next = e.target.checked

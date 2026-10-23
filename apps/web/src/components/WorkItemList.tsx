@@ -339,6 +339,7 @@ function ColumnPicker({
   return (
     <Popover
       trigger="click"
+      motion={false}
       position="bottomRight"
       content={
         <div className="flex max-h-[420px] w-72 flex-col gap-2 p-3">
@@ -415,6 +416,7 @@ function ToolButton({
   return (
     <Popover
       trigger="click"
+      motion={false}
       position="bottomLeft"
       content={<div className="flex w-80 flex-col gap-2 p-3">{children}</div>}
     >
@@ -505,6 +507,7 @@ function GroupButton({
   return (
     <Dropdown
       trigger="click"
+      motion={false}
       position="bottomLeft"
       render={
         <Dropdown.Menu>

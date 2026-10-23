@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createItem, oemSpace, openItems, openSettings } from "./helpers";
+import { choose, createItem, oemSpace, openItems, openSettings } from "./helpers";
 
 test("a sub-item-driven node completes once its sub-items are done", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -35,7 +35,7 @@ test("a sub-item-driven node completes once its sub-items are done", async ({ pa
   await page.getByRole("link", { name: "新品 S" }).click();
 
   // 在需求评审下建子工作项
-  await review.getByLabel("子工作项类型").selectOption({ label: "任务" });
+  await choose(review.getByLabel("子工作项类型"), { label: "任务" });
   await review.getByLabel("子工作项名称").fill("包材打样");
   await review.getByRole("button", { name: "新建" }).click();
   const children = review.getByRole("list", { name: "需求评审的子工作项" });

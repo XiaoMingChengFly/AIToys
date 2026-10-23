@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
+import { choose, createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
 
 test("a status-flow type is configured as statuses and transitions, and items move between them", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -9,7 +9,7 @@ test("a status-flow type is configured as statuses and transitions, and items mo
 
   // 状态流类型，带一个“测试”角色
   await page.getByLabel("新类型名称").fill("缺陷");
-  await page.getByLabel("流程方式").selectOption("state");
+  await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
   await page.getByRole("main").getByRole("link", { name: /^缺陷/ }).click();
   await page.getByLabel("新角色名称").fill("测试");
@@ -23,11 +23,11 @@ test("a status-flow type is configured as statuses and transitions, and items mo
   await page.getByLabel("新状态名称").fill("待验证");
   await page.getByRole("button", { name: "添加状态" }).click();
   await page.getByRole("button", { name: "删除流转处理中 → 已完成" }).click();
-  await page.getByLabel("流转起点").selectOption("处理中");
-  await page.getByLabel("流转终点").selectOption("待验证");
+  await choose(page.getByLabel("流转起点"), "处理中");
+  await choose(page.getByLabel("流转终点"), "待验证");
   await page.getByRole("button", { name: "添加流转" }).click();
-  await page.getByLabel("流转起点").selectOption("待验证");
-  await page.getByLabel("流转终点").selectOption("已完成");
+  await choose(page.getByLabel("流转起点"), "待验证");
+  await choose(page.getByLabel("流转终点"), "已完成");
   await page.getByRole("button", { name: "添加流转" }).click();
   await page.getByRole("button", { name: "待验证 → 已完成：测试" }).click();
   await expect(page.getByRole("button", { name: "待验证 → 已完成：测试" })).toHaveAttribute("aria-pressed", "true");

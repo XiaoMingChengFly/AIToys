@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
+import { choose, createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
 
 test("configure a type from scratch, draw and publish its flow, then create a work item with it", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -46,11 +46,7 @@ test("configure a type from scratch, draw and publish its flow, then create a wo
   await openItems(page);
   await createItem(page, "登录报错", {
     label: "缺陷名称",
-    before: (dialog) =>
-      dialog
-        .getByLabel("需要测试")
-        .selectOption("否")
-        .then(() => {}),
+    before: (dialog) => choose(dialog.getByLabel("需要测试"), "否"),
   });
 
   await expect(panel.getByRole("region", { name: "修复" })).toBeVisible();
