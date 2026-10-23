@@ -1,5 +1,15 @@
 import { expect, test } from "@playwright/test";
-import { choose, createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
+import {
+  choose,
+  closeTypeConfig,
+  createItem,
+  createSpace,
+  openItems,
+  openSettings,
+  openTypeConfig,
+  signUp,
+  typeTab,
+} from "./helpers";
 
 test("a status-flow type is configured as statuses and transitions, and items move between them", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -11,9 +21,11 @@ test("a status-flow type is configured as statuses and transitions, and items mo
   await page.getByLabel("新类型名称").fill("缺陷");
   await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
-  await page.getByRole("main").getByRole("link", { name: /^缺陷/ }).click();
+  await openTypeConfig(page, "缺陷");
+  await typeTab(page, "角色");
   await page.getByLabel("新角色名称").fill("测试");
   await page.getByRole("button", { name: "添加角色" }).click();
+  await typeTab(page, "流程");
   await page.getByLabel("新模板名称").fill("缺陷流程");
   await page.getByRole("button", { name: "新建模板" }).click();
   await page.getByRole("link", { name: "缺陷流程" }).click();
@@ -36,6 +48,7 @@ test("a status-flow type is configured as statuses and transitions, and items mo
   await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
 
   // 新工作项从“待处理”开始，按流转一步步走
+  await closeTypeConfig(page);
   await openItems(page);
   await createItem(page, "登录页报错", { label: "缺陷名称" });
   const panel = page.getByRole("region", { name: "当前状态" });

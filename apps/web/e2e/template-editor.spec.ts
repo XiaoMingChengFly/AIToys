@@ -1,5 +1,15 @@
 import { expect, test } from "@playwright/test";
-import { choose, createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
+import {
+  choose,
+  closeTypeConfig,
+  createItem,
+  createSpace,
+  openItems,
+  openSettings,
+  openTypeConfig,
+  signUp,
+  typeTab,
+} from "./helpers";
 
 test("configure a type from scratch, draw and publish its flow, then create a work item with it", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -10,13 +20,16 @@ test("configure a type from scratch, draw and publish its flow, then create a wo
   // 新建类型，配角色、字段和模板
   await page.getByLabel("新类型名称").fill("缺陷");
   await page.getByRole("button", { name: "新建类型" }).click();
-  await page.getByRole("main").getByRole("link", { name: /^缺陷/ }).click();
+  await openTypeConfig(page, "缺陷");
+  await typeTab(page, "角色");
   await page.getByLabel("新角色名称").fill("开发");
   await page.getByRole("button", { name: "添加角色" }).click();
+  await typeTab(page, "字段");
   await page.getByLabel("新字段名称").fill("需要测试");
   await page.getByLabel("选项（单选、多选用，逗号分隔）").fill("是，否");
   await page.getByRole("button", { name: "添加字段" }).click();
   await expect(page.getByRole("cell", { name: "是 / 否" })).toBeVisible();
+  await typeTab(page, "流程");
   await page.getByLabel("新模板名称").fill("默认流程");
   await page.getByRole("button", { name: "新建模板" }).click();
   await page.getByRole("link", { name: "默认流程" }).click();
@@ -43,6 +56,7 @@ test("configure a type from scratch, draw and publish its flow, then create a wo
   await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
 
   // 用新流程建一个缺陷，不需要测试：验证节点被跳过
+  await closeTypeConfig(page);
   await openItems(page);
   await createItem(page, "登录报错", {
     label: "缺陷名称",

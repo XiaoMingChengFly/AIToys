@@ -1,5 +1,16 @@
 import { expect, test } from "@playwright/test";
-import { addMember, choose, createSpace, openSettings, registerColleague, selectByName, signUp } from "./helpers";
+import {
+  addMember,
+  choose,
+  closeTypeConfig,
+  createSpace,
+  openSettings,
+  openTypeConfig,
+  registerColleague,
+  selectByName,
+  signUp,
+  typeTab,
+} from "./helpers";
 
 test("business lines drive which roles appear and who is assigned by default", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -8,7 +19,7 @@ test("business lines drive which roles appear and who is assigned by default", a
   await signUp(page, "Pascal", `roles-${suffix}@example.com`);
   await createSpace(page, `角色 ${suffix}`);
   await addMember(page, linEmail, "Lin");
-  await openSettings(page);
+  await openSettings(page, "空间信息");
 
   // 业务线树：KIMTRUE / 且初，ONCUR
   const lines = page.getByLabel("新业务线");
@@ -19,15 +30,18 @@ test("business lines drive which roles appear and who is assigned by default", a
   await page.getByRole("button", { name: "保存业务线" }).click();
   await expect(page.getByRole("button", { name: "保存业务线" })).toBeDisabled();
 
+  await page.getByRole("tablist", { name: "空间配置" }).getByRole("tab", { name: "工作项" }).click();
   await page.getByLabel("新类型名称").fill("立项");
   await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
-  await page.getByRole("main").getByRole("link", { name: /^立项/ }).click();
+  await openTypeConfig(page, "立项");
 
+  await typeTab(page, "字段");
   await page.getByLabel("新字段名称").fill("业务线");
   await choose(selectByName(page, "dataType"), "businessLine");
   await page.getByRole("button", { name: "添加字段" }).click();
   for (const name of ["NPD", "风控审核"]) {
+    await typeTab(page, "角色");
     await page.getByLabel("新角色名称").fill(name);
     await page.getByRole("button", { name: "添加角色" }).click();
     await expect(page.getByRole("button", { name: `配置角色 ${name}` })).toBeVisible();
@@ -53,12 +67,14 @@ test("business lines drive which roles appear and who is assigned by default", a
   await sheet.getByRole("button", { name: "保存" }).click();
   await expect(sheet).toBeHidden();
 
+  await typeTab(page, "流程");
   await page.getByLabel("新模板名称").fill("立项流程");
   await page.getByRole("button", { name: "新建模板" }).click();
   await page.getByRole("link", { name: "立项流程" }).click();
   await page.getByRole("button", { name: "发布" }).click();
   await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
 
+  await closeTypeConfig(page);
   const nav = page.getByRole("navigation", { name: "主导航" });
   await nav.getByRole("link", { name: "立项" }).click();
   await page.getByRole("button", { name: /^新建/ }).click();

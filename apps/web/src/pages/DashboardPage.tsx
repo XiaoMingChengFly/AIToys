@@ -1,12 +1,13 @@
 import { queries } from "@fp/sync";
-import { useQuery } from "@rocicorp/zero/react";
+import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useParams } from "@tanstack/react-router";
 import { CircleAlert, RefreshCw } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
-import { ErrorBanner, PageBody, PageHeader } from "@/components/ui/page";
+import { EmptyState, ErrorBanner, PageBody, PageHeader } from "@/components/ui/page";
+import { ImportOem } from "@/pages/SpacePage";
 import { env } from "@/lib/env";
 import { cn } from "@/lib/utils";
 
@@ -43,12 +44,14 @@ const SERIES = { created: "var(--color-brand-500)", completed: "var(--color-teal
  * 数据由服务端汇总，打开时和点刷新时取一次。
  */
 export function DashboardPage() {
-  const { spaceId } = useParams({ from: "/app/spaces/$spaceId/dashboard" });
+  const { spaceId } = useParams({ from: "/app/spaces/$spaceId/overview" });
   const [space] = useQuery(queries.spaces.byId({ id: spaceId }));
   const [typeId, setTypeId] = useState("");
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const zero = useZero();
+  const isAdmin = !!space?.members.some((m) => m.userId === zero.userID && m.role === "admin");
   useActiveSpace(spaceId);
 
   const load = useCallback(async () => {
@@ -91,6 +94,30 @@ export function DashboardPage() {
         }
       />
       <PageBody className="max-w-6xl">
+        {space && space.workItemTypes.length === 0 && (
+          <div className="rounded-lg border border-line-subtle bg-surface shadow-card">
+            <EmptyState
+              title="空间里还没有工作项"
+              description={
+                isAdmin
+                  ? "可以导入 OEM v289 作为演示，也可以在空间配置里新建工作项，自己配置角色、字段和流程。"
+                  : "请空间管理员先在空间配置里配置工作项。"
+              }
+              action={
+                isAdmin && (
+                  <div className="flex gap-2">
+                    <ImportOem spaceId={spaceId} />
+                    <Button variant="outline" asChild>
+                      <Link to="/spaces/$spaceId/setting/$tab" params={{ spaceId, tab: "workObjectSetting" }}>
+                        空间配置
+                      </Link>
+                    </Button>
+                  </div>
+                )
+              }
+            />
+          </div>
+        )}
         {error && <ErrorBanner>{error}</ErrorBanner>}
         {!data && !error && <p className="text-sm text-fg-subtle">加载中…</p>}
         {data && <DashboardBody data={data} />}

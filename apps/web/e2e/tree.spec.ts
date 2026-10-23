@@ -6,12 +6,12 @@ test("the tree view nests work items by the chosen hierarchy and expands level b
   await oemSpace(page, "Pascal", `tree-${suffix}@example.com`, `树形 ${suffix}`);
 
   // “项目”上的“子项目”关联：新品 A → 新品 B → 新品 C
-  await openSettings(page);
-  await page.getByRole("main").getByRole("link", { name: /^项目/ }).click();
-  await page.getByLabel("新关联名称").fill("子项目");
-  await choose(page.getByLabel("关联到"), { label: "项目" });
-  await page.getByRole("button", { name: "添加关联" }).click();
-  await expect(page.getByRole("list", { name: "关联列表" })).toContainText("子项目");
+  await openSettings(page, "关联");
+  const relations = page.getByRole("region", { name: "项目的关联" });
+  await relations.getByLabel("新关联名称").fill("子项目");
+  await choose(relations.getByLabel("关联到"), { label: "项目" });
+  await relations.getByRole("button", { name: "添加关联" }).click();
+  await expect(relations.getByRole("list", { name: "关联列表" })).toContainText("子项目");
 
   await openItems(page);
   for (const name of ["新品 A", "新品 B", "新品 C"]) {

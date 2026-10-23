@@ -1,14 +1,17 @@
 import { expect, test } from "@playwright/test";
 import {
   choose,
+  closeTypeConfig,
   createItem,
   createSpace,
   openItems,
   openSettings,
+  openTypeConfig,
   PASSWORD,
   registerColleague,
   selectByName,
   signUp,
+  typeTab,
 } from "./helpers";
 
 test("guests only read and comment, and restricted fields stay hidden from people without the role", async ({
@@ -20,7 +23,7 @@ test("guests only read and comment, and restricted fields stay hidden from peopl
   await registerColleague(linEmail, "Lin");
   await signUp(page, "Pascal", `perm-${suffix}@example.com`);
   await createSpace(page, `权限 ${suffix}`);
-  await openSettings(page);
+  await openSettings(page, "权限");
 
   // Lin 以访客身份加入
   await page.getByLabel("按邮箱添加成员").fill(linEmail);
@@ -29,13 +32,16 @@ test("guests only read and comment, and restricted fields stay hidden from peopl
   await expect(page.getByLabel("Lin的空间角色")).toContainText("访客");
 
   // 状态流类型：“报价”只有“商务”能看
+  await page.getByRole("tablist", { name: "空间配置" }).getByRole("tab", { name: "工作项" }).click();
   await page.getByLabel("新类型名称").fill("询价");
   await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
-  await page.getByRole("main").getByRole("link", { name: /^询价/ }).click();
+  await openTypeConfig(page, "询价");
+  await typeTab(page, "角色");
   await page.getByLabel("新角色名称").fill("商务");
   await page.getByRole("button", { name: "添加角色" }).click();
   for (const name of ["报价", "客户"]) {
+    await typeTab(page, "字段");
     await page.getByLabel("新字段名称").fill(name);
     await choose(selectByName(page, "dataType"), "text");
     await page.getByRole("button", { name: "添加字段" }).click();
@@ -44,12 +50,14 @@ test("guests only read and comment, and restricted fields stay hidden from peopl
   await page.getByRole("button", { name: "设置报价的权限" }).click();
   await page.getByRole("button", { name: "报价可见角色：商务" }).click();
   await expect(page.getByText("可见：商务 · 所有人可改")).toBeVisible();
+  await typeTab(page, "流程");
   await page.getByLabel("新模板名称").fill("询价流程");
   await page.getByRole("button", { name: "新建模板" }).click();
   await page.getByRole("link", { name: "询价流程" }).click();
   await page.getByRole("button", { name: "发布" }).click();
   await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
 
+  await closeTypeConfig(page);
   await openItems(page);
   await createItem(page, "A 客户询价", { label: "询价名称" });
   const fields = page.getByRole("region", { name: "字段" });
@@ -94,7 +102,7 @@ test("guests only read and comment, and restricted fields stay hidden from peopl
   await expect(lin.getByRole("list", { name: "评论列表" })).toContainText("报价什么时候出？");
 
   // 改成成员后就能流转了
-  await openSettings(page);
+  await openSettings(page, "权限");
   await choose(page.getByLabel("Lin的空间角色"), "member");
   await expect(lin.getByText("你是这个空间的访客，只能查看和评论。")).toHaveCount(0);
   await lin.getByRole("region", { name: "当前状态" }).getByRole("button", { name: "处理中" }).click();

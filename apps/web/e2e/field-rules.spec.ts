@@ -1,5 +1,14 @@
 import { expect, test } from "@playwright/test";
-import { choose, createSpace, openSettings, selectByName, signUp } from "./helpers";
+import {
+  choose,
+  closeTypeConfig,
+  createSpace,
+  openSettings,
+  openTypeConfig,
+  selectByName,
+  signUp,
+  typeTab,
+} from "./helpers";
 
 test("new field types and field rules: default value, conditional required, help text", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -9,8 +18,9 @@ test("new field types and field rules: default value, conditional required, help
   await page.getByLabel("新类型名称").fill("备案");
   await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
-  await page.getByRole("main").getByRole("link", { name: /^备案/ }).click();
+  await openTypeConfig(page, "备案");
   const addField = async (name: string, type: string, options = "") => {
+    await typeTab(page, "字段");
     await page.getByLabel("新字段名称").fill(name);
     await choose(selectByName(page, "dataType"), type);
     if (options) await page.locator("input[name=options]").fill(options);
@@ -41,12 +51,14 @@ test("new field types and field rules: default value, conditional required, help
   await expect(sheet).toBeHidden();
   await expect(page.getByText("条件必填")).toBeVisible();
 
+  await typeTab(page, "流程");
   await page.getByLabel("新模板名称").fill("备案流程");
   await page.getByRole("button", { name: "新建模板" }).click();
   await page.getByRole("link", { name: "备案流程" }).click();
   await page.getByRole("button", { name: "发布" }).click();
   await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
 
+  await closeTypeConfig(page);
   const nav = page.getByRole("navigation", { name: "主导航" });
   await nav.getByRole("link", { name: "备案" }).click();
   await page.getByRole("button", { name: /^新建/ }).click();

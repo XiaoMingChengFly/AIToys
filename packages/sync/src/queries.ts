@@ -114,6 +114,7 @@ export const queries = defineQueries({
         .related("views", (v) => v.orderBy("createdAt", "asc"))
         .related("workItemTypes", (t) =>
           t
+            .orderBy("sort", "asc")
             .related("fields")
             .related("roles", (r) => r.orderBy("sort", "asc").orderBy("createdAt", "asc"))
             .related("relationDefs")

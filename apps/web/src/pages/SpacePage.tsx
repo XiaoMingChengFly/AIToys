@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/input";
 import { EmptyState, ErrorBanner, PageBody, PageHeader } from "@/components/ui/page";
-import { Segmented } from "@/components/ui/tabs";
+import { Segmented, Tabs } from "@/components/ui/tabs";
 import { type ListDisplay, WorkItemList } from "@/components/WorkItemList";
 import { env } from "@/lib/env";
 import { withLineOptions } from "@/lib/fields";
@@ -41,10 +41,13 @@ const NO_CALENDAR = { holidays: [], extraWorkdays: [] };
 type Space = NonNullable<QueryResultType<ReturnType<typeof queries.spaces.byId>>>;
 type ItemType = Space["workItemTypes"][number];
 
-/** 空间的工作项：左侧导航选了类型时只看这种类型。 */
-export function SpacePage() {
-  const { spaceId } = useParams({ from: "/app/spaces/$spaceId" });
-  const { type: typeId, item: openItem } = useSearch({ from: "/app/spaces/$spaceId" });
+/**
+ * 工作项主页（飞书项目左侧导航里的一个工作项，如「项目」「缺陷」）：
+ * 「工作项列表」页签是这种类型的列表和统计，「视图列表」页签是这种类型保存过的视图。
+ */
+export function WorkItemHomePage() {
+  const { spaceId, typeKey } = useParams({ from: "/app/spaces/$spaceId/$typeKey" });
+  const { tab, view: viewId, item: openItem } = useSearch({ from: "/app/spaces/$spaceId/$typeKey" });
   const navigate = useNavigate();
   const zero = useZero();
   const [space, spaceResult] = useQuery(queries.spaces.byId({ id: spaceId }));
@@ -56,27 +59,40 @@ export function SpacePage() {
         {spaceResult.type === "complete" ? "空间不存在或没有权限。" : "加载中…"}
       </p>
     );
+  const type = space.workItemTypes.find((t) => t.key === typeKey);
+  if (!type) return <p className="p-6 text-sm text-fg-subtle">这个空间里没有这种工作项。</p>;
   const myRole = space.members.find((m) => m.userId === zero.userID)?.role;
   const isAdmin = myRole === "admin";
   const members: PickerMember[] = space.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId }));
-  const current = typeId ? space.workItemTypes.find((t) => t.id === typeId) : undefined;
-  const ready = space.workItemTypes.filter((t) => t.flowTemplates.some((f) => f.currentVersionId));
+  const published = type.flowTemplates.some((f) => f.currentVersionId);
+  const views = space.views.filter((v) => v.filter?.typeIds?.includes(type.id));
 
   return (
     <>
       <PageHeader
-        title={current?.name ?? "全部工作项"}
-        breadcrumb={space.name}
+        title={type.name}
         actions={
-          ready.length > 0 &&
+          published &&
           myRole !== "guest" && (
             <CreateWorkItem
-              types={current ? ready.filter((t) => t.id === current.id) : ready}
+              types={[type]}
               members={members.filter((m) => space.members.find((x) => x.userId === m.userId)?.role !== "guest")}
               lines={space.businessLines}
-              label={current ? `新建${current.name}` : "新建工作项"}
+              label="新建"
+              title={`新建${type.name}`}
             />
           )
+        }
+        tabs={
+          <Tabs
+            label="工作项主页"
+            value={tab ?? "items"}
+            onChange={(next) => navigate({ to: ".", search: next === "views" ? { tab: "views" as const } : {} })}
+            items={[
+              ["items", "工作项列表"],
+              ["views", "视图列表"],
+            ]}
+          />
         }
       />
       {openItem && (
@@ -87,7 +103,11 @@ export function SpacePage() {
           getPopupContainer={() => document.querySelector("main") ?? document.body}
           bodyStyle={{ padding: 0 }}
           title={
-            <Link to="/items/$itemId" params={{ itemId: openItem }} className="text-sm font-normal text-brand-500">
+            <Link
+              to="/spaces/$spaceId/$typeKey/detail/$itemId"
+              params={{ spaceId, typeKey, itemId: openItem }}
+              className="text-sm font-normal text-brand-500"
+            >
               全屏打开
             </Link>
           }
@@ -97,53 +117,167 @@ export function SpacePage() {
         </SideSheet>
       )}
       <PageBody className="max-w-none">
-        {space.workItemTypes.length === 0 ? (
+        {tab === "views" ? (
+          <ViewList
+            views={views}
+            members={members}
+            canDelete={(v) => isAdmin || v.createdBy === zero.userID}
+            onOpen={(id) => navigate({ to: ".", search: { view: id } })}
+          />
+        ) : !published ? (
           <div className="rounded-lg border border-line-subtle bg-surface shadow-card">
             <EmptyState
-              title="还没有工作项类型"
+              title={`${type.name}还没有发布的流程`}
               description={
                 isAdmin
-                  ? "可以导入 OEM v289 作为演示，也可以在空间设置里新建类型，自己配置角色、字段和流程。"
-                  : "请空间管理员先在空间设置里配置工作项类型。"
+                  ? "在空间配置里给它配置字段、角色和流程，发布后就能新建。"
+                  : "请空间管理员先在空间配置里配置并发布流程。"
               }
               action={
                 isAdmin && (
-                  <div className="flex gap-2">
-                    <ImportOem spaceId={spaceId} />
-                    <Button variant="outline" asChild>
-                      <Link to="/spaces/$spaceId/settings" params={{ spaceId }}>
-                        空间设置
-                      </Link>
-                    </Button>
-                  </div>
+                  <Button variant="outline" asChild>
+                    <Link
+                      to="/spaces/$spaceId/setting/workObject/$typeKey"
+                      params={{ spaceId, typeKey }}
+                      search={{ menuTab: "workflow" }}
+                    >
+                      配置{type.name}
+                    </Link>
+                  </Button>
                 )
               }
             />
           </div>
         ) : (
-          <WorkItems key={typeId ?? "all"} space={space} typeId={current?.id} members={members} isAdmin={isAdmin} />
+          <WorkItems
+            key={`${type.id}-${viewId ?? ""}`}
+            space={space}
+            type={type}
+            view={views.find((v) => v.id === viewId)}
+            views={views}
+            members={members}
+            isAdmin={isAdmin}
+          />
         )}
       </PageBody>
     </>
   );
 }
 
+type SavedView = Space["views"][number];
+
+/** 视图列表：这种工作项保存过的视图，分「全部视图」「我创建的」；点名称回到工作项列表并套用。 */
+function ViewList({
+  views,
+  members,
+  canDelete,
+  onOpen,
+}: {
+  views: readonly SavedView[];
+  members: PickerMember[];
+  canDelete: (view: SavedView) => boolean;
+  onOpen: (viewId: string) => void;
+}) {
+  const zero = useZero();
+  const [scope, setScope] = useState<"all" | "mine">("all");
+  const [q, setQ] = useState("");
+  const shown = views.filter(
+    (v) => (scope === "all" || v.createdBy === zero.userID) && v.name.toLowerCase().includes(q.trim().toLowerCase()),
+  );
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-line-subtle bg-surface p-4 shadow-card">
+      <div className="flex items-center gap-3">
+        <Tabs
+          label="视图范围"
+          value={scope}
+          onChange={setScope}
+          items={[
+            ["all", "全部视图"],
+            ["mine", "我创建的"],
+          ]}
+        />
+        <span className="flex-1" />
+        <Input
+          aria-label="搜索视图"
+          placeholder="搜索视图名称"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          className="w-56"
+        />
+      </div>
+      {shown.length === 0 ? (
+        <EmptyState title="没有视图" description="在工作项列表里筛选好之后，点「保存为视图」就会出现在这里。" />
+      ) : (
+        <table aria-label="视图" className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-line-subtle text-left text-xs text-fg-muted">
+              <th className="py-2 font-normal">视图名称</th>
+              <th className="py-2 font-normal">创建者</th>
+              <th className="py-2 font-normal">创建时间</th>
+              <th className="w-16" />
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((v) => (
+              <tr key={v.id} className="border-b border-line-subtle last:border-0 hover:bg-hover/50">
+                <td className="py-2">
+                  <button
+                    type="button"
+                    onClick={() => onOpen(v.id)}
+                    className="cursor-pointer text-fg hover:text-brand-500"
+                  >
+                    {v.name}
+                  </button>
+                </td>
+                <td className="py-2 text-fg-muted">{members.find((m) => m.userId === v.createdBy)?.name ?? "—"}</td>
+                <td className="py-2 text-fg-muted">
+                  {v.createdAt ? new Date(v.createdAt).toLocaleString("zh-CN", { hour12: false }) : "—"}
+                </td>
+                <td className="py-2 text-right">
+                  {canDelete(v) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`删除视图 ${v.name}`}
+                      onClick={() => zero.mutate(mutators.view.delete({ id: v.id }))}
+                    >
+                      删除
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function WorkItems({
   space,
-  typeId,
+  type,
+  view: initialView,
+  views,
   members,
   isAdmin,
 }: {
   space: Space;
-  typeId: string | undefined;
+  type: ItemType;
+  view: SavedView | undefined;
+  views: readonly SavedView[];
   members: PickerMember[];
   isAdmin: boolean;
 }) {
-  const [filter, setFilter] = useState<WorkItemFilterArgs>(typeId ? { typeIds: [typeId] } : {});
+  const [filter, setFilter] = useState<WorkItemFilterArgs>({
+    ...(initialView?.filter ?? {}),
+    typeIds: [type.id],
+  });
   const [view, setView] = useState<"table" | "tree" | "board" | "gantt">("table");
   // 列表的显示设置（列、排序、分组、着色）：没套用视图时记在本机，下次打开还是这样
-  const displayKey = `flowen.list.${space.id}.${typeId ?? "all"}`;
+  const displayKey = `flowen.list.${space.id}.${type.id}`;
   const [display, setDisplayState] = useState<ListDisplay>(() => {
+    if (initialView?.display) return initialView.display as ListDisplay;
     try {
       return JSON.parse(localStorage.getItem(displayKey) ?? "{}") as ListDisplay;
     } catch {
@@ -158,64 +292,71 @@ function WorkItems({
       // 本机存不了就只在这次会话里生效
     }
   };
-  const types = space.workItemTypes.map((t) => ({
-    id: t.id,
-    name: t.name,
-    definitions: t.flowTemplates.flatMap((f) => (f.currentVersion ? [f.currentVersion.definition] : [])),
-    fields: t.fields,
-  }));
+  const types = [
+    {
+      id: type.id,
+      name: type.name,
+      definitions: type.flowTemplates.flatMap((f) => (f.currentVersion ? [f.currentVersion.definition] : [])),
+      fields: type.fields,
+    },
+  ];
+  const viewSwitch = (
+    <Segmented
+      label="显示方式"
+      value={view}
+      onChange={setView}
+      items={[
+        [
+          "table",
+          <>
+            <List />
+            列表
+          </>,
+        ],
+        [
+          "tree",
+          <>
+            <ListTree />
+            树形
+          </>,
+        ],
+        [
+          "board",
+          <>
+            <Columns3 />
+            看板
+          </>,
+        ],
+        [
+          "gantt",
+          <>
+            <GanttChartSquare />
+            甘特图
+          </>,
+        ],
+      ]}
+    />
+  );
+  const filterBar = (
+    <FilterBar
+      spaceId={space.id}
+      filter={filter}
+      onChange={setFilter}
+      types={types}
+      members={members.map((m) => ({ id: m.userId, name: m.name }))}
+      views={views.map((v) => ({ ...v, filter: v.filter ?? {} }))}
+      isAdmin={isAdmin}
+      fixedTypeId={type.id}
+      display={view === "table" ? display : undefined}
+      onView={(v) => view === "table" && v.display && setDisplay(v.display as ListDisplay)}
+      actions={viewSwitch}
+    />
+  );
 
   return (
     <div className="flex min-h-0 flex-col">
       {view !== "table" && (
-        <div className="mb-3 rounded-lg border border-line-subtle bg-surface px-4 py-3">
-          <FilterBar
-            spaceId={space.id}
-            filter={filter}
-            onChange={setFilter}
-            types={types}
-            members={members.map((m) => ({ id: m.userId, name: m.name }))}
-            views={space.views.map((v) => ({ ...v, filter: v.filter ?? {} }))}
-            isAdmin={isAdmin}
-            actions={
-              <Segmented
-                label="显示方式"
-                value={view}
-                onChange={setView}
-                items={[
-                  [
-                    "table",
-                    <>
-                      <List />
-                      列表
-                    </>,
-                  ],
-                  [
-                    "tree",
-                    <>
-                      <ListTree />
-                      树形
-                    </>,
-                  ],
-                  [
-                    "board",
-                    <>
-                      <Columns3 />
-                      看板
-                    </>,
-                  ],
-                  [
-                    "gantt",
-                    <>
-                      <GanttChartSquare />
-                      甘特图
-                    </>,
-                  ],
-                ]}
-              />
-            }
-          />
-        </div>
+        <div className="mb-3 rounded-lg border border-line-subtle bg-surface px-4 py-3">{filterBar}</div>
       )}
       {view === "tree" ? (
         <TreeView
@@ -242,68 +383,13 @@ function WorkItems({
           />
         </div>
       ) : (
-        <WorkItemList
-          space={space}
-          filter={filter}
-          display={display}
-          onDisplay={setDisplay}
-          toolbar={
-            <FilterBar
-              spaceId={space.id}
-              filter={filter}
-              onChange={setFilter}
-              types={types}
-              members={members.map((m) => ({ id: m.userId, name: m.name }))}
-              views={space.views.map((v) => ({ ...v, filter: v.filter ?? {} }))}
-              isAdmin={isAdmin}
-              display={display}
-              onView={(v) => v.display && setDisplay(v.display as ListDisplay)}
-              actions={
-                <Segmented
-                  label="显示方式"
-                  value={view}
-                  onChange={setView}
-                  items={[
-                    [
-                      "table",
-                      <>
-                        <List />
-                        列表
-                      </>,
-                    ],
-                    [
-                      "tree",
-                      <>
-                        <ListTree />
-                        树形
-                      </>,
-                    ],
-                    [
-                      "board",
-                      <>
-                        <Columns3 />
-                        看板
-                      </>,
-                    ],
-                    [
-                      "gantt",
-                      <>
-                        <GanttChartSquare />
-                        甘特图
-                      </>,
-                    ],
-                  ]}
-                />
-              }
-            />
-          }
-        />
+        <WorkItemList space={space} filter={filter} display={display} onDisplay={setDisplay} toolbar={filterBar} />
       )}
     </div>
   );
 }
 
-function ImportOem({ spaceId }: { spaceId: string }) {
+export function ImportOem({ spaceId }: { spaceId: string }) {
   const [error, setError] = useState<string | null>(null);
   async function run() {
     const res = await fetch(`${env.apiUrl}/api/spaces/${spaceId}/import-oem`, {
@@ -328,11 +414,13 @@ function CreateWorkItem({
   members,
   lines,
   label,
+  title,
 }: {
   types: ItemType[];
   members: PickerMember[];
   lines: Lines;
   label: string;
+  title?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [typeId, setTypeId] = useState(types[0]?.id ?? "");
@@ -346,7 +434,7 @@ function CreateWorkItem({
           {label}
         </Button>
       </DialogTrigger>
-      <DialogContent title={label} className="max-w-2xl">
+      <DialogContent title={title ?? label} className="max-w-2xl">
         <div className="flex flex-col gap-4">
           {types.length > 1 && (
             <Field label="类型">
@@ -448,7 +536,10 @@ function CreateWorkItemForm({
       }),
     ).client;
     if (outcome.type === "error") return setError(outcome.error.message);
-    await navigate({ to: "/items/$itemId", params: { itemId: id } });
+    await navigate({
+      to: "/spaces/$spaceId/$typeKey/detail/$itemId",
+      params: { spaceId: type.spaceId, typeKey: type.key, itemId: id },
+    });
   }
 
   return (

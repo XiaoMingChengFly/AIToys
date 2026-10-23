@@ -1,5 +1,16 @@
 import { expect, test } from "@playwright/test";
-import { choose, createItem, createSpace, openItems, openSettings, selectByName, signUp } from "./helpers";
+import {
+  choose,
+  closeTypeConfig,
+  createItem,
+  createSpace,
+  openItems,
+  openSettings,
+  openTypeConfig,
+  selectByName,
+  signUp,
+  typeTab,
+} from "./helpers";
 
 test("a formula field is computed from other fields and can be edited", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -9,12 +20,10 @@ test("a formula field is computed from other fields and can be edited", async ({
   await page.getByLabel("新类型名称").fill("报价单");
   await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
-  await page
-    .getByRole("main")
-    .getByRole("link", { name: /^报价单/ })
-    .click();
+  await openTypeConfig(page, "报价单");
 
   for (const name of ["数量", "单价"]) {
+    await typeTab(page, "字段");
     await page.getByLabel("新字段名称").fill(name);
     await choose(selectByName(page, "dataType"), "number");
     await page.getByRole("button", { name: "添加字段" }).click();
@@ -29,12 +38,14 @@ test("a formula field is computed from other fields and can be edited", async ({
   await page.getByRole("button", { name: "添加字段" }).click();
   await expect(page.getByRole("cell", { name: "{数量} * {单价}" })).toBeVisible();
 
+  await typeTab(page, "流程");
   await page.getByLabel("新模板名称").fill("默认");
   await page.getByRole("button", { name: "新建模板" }).click();
   await page.getByRole("link", { name: "默认" }).click();
   await page.getByRole("button", { name: "发布" }).click();
   await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
 
+  await closeTypeConfig(page);
   await openItems(page);
   await createItem(page, "A 客户报价", { label: "报价单名称" });
   const fields = page.getByRole("region", { name: "字段" });
@@ -48,10 +59,8 @@ test("a formula field is computed from other fields and can be edited", async ({
 
   // 改公式后已有的工作项跟着重算
   await openSettings(page);
-  await page
-    .getByRole("main")
-    .getByRole("link", { name: /^报价单/ })
-    .click();
+  await openTypeConfig(page, "报价单");
+  await typeTab(page, "字段");
   await page.getByRole("button", { name: "编辑总价的公式" }).click();
   await page.getByLabel("总价的公式").fill("ROUND({数量} * {单价} * 1.06, 1)");
   await page.getByRole("button", { name: "保存", exact: true }).click();

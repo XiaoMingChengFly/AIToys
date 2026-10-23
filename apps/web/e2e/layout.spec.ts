@@ -1,5 +1,16 @@
 import { expect, test } from "@playwright/test";
-import { choose, createItem, createSpace, openItems, openSettings, selectByName, signUp } from "./helpers";
+import {
+  choose,
+  closeTypeConfig,
+  createItem,
+  createSpace,
+  openItems,
+  openSettings,
+  openTypeConfig,
+  selectByName,
+  signUp,
+  typeTab,
+} from "./helpers";
 
 test("admins lay out the detail page in tabs and sections, with hints and a separate create page", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -9,19 +20,22 @@ test("admins lay out the detail page in tabs and sections, with hints and a sepa
   await page.getByLabel("新类型名称").fill("缺陷");
   await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
-  await page.getByRole("main").getByRole("link", { name: /^缺陷/ }).click();
+  await openTypeConfig(page, "缺陷");
   for (const name of ["严重程度", "复现步骤", "预计工时", "内部备注"]) {
+    await typeTab(page, "字段");
     await page.getByLabel("新字段名称").fill(name);
     await choose(selectByName(page, "dataType"), "text");
     await page.getByRole("button", { name: "添加字段" }).click();
     await expect(page.getByRole("cell", { name, exact: true })).toBeVisible();
   }
+  await typeTab(page, "流程");
   await page.getByLabel("新模板名称").fill("默认");
   await page.getByRole("button", { name: "新建模板" }).click();
   await page.getByRole("link", { name: "默认" }).click();
   await page.getByRole("button", { name: "发布" }).click();
   await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
   await page.goBack();
+  await typeTab(page, "页面布局");
 
   const editor = page.getByRole("group").filter({ has: page.getByRole("button", { name: "保存布局" }) });
   // 默认「基本信息」页签里有一组「字段」：改名为「缺陷信息」，加一句提示，复现步骤挪到最前
@@ -44,6 +58,7 @@ test("admins lay out the detail page in tabs and sections, with hints and a sepa
   await expect(editor.getByRole("button", { name: "保存布局" })).toBeDisabled();
 
   // 新建页：内部备注不出现，提示文字出现
+  await closeTypeConfig(page);
   await openItems(page);
   await createItem(page, "登录页白屏", {
     label: "缺陷名称",

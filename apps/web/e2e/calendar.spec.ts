@@ -14,7 +14,7 @@ test("a holiday in the space calendar re-plans its work items", async ({ page })
   await expect(startOf("需求立项提案")).toHaveValue(dayToIso(firstDay));
 
   // 把需求立项提案开始的那天设成假期
-  await openSettings(page);
+  await openSettings(page, "空间信息");
   await page.getByLabel("日历日期").fill(dayToIso(firstDay));
   await choose(page.getByLabel("这天"), "放假");
   await page.getByRole("button", { name: "加入日历" }).click();
@@ -28,7 +28,7 @@ test("a holiday in the space calendar re-plans its work items", async ({ page })
   await expect(startOf("需求立项提案")).toHaveValue(dayToIso(withHoliday.onOrAfter(firstDay + 1)));
 
   // 移除假期，排期恢复
-  await openSettings(page);
+  await openSettings(page, "空间信息");
   await holidays.getByRole("button", { name: `移除 ${dayToIso(firstDay)}` }).click();
   await expect(page.getByText("没有设置节假日")).toBeVisible();
   await openItems(page);

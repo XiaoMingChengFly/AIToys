@@ -51,7 +51,7 @@ const COMPLETION: { value: CompletionMode; label: string }[] = [
 
 /** 流程模板编辑器：在画布上增删节点和连线，右侧编辑节点属性；保存为草稿，校验通过后发布。 */
 export function TemplateEditorPage() {
-  const { templateId } = useParams({ from: "/app/templates/$templateId" });
+  const { templateId } = useParams({ from: "/app/spaces/$spaceId/setting/workObject/$typeKey/workflow/$templateId" });
   const [template, result] = useQuery(queries.templates.byId({ id: templateId }));
   const latest = template?.versions[0];
   useActiveSpace(template?.type?.spaceId);
@@ -199,11 +199,20 @@ function Editor({ template, type }: { template: Template; type: TypeConfig }) {
     <div className="flex h-full flex-col">
       <header className="flex flex-col gap-1 border-b border-line-subtle bg-surface px-6 py-3">
         <nav aria-label="位置" className="flex items-center gap-1 text-xs text-fg-subtle">
-          <Link to="/spaces/$spaceId/settings" params={{ spaceId: type.spaceId }} className="hover:text-brand-500">
-            空间设置
+          <Link
+            to="/spaces/$spaceId/setting/$tab"
+            params={{ spaceId: type.spaceId, tab: "workObjectSetting" }}
+            className="hover:text-brand-500"
+          >
+            空间配置
           </Link>
           <ChevronRight className="size-3" />
-          <Link to="/types/$typeId" params={{ typeId: type.id }} className="hover:text-brand-500">
+          <Link
+            to="/spaces/$spaceId/setting/workObject/$typeKey"
+            params={{ spaceId: type.spaceId, typeKey: type.key }}
+            search={{ menuTab: "workflow" }}
+            className="hover:text-brand-500"
+          >
             {type.name}
           </Link>
         </nav>

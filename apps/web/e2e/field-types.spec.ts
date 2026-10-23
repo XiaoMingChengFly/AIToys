@@ -1,5 +1,15 @@
 import { expect, test } from "@playwright/test";
-import { choose, createItem, createSpace, openSettings, selectByName, signUp } from "./helpers";
+import {
+  choose,
+  closeTypeConfig,
+  createItem,
+  createSpace,
+  openSettings,
+  openTypeConfig,
+  selectByName,
+  signUp,
+  typeTab,
+} from "./helpers";
 
 test("number, date, multi-select and people fields can be edited and filtered", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -9,8 +19,9 @@ test("number, date, multi-select and people fields can be edited and filtered", 
   await page.getByLabel("新类型名称").fill("任务");
   await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
-  await page.getByRole("main").getByRole("link", { name: /^任务/ }).click();
+  await openTypeConfig(page, "任务");
   const addField = async (name: string, type: string, options = "") => {
+    await typeTab(page, "字段");
     await page.getByLabel("新字段名称").fill(name);
     await choose(selectByName(page, "dataType"), type);
     await page.locator("input[name=options]").fill(options);
@@ -21,12 +32,14 @@ test("number, date, multi-select and people fields can be edited and filtered", 
   await addField("截止", "date");
   await addField("标签", "multiSelect", "前端，后端");
   await addField("协作人", "user");
+  await typeTab(page, "流程");
   await page.getByLabel("新模板名称").fill("任务流程");
   await page.getByRole("button", { name: "新建模板" }).click();
   await page.getByRole("link", { name: "任务流程" }).click();
   await page.getByRole("button", { name: "发布" }).click();
   await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
 
+  await closeTypeConfig(page);
   const nav = page.getByRole("navigation", { name: "主导航" });
   // 新建时填数字和多选
   await nav.getByRole("link", { name: "任务" }).click();

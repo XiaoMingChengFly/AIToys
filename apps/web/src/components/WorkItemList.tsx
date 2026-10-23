@@ -153,7 +153,7 @@ export function WorkItemList({
           {/* 点名称在右侧抽屉里打开，列表留在后面，可以连续看 */}
           <Link
             className="min-w-0 truncate font-medium text-fg hover:text-brand-500"
-            from="/spaces/$spaceId"
+            from="/spaces/$spaceId/$typeKey"
             to="."
             search={(prev) => ({ ...prev, item: item.id })}
           >

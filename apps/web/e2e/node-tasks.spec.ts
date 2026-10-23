@@ -1,5 +1,16 @@
 import { expect, test } from "@playwright/test";
-import { choose, createItem, createSpace, openItems, openSettings, selectByName, signUp } from "./helpers";
+import {
+  choose,
+  closeTypeConfig,
+  createItem,
+  createSpace,
+  openItems,
+  openSettings,
+  openTypeConfig,
+  selectByName,
+  signUp,
+  typeTab,
+} from "./helpers";
 
 test("a node's tasks and completion form gate its confirm", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -10,13 +21,16 @@ test("a node's tasks and completion form gate its confirm", async ({ page }) => 
   // 类型：一个角色、一个文本字段；流程：开始 → 开发（预置子任务“自测”，完成表单要填版本号）
   await page.getByLabel("新类型名称").fill("需求");
   await page.getByRole("button", { name: "新建类型" }).click();
-  await page.getByRole("main").getByRole("link", { name: /^需求/ }).click();
+  await openTypeConfig(page, "需求");
+  await typeTab(page, "角色");
   await page.getByLabel("新角色名称").fill("开发");
   await page.getByRole("button", { name: "添加角色" }).click();
+  await typeTab(page, "字段");
   await page.getByLabel("新字段名称").fill("版本号");
   await choose(selectByName(page, "dataType"), "text");
   await page.getByRole("button", { name: "添加字段" }).click();
   await expect(page.getByRole("cell", { name: "版本号", exact: true })).toBeVisible();
+  await typeTab(page, "流程");
   await page.getByLabel("新模板名称").fill("默认流程");
   await page.getByRole("button", { name: "新建模板" }).click();
   await page.getByRole("link", { name: "默认流程" }).click();
@@ -35,6 +49,7 @@ test("a node's tasks and completion form gate its confirm", async ({ page }) => 
   await page.getByRole("button", { name: "发布" }).click();
   await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
 
+  await closeTypeConfig(page);
   await openItems(page);
   await createItem(page, "导出报表", { label: "需求名称" });
   const current = page.getByRole("main").getByRole("region", { name: "开发" });
@@ -54,7 +69,9 @@ test("a node's tasks and completion form gate its confirm", async ({ page }) => 
   await current.getByRole("button", { name: "确认完成" }).click();
   await page.locator("[role=dialog][aria-modal=true]").getByLabel("版本号").fill("1.0");
   await page.locator("[role=dialog][aria-modal=true]").getByRole("button", { name: "确认完成" }).click();
-  await expect(page.locator("[role=dialog][aria-modal=true]").getByRole("alert")).toContainText("还有 2 个子任务没完成");
+  await expect(page.locator("[role=dialog][aria-modal=true]").getByRole("alert")).toContainText(
+    "还有 2 个子任务没完成",
+  );
   await page.locator("[role=dialog][aria-modal=true]").getByRole("button", { name: "取消" }).click();
 
   await current.getByLabel("完成子任务：自测").check();

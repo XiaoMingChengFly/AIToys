@@ -25,7 +25,7 @@ import {
 import { fieldViewRoles, hasAnyRole, mutators, queries } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, Navigate, useParams } from "@tanstack/react-router";
 import { Background, Controls, type Edge, MarkerType, type Node, Position, ReactFlow } from "@xyflow/react";
 import { Check, ChevronRight, CircleCheck, CircleDashed, CircleDot, Diamond, Eye, Star, Undo2 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -75,8 +75,25 @@ const STATE_LABEL: Record<NodeState, string> = {
 };
 
 export function WorkItemPage() {
-  const { itemId } = useParams({ from: "/app/items/$itemId" });
+  const { itemId } = useParams({ from: "/app/spaces/$spaceId/$typeKey/detail/$itemId" });
   return <WorkItemView itemId={itemId} />;
+}
+
+/** 只有工作项 id 的地址：查到它的空间和类型，换成「空间/工作项/detail/id」的地址。 */
+export function ItemRedirect() {
+  const { itemId } = useParams({ from: "/app/items/$itemId" });
+  const [item, result] = useQuery(queries.workItems.byId({ id: itemId }));
+  if (item?.type)
+    return (
+      <Navigate
+        to="/spaces/$spaceId/$typeKey/detail/$itemId"
+        params={{ spaceId: item.spaceId, typeKey: item.type.key, itemId }}
+        replace
+      />
+    );
+  return (
+    <p className="p-6 text-sm text-fg-subtle">{result.type === "complete" ? "工作项不存在或没有权限。" : "加载中…"}</p>
+  );
 }
 
 /** 工作项详情：整页打开，或在列表右侧的抽屉里打开（内容一样）。 */
@@ -356,9 +373,8 @@ export function WorkItemView({ itemId }: { itemId: string }) {
             <>
               <ChevronRight className="size-3" />
               <Link
-                to="/spaces/$spaceId"
-                params={{ spaceId: item.spaceId }}
-                search={{ type: item.typeId }}
+                to="/spaces/$spaceId/$typeKey"
+                params={{ spaceId: item.spaceId, typeKey: item.type?.key ?? "" }}
                 className="hover:text-brand-500"
               >
                 {typeName}

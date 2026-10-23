@@ -1,5 +1,14 @@
 import { expect, test } from "@playwright/test";
-import { choose, createItem, oemSpace, openItems, openSettings } from "./helpers";
+import {
+  choose,
+  closeTypeConfig,
+  createItem,
+  oemSpace,
+  openItems,
+  openSettings,
+  openTypeConfig,
+  typeTab,
+} from "./helpers";
 
 test("a sub-item-driven node completes once its sub-items are done", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -19,9 +28,11 @@ test("a sub-item-driven node completes once its sub-items are done", async ({ pa
   await openSettings(page);
   await page.getByLabel("新类型名称").fill("任务");
   await page.getByRole("button", { name: "新建类型" }).click();
-  await page.getByRole("main").getByRole("link", { name: /^任务/ }).click();
+  await openTypeConfig(page, "任务");
+  await typeTab(page, "角色");
   await page.getByLabel("新角色名称").fill("处理人");
   await page.getByRole("button", { name: "添加角色" }).click();
+  await typeTab(page, "流程");
   await page.getByLabel("新模板名称").fill("任务流程");
   await page.getByRole("button", { name: "新建模板" }).click();
   await page.getByRole("link", { name: "任务流程" }).click();
@@ -31,6 +42,7 @@ test("a sub-item-driven node completes once its sub-items are done", async ({ pa
   await panel.getByLabel("处理人", { exact: true }).check();
   await page.getByRole("button", { name: "发布" }).click();
   await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
+  await closeTypeConfig(page);
   await openItems(page);
   await page.getByRole("link", { name: "新品 S" }).click();
 

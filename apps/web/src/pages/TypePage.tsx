@@ -9,9 +9,9 @@ import {
 } from "@fp/engine";
 import { mutators, queries } from "@fp/sync";
 import { useQuery, useZero } from "@rocicorp/zero/react";
-import { Link, useParams } from "@tanstack/react-router";
-import { ArrowDown, ArrowUp } from "lucide-react";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { ArrowDown, ArrowUp, X } from "lucide-react";
+import { type FormEvent, Fragment, type ReactNode, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
 import { FieldConfigSheet, type FieldPatch } from "@/components/FieldConfigSheet";
 import { LayoutEditor } from "@/components/LayoutEditor";
@@ -19,7 +19,8 @@ import { RoleConfigSheet } from "@/components/RoleConfigSheet";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
-import { ErrorBanner, PageBody, PageHeader } from "@/components/ui/page";
+import { ErrorBanner, PageBody } from "@/components/ui/page";
+import { Tabs } from "@/components/ui/tabs";
 import { withLineOptions } from "@/lib/fields";
 import { newId } from "@/lib/utils";
 
@@ -66,9 +67,69 @@ export function displayFormula(source: string, fields: readonly { key: string; n
   });
 }
 
-/** 工作项类型的配置：流程模板、角色、关联、字段、详情页布局。只有空间管理员能改，成员只读。 */
+/** 工作项配置的页签，和飞书项目一致：基本信息、字段、页面布局、流程、角色。 */
+export const TYPE_MENU_TABS = ["baseInfo", "field", "layout", "workflow", "role"] as const;
+export type TypeMenuTab = (typeof TYPE_MENU_TABS)[number];
+const TYPE_MENU_LABEL: Record<TypeMenuTab, string> = {
+  baseInfo: "基本信息",
+  field: "字段",
+  layout: "页面布局",
+  workflow: "流程",
+  role: "角色",
+};
+
+/** 空间配置 → 工作项 → 某个工作项：全屏的配置页。 */
 export function TypePage() {
-  const { typeId } = useParams({ from: "/app/types/$typeId" });
+  const { spaceId, typeKey } = useParams({ from: "/app/spaces/$spaceId/setting/workObject/$typeKey" });
+  const { menuTab = "baseInfo" } = useSearch({ from: "/app/spaces/$spaceId/setting/workObject/$typeKey" });
+  const navigate = useNavigate();
+  const [space, result] = useQuery(queries.spaces.byId({ id: spaceId }));
+  const type = space?.workItemTypes.find((t) => t.key === typeKey);
+  if (!type)
+    return (
+      <p className="p-6 text-sm text-fg-muted">
+        {result.type === "complete" && space !== undefined ? "这个空间里没有这种工作项。" : "加载中…"}
+      </p>
+    );
+  return (
+    <div className="flex h-full flex-col">
+      <header className="flex h-12 shrink-0 items-center gap-4 border-b border-line-subtle bg-surface px-4">
+        <span className="flex min-w-0 items-center gap-2 font-semibold">
+          <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded bg-brand-500 text-xs font-medium text-white">
+            {type.name.slice(0, 1)}
+          </span>
+          <span className="truncate">{type.name}</span>
+        </span>
+        <Tabs
+          label="工作项配置"
+          className="mx-auto"
+          value={menuTab}
+          onChange={(next) => navigate({ to: ".", search: { menuTab: next } })}
+          items={TYPE_MENU_TABS.map((k) => [k, TYPE_MENU_LABEL[k]] as const)}
+        />
+        <Link
+          to="/spaces/$spaceId/setting/$tab"
+          params={{ spaceId, tab: "workObjectSetting" }}
+          aria-label="关闭"
+          className="rounded-md p-1 text-fg-muted hover:bg-hover hover:text-fg"
+        >
+          <X className="size-5" />
+        </Link>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto bg-canvas">
+        <TypeConfig typeId={type.id} tab={menuTab} />
+      </div>
+    </div>
+  );
+}
+
+/** 空间配置的「关联」页签里，每个工作项的关联配置。 */
+export function TypeRelations({ typeId }: { typeId: string }) {
+  return <TypeConfig typeId={typeId} tab="relation" embedded />;
+}
+
+/** 工作项配置的内容：按页签显示流程、角色、关联、字段、页面布局。只有空间管理员能改，成员只读。 */
+function TypeConfig({ typeId, tab, embedded }: { typeId: string; tab: TypeMenuTab | "relation"; embedded?: boolean }) {
   const zero = useZero();
   const [type, result] = useQuery(queries.types.byId({ id: typeId }));
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +140,7 @@ export function TypePage() {
   const members = (space?.members ?? []).map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId }));
   const memberName = (id: string) => members.find((m) => m.userId === id)?.name ?? id;
   useActiveSpace(type?.spaceId);
+  const Body = embedded ? Fragment : PageBody;
 
   if (!type)
     return (
@@ -111,18 +173,31 @@ export function TypePage() {
   const text = (data: FormData, name: string) => String(data.get(name) ?? "").trim();
 
   return (
-    <>
-      <PageHeader
-        title={type.name}
-        breadcrumb={
-          <Link to="/spaces/$spaceId/settings" params={{ spaceId: type.spaceId }} className="hover:text-brand-500">
-            空间设置 · 工作项类型
-          </Link>
-        }
-      />
-      <PageBody className="max-w-4xl">
-        {error && <ErrorBanner>{error}</ErrorBanner>}
+    <Body {...(!embedded && { className: "max-w-4xl" })}>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
+      {tab === "baseInfo" && (
+        <Section title="基本配置">
+          <dl className="grid grid-cols-[6rem_1fr] gap-y-3 text-sm">
+            <dt className="text-fg-muted">名称</dt>
+            <dd>{type.name}</dd>
+            <dt className="text-fg-muted">系统标识</dt>
+            <dd className="font-mono text-xs leading-5">{type.key}</dd>
+            <dt className="text-fg-muted">流程模式</dt>
+            <dd>
+              {type.flowMode === "state"
+                ? "状态流：适合缺陷、工单这类按状态流转的事项"
+                : "节点流：适合多角色协作、分阶段推进的事项"}
+            </dd>
+            <dt className="text-fg-muted">规模</dt>
+            <dd className="text-fg-muted">
+              {type.fields.length} 个字段 · {type.roles.length} 个角色 · {type.flowTemplates.length} 套流程
+            </dd>
+          </dl>
+        </Section>
+      )}
+
+      {tab === "workflow" && (
         <Section title="流程模板">
           <ul className="flex flex-col gap-2 text-sm">
             {type.flowTemplates.map((t) => {
@@ -130,8 +205,8 @@ export function TypePage() {
               return (
                 <li key={t.id} className="flex items-center gap-3">
                   <Link
-                    to="/templates/$templateId"
-                    params={{ templateId: t.id }}
+                    to="/spaces/$spaceId/setting/workObject/$typeKey/workflow/$templateId"
+                    params={{ spaceId: type.spaceId, typeKey: type.key, templateId: t.id }}
                     className="font-medium text-brand-500 hover:underline"
                   >
                     {t.name}
@@ -162,7 +237,9 @@ export function TypePage() {
             </form>
           )}
         </Section>
+      )}
 
+      {tab === "role" && (
         <Section title="角色">
           <ul aria-label="角色列表" className="flex flex-col text-sm">
             {type.roles.map((r, i) => (
@@ -222,7 +299,9 @@ export function TypePage() {
             </form>
           )}
         </Section>
+      )}
 
+      {tab === "relation" && (
         <Section title="关联">
           <ul aria-label="关联列表" className="flex flex-col gap-1.5 text-sm">
             {type.relationDefs.map((d) => (
@@ -291,7 +370,9 @@ export function TypePage() {
             </form>
           )}
         </Section>
+      )}
 
+      {tab === "field" && (
         <Section title="字段">
           <table className="w-full text-sm">
             <tbody>
@@ -379,50 +460,52 @@ export function TypePage() {
             </form>
           )}
         </Section>
+      )}
 
-        {(() => {
-          const field = fields.find((f) => f.id === configuring);
-          return field ? (
-            <FieldConfigSheet
-              key={field.id}
-              field={field}
-              fields={fields}
-              members={members}
-              canManage={isAdmin}
-              onClose={() => setConfiguring(null)}
-              onSave={async (patch: FieldPatch) => {
-                // 默认值里的值是 JSON，配置的类型比 mutator 参数宽，交给 mutator 校验
-                const outcome = await zero.mutate(
-                  mutators.fieldDef.update({ id: field.id, ...patch, config: patch.config as never }),
-                ).client;
-                return outcome.type === "error" ? outcome.error.message : null;
-              }}
-            />
-          ) : null;
-        })()}
+      {(() => {
+        const field = fields.find((f) => f.id === configuring);
+        return field ? (
+          <FieldConfigSheet
+            key={field.id}
+            field={field}
+            fields={fields}
+            members={members}
+            canManage={isAdmin}
+            onClose={() => setConfiguring(null)}
+            onSave={async (patch: FieldPatch) => {
+              // 默认值里的值是 JSON，配置的类型比 mutator 参数宽，交给 mutator 校验
+              const outcome = await zero.mutate(
+                mutators.fieldDef.update({ id: field.id, ...patch, config: patch.config as never }),
+              ).client;
+              return outcome.type === "error" ? outcome.error.message : null;
+            }}
+          />
+        ) : null;
+      })()}
 
-        {(() => {
-          const role = type.roles.find((r) => r.id === configuringRole);
-          return role ? (
-            <RoleConfigSheet
-              key={role.id}
-              role={role}
-              roles={type.roles}
-              fields={fields}
-              members={members}
-              canManage={isAdmin}
-              onClose={() => setConfiguringRole(null)}
-              onSave={async (patch) => {
-                // 条件里的值是 JSON，配置的类型比 mutator 参数宽，交给 mutator 校验
-                const outcome = await zero.mutate(
-                  mutators.roleDef.update({ id: role.id, name: patch.name, config: patch.config as never }),
-                ).client;
-                return outcome.type === "error" ? outcome.error.message : null;
-              }}
-            />
-          ) : null;
-        })()}
+      {(() => {
+        const role = type.roles.find((r) => r.id === configuringRole);
+        return role ? (
+          <RoleConfigSheet
+            key={role.id}
+            role={role}
+            roles={type.roles}
+            fields={fields}
+            members={members}
+            canManage={isAdmin}
+            onClose={() => setConfiguringRole(null)}
+            onSave={async (patch) => {
+              // 条件里的值是 JSON，配置的类型比 mutator 参数宽，交给 mutator 校验
+              const outcome = await zero.mutate(
+                mutators.roleDef.update({ id: role.id, name: patch.name, config: patch.config as never }),
+              ).client;
+              return outcome.type === "error" ? outcome.error.message : null;
+            }}
+          />
+        ) : null;
+      })()}
 
+      {tab === "layout" && (
         <Section title="详情页布局">
           <LayoutEditor
             key={JSON.stringify([type.detailLayout, type.fields.map((f) => f.key)])}
@@ -446,8 +529,8 @@ export function TypePage() {
             }}
           />
         </Section>
-      </PageBody>
-    </>
+      )}
+    </Body>
   );
 }
 

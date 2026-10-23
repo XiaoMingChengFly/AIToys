@@ -1,5 +1,15 @@
 import { expect, test } from "@playwright/test";
-import { choose, createItem, createSpace, openItems, openSettings, signUp } from "./helpers";
+import {
+  choose,
+  closeTypeConfig,
+  createItem,
+  createSpace,
+  openItems,
+  openSettings,
+  openTypeConfig,
+  signUp,
+  typeTab,
+} from "./helpers";
 
 test("a node with a conclusion and a custom button; the next node sets the status when it starts", async ({ page }) => {
   const suffix = `${Date.now()}`;
@@ -8,9 +18,11 @@ test("a node with a conclusion and a custom button; the next node sets the statu
   await openSettings(page);
   await page.getByLabel("新类型名称").fill("立项");
   await page.getByRole("button", { name: "新建类型" }).click();
-  await page.getByRole("main").getByRole("link", { name: /^立项/ }).click();
+  await openTypeConfig(page, "立项");
+  await typeTab(page, "角色");
   await page.getByLabel("新角色名称").fill("评审人");
   await page.getByRole("button", { name: "添加角色" }).click();
+  await typeTab(page, "流程");
   await page.getByLabel("新模板名称").fill("立项流程");
   await page.getByRole("button", { name: "新建模板" }).click();
   await page.getByRole("link", { name: "立项流程" }).click();
@@ -40,6 +52,7 @@ test("a node with a conclusion and a custom button; the next node sets the statu
   await page.getByRole("button", { name: "发布" }).click();
   await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
 
+  await closeTypeConfig(page);
   await openItems(page);
   await createItem(page, "面霜立项", { label: "立项名称" });
   const review = panel.getByRole("region", { name: "评审" });
