@@ -472,6 +472,12 @@ function FormulaHelp() {
           字段写成 {"{字段名}"}，可以用 + - * / 、比较（&gt; &lt; = !=）和 &amp; 拼接文本；文本用双引号。空值在计算里按
           0 算。子工作项汇总的结果在服务端计算，引用了受限字段时，记得也给公式字段配可见角色。
         </p>
+        <p>
+          跨工作项：RELATED("关联名") 是关联的工作项列表，CHILDREN() 是子工作项列表，列表.{"{字段}"} 取每一项的字段；
+          FILTER、MAP、COUNTIF、SUMIF、ANYOF、ALLOF 的第二个参数里用 each 表示当前项，工作项还有 .名称、.状态、.阶段。
+          例：是否存在关联风险 COUNT(RELATED("关联风险")) &gt; 0；进行中的风险个数 COUNTIF(RELATED("关联风险"),
+          each.状态 = "inProgress")；NODE("需求评审").结论 = "pass"。
+        </p>
         <ul className="grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
           {Object.values(FORMULA_FUNCTIONS).map((f) => (
             <li key={f.doc} className="font-mono">

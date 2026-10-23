@@ -55,6 +55,8 @@ export interface FieldConfig {
   optionWhen?: Record<string, Condition> | null;
   /** 多选里的排他选项：选了它就只能选它。 */
   exclusiveOptions?: string[] | null;
+  /** 公式字段：工作项完成后不再重算，保留完成时的结果。 */
+  freezeOnComplete?: boolean | null;
 }
 
 /** 规则求值需要的字段定义。 */

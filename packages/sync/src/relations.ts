@@ -1,6 +1,7 @@
 import type { Transaction } from "@rocicorp/zero";
 import { z } from "zod";
 import { requireWriter } from "./access.ts";
+import { recomputeFormulas } from "./formulas.ts";
 import { zql } from "./schema.gen.ts";
 import { assertAdmin } from "./templates.ts";
 
@@ -85,6 +86,8 @@ export async function addRelation(tx: Transaction, args: z.output<typeof addRela
     toId: to.id,
     createdAt: Date.now(),
   });
+  // 两端的公式可能用 RELATED 读关联的工作项
+  for (const id of [from.id, to.id, ...replaced.map((r) => r.toId)]) await recomputeFormulas(tx, id);
   return { spaceId: from.spaceId, replaced: replaced.map((r) => r.toId) };
 }
 
@@ -95,5 +98,6 @@ export async function removeRelation(tx: Transaction, args: z.output<typeof remo
   if (!relation?.relationDefId || !from) throw new Error("关联不存在或没有权限。");
   await requireWriter(tx, from.spaceId, userID);
   await tx.mutate.relation.delete({ id: args.id });
+  for (const id of [relation.fromId, relation.toId]) await recomputeFormulas(tx, id);
   return { spaceId: from.spaceId, relation };
 }

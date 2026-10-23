@@ -1,10 +1,25 @@
-import { type CompiledFormula, compileFormula, type FieldDataType, orderFormulas } from "@fp/engine";
+import {
+  type CompiledFormula,
+  compileFormula,
+  type FieldConfig,
+  type FieldDataType,
+  type FormulaItem,
+  type FormulaNode,
+  nodeFlowOf,
+  orderFormulas,
+} from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
 import { syncFieldAccess } from "./access.ts";
 import { storeFieldValue } from "./field-values.ts";
 import { zql } from "./schema.gen.ts";
 
-type FieldRow = { key: string; name: string; dataType: FieldDataType; formula: string | null };
+type FieldRow = {
+  key: string;
+  name: string;
+  dataType: FieldDataType;
+  formula: string | null;
+  config?: FieldConfig | null;
+};
 
 /** 公式里写的字段名或字段键换成字段键。 */
 export function fieldResolver(fields: readonly { key: string; name: string }[]) {
@@ -42,15 +57,20 @@ export async function recomputeFormulas(
       .one(),
   );
   if (!item?.type) return [];
-  const formulas = compileTypeFormulas(item.type.fields);
+  // 配了「完成后冻结」的公式字段，工作项完成后不再变
+  const frozen = item.status === "completed";
+  const formulas = compileTypeFormulas(item.type.fields).filter((f) => !(frozen && f.config?.freezeOnComplete));
   if (formulas.length === 0) return [];
 
   const values = new Map(item.fieldValues.map((v) => [v.fieldKey, v.value]));
-  const children = formulas.some((f) => f.compiled.usesSubItems) ? await subItemsOf(tx, workItemId) : null;
+  const children = formulas.some((f) => f.compiled.usesSubItems || f.compiled.usesRelated)
+    ? await subItemsOf(tx, workItemId)
+    : null;
+  const cross = formulas.some((f) => f.compiled.usesRelated) ? await crossScope(tx, workItemId, children ?? []) : null;
   const changes: { fieldKey: string; from: unknown; to: unknown }[] = [];
   let created = false;
   for (const f of formulas) {
-    const value = evaluate(f.compiled, values, children);
+    const value = evaluate(f.compiled, values, children, cross);
     if (same(values.get(f.key), value)) continue;
     const result = await storeFieldValue(tx, workItemId, f, value);
     created ||= result.created;
@@ -62,10 +82,81 @@ export async function recomputeFormulas(
 }
 
 type SubItem = {
+  name: string;
   status: string | null;
+  stage: string | null;
   values: Map<string, unknown>;
   fields: readonly { key: string; name: string }[];
 };
+
+/** 公式里的别的工作项：字段按名称或键取。 */
+const asFormulaItem = (i: SubItem): FormulaItem => ({
+  name: i.name,
+  status: i.status,
+  stage: i.stage,
+  field: (ref) => {
+    const key = fieldResolver(i.fields)(ref);
+    return key === undefined ? null : i.values.get(key);
+  },
+});
+
+type CrossScope = {
+  related(name: string): FormulaItem[];
+  children(): FormulaItem[];
+  node(ref: string): FormulaNode | null;
+};
+
+/**
+ * 公式里 RELATED、CHILDREN、NODE 要的数据：按关联名（或关联键）分好的关联工作项（两个方向）、子工作项、节点。
+ */
+async function crossScope(tx: Transaction, workItemId: string, children: SubItem[]): Promise<CrossScope> {
+  const outgoing = await tx.run(
+    zql.relation
+      .where("fromId", workItemId)
+      .where("relationDefId", "IS NOT", null)
+      .related("def")
+      .related("to", (w) => w.related("fieldValues").related("type", (t) => t.related("fields"))),
+  );
+  const incoming = await tx.run(
+    zql.relation
+      .where("toId", workItemId)
+      .where("relationDefId", "IS NOT", null)
+      .related("def")
+      .related("from", (w) => w.related("fieldValues").related("type", (t) => t.related("fields"))),
+  );
+  const toSub = (w: {
+    name: string;
+    status: string | null;
+    stage: string | null;
+    fieldValues: readonly { fieldKey: string; value: unknown }[];
+    type?: { fields: readonly { key: string; name: string }[] } | undefined;
+  }): SubItem => ({
+    name: w.name,
+    status: w.status,
+    stage: w.stage,
+    values: new Map(w.fieldValues.map((v) => [v.fieldKey, v.value])),
+    fields: w.type?.fields ?? [],
+  });
+  const byDef = new Map<string, SubItem[]>();
+  const add = (def: { id: string; name: string } | undefined, w: Parameters<typeof toSub>[0] | undefined) => {
+    if (!def || !w) return;
+    for (const k of [def.id, def.name]) byDef.set(k, [...(byDef.get(k) ?? []), toSub(w)]);
+  };
+  for (const r of outgoing) add(r.def, r.to);
+  for (const r of incoming) add(r.def, r.from);
+
+  const item = await tx.run(zql.workItem.where("id", workItemId).related("flowVersion").related("nodes").one());
+  const definition = nodeFlowOf(item?.flowVersion?.definition);
+  return {
+    related: (name) => (byDef.get(name) ?? []).map(asFormulaItem),
+    children: () => children.map(asFormulaItem),
+    node: (ref) => {
+      const key = definition?.nodes.find((n) => n.key === ref || n.name === ref)?.key ?? ref;
+      const n = item?.nodes.find((x) => x.nodeKey === key);
+      return n ? { state: n.state ?? "notStarted", conclusion: n.conclusion ?? null } : null;
+    },
+  };
+}
 
 async function subItemsOf(tx: Transaction, workItemId: string): Promise<SubItem[]> {
   const edges = await tx.run(
@@ -78,7 +169,9 @@ async function subItemsOf(tx: Transaction, workItemId: string): Promise<SubItem[
     e.to
       ? [
           {
+            name: e.to.name,
             status: e.to.status,
+            stage: e.to.stage,
             values: new Map(e.to.fieldValues.map((v) => [v.fieldKey, v.value])),
             fields: e.to.type?.fields ?? [],
           },
@@ -87,9 +180,15 @@ async function subItemsOf(tx: Transaction, workItemId: string): Promise<SubItem[
   );
 }
 
-function evaluate(formula: CompiledFormula, values: Map<string, unknown>, children: SubItem[] | null) {
+function evaluate(
+  formula: CompiledFormula,
+  values: Map<string, unknown>,
+  children: SubItem[] | null,
+  cross: CrossScope | null,
+) {
   return formula.evaluate({
     field: (key) => values.get(key),
+    ...(cross && { related: cross.related, children: cross.children, node: cross.node }),
     ...(children && {
       subItemCount: children.length,
       subItemsDone: children.filter((c) => c.status === "completed").length,
@@ -111,5 +210,32 @@ export async function recomputeParentFormulas(tx: Transaction, workItemId: strin
   for (const p of new Set(parents.map((r) => r.fromId))) {
     const changes = await recomputeFormulas(tx, p);
     if (changes.length > 0) await recomputeParentFormulas(tx, p, depth + 1);
+  }
+  await recomputeRelatedFormulas(tx, workItemId, depth);
+}
+
+/**
+ * 工作项变了（字段、状态、节点）：通过自定义关联连着它的工作项，公式里可能用 RELATED 读它，重算一遍。
+ * 只重算有跨工作项公式的类型；连锁变化最多往外 5 层。
+ */
+export async function recomputeRelatedFormulas(tx: Transaction, workItemId: string, depth = 0): Promise<void> {
+  if (tx.location !== "server" || depth >= 5) return;
+  const edges = [
+    ...(await tx.run(zql.relation.where("toId", workItemId).where("relationDefId", "IS NOT", null))).map(
+      (r) => r.fromId,
+    ),
+    ...(await tx.run(zql.relation.where("fromId", workItemId).where("relationDefId", "IS NOT", null))).map(
+      (r) => r.toId,
+    ),
+  ];
+  for (const id of new Set(edges)) {
+    const neighbor = await tx.run(
+      zql.workItem
+        .where("id", id)
+        .related("type", (t) => t.related("fields"))
+        .one(),
+    );
+    if (!neighbor?.type?.fields.some((f) => f.formula && /RELATED|NODE|CHILDREN/i.test(f.formula))) continue;
+    if ((await recomputeFormulas(tx, id)).length > 0) await recomputeRelatedFormulas(tx, id, depth + 1);
   }
 }

@@ -127,6 +127,7 @@ export const fieldConfigSchema = z.object({
   leafOnly: z.boolean().nullish(),
   optionWhen: z.record(z.string(), condition).nullish(),
   exclusiveOptions: z.array(z.string()).nullish(),
+  freezeOnComplete: z.boolean().nullish(),
 });
 
 /** 改字段：名称、选项、必填和配置。字段类型和键建好后不能改。 */
@@ -241,7 +242,10 @@ export const flowDefinitionSchema = z.object({
             style: z.enum(["primary", "default", "warning"]).optional(),
             action: z.enum(["complete", "assign"]),
             conclusion: z.string().optional(),
-            assignments: z.array(z.object({ field: z.string(), value: fieldValueInput })).max(20).optional(),
+            assignments: z
+              .array(z.object({ field: z.string(), value: fieldValueInput }))
+              .max(20)
+              .optional(),
             roles: z.array(z.string()).optional(),
           }),
         )
@@ -663,7 +667,9 @@ export function checkReferences(
       if (!fields.has(field)) errors.push(`节点「${node.name}」的完成表单用到的字段「${field}」不存在。`);
     const assigned = [
       ...(node.buttons ?? []).flatMap((b) => (b.assignments ?? []).map((a) => a.field)),
-      ...[...(node.onArrive ?? []), ...(node.onComplete ?? [])].flatMap((a) => (a.kind === "setField" ? [a.field] : [])),
+      ...[...(node.onArrive ?? []), ...(node.onComplete ?? [])].flatMap((a) =>
+        a.kind === "setField" ? [a.field] : [],
+      ),
     ];
     for (const field of assigned)
       if (!fields.has(field)) errors.push(`节点「${node.name}」要改的字段「${field}」不存在。`);
@@ -681,8 +687,7 @@ export function checkReferences(
   for (const rule of definition.stageRules ?? [])
     for (const field of fieldsOf(rule.when)) {
       const [prefix, key] = field.startsWith("$") ? field.split(".", 2) : [null, null];
-      if (prefix ? !nodeKeys.has(key ?? "") : !fields.has(field))
-        errors.push(`状态计算规则用到的「${field}」不存在。`);
+      if (prefix ? !nodeKeys.has(key ?? "") : !fields.has(field)) errors.push(`状态计算规则用到的「${field}」不存在。`);
     }
   return errors;
 }

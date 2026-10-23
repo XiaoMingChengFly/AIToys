@@ -80,3 +80,50 @@ describe("formula", () => {
     expect(formatFieldValue(spec, 0.1 + 0.2)).toBe("0.3");
   });
 });
+
+describe("formula across work items", () => {
+  const item = (name: string, status: string, fields: Record<string, unknown>) => ({
+    name,
+    status,
+    stage: null,
+    field: (ref: string) => fields[ref] ?? null,
+  });
+  const risks = [
+    item("包材风险", "inProgress", { 等级: "高", 影响天数: 3 }),
+    item("配方风险", "completed", { 等级: "低", 影响天数: 1 }),
+  ];
+  const scope = {
+    field: (k: string) => values[k] ?? null,
+    related: (name: string) => (name === "关联风险" ? risks : []),
+    children: () => [item("SKU-1", "completed", { 工时: 3 }), item("SKU-2", "inProgress", { 工时: 4 })],
+    node: (ref: string) => (ref === "需求评审" ? { state: "completed", conclusion: "pass" } : null),
+    today: "2026-10-23",
+  };
+  const calc = (source: string) => compileFormula(source, resolve).evaluate(scope);
+
+  it("checks whether related items exist and filters them", () => {
+    expect(calc('COUNT(RELATED("关联风险")) > 0')).toBe(true);
+    expect(calc('COUNT(RELATED("关联CDCP")) > 0')).toBe(false);
+    expect(calc('COUNTIF(RELATED("关联风险"), each.状态 = "inProgress")')).toBe(1);
+    expect(calc('JOIN(FILTER(RELATED("关联风险"), each.{等级} = "高").名称)')).toBe("包材风险");
+    expect(calc('SUMIF(RELATED("关联风险"), TRUE, each.{影响天数})')).toBe(4);
+    expect(calc('ANYOF(RELATED("关联风险"), each.{等级} = "低")')).toBe(true);
+    expect(calc('ALLOF(RELATED("关联风险"), each.状态 = "completed")')).toBe(false);
+  });
+
+  it("sums sub-items, reads nodes and today", () => {
+    expect(calc("SUM(MAP(CHILDREN(), each.{工时}))")).toBe(7);
+    expect(calc("SUM(CHILDREN().{工时})")).toBe(7);
+    expect(calc('NODE("需求评审").结论 = "pass"')).toBe(true);
+    expect(calc('CONTAINS({标签}, "b")')).toBe(true);
+    expect(calc("DAYS(TODAY(), {开始})")).toBe(-10);
+  });
+
+  it("marks formulas that read other items and round-trips the source", () => {
+    const f = compileFormula('COUNTIF(RELATED("关联风险"), each.{等级} = "高") > 0', resolve);
+    expect(f.usesRelated).toBe(true);
+    expect(f.source).toBe('COUNTIF(RELATED("关联风险"), each.{等级} = "高") > 0');
+    expect(compileFormula(f.source, resolve).source).toBe(f.source);
+    expect(compileFormula("{工时} + 1", resolve).usesRelated).toBe(false);
+  });
+});

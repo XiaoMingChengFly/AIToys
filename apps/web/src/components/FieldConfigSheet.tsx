@@ -115,6 +115,7 @@ export function FieldConfigSheet({
   const [number, setNumber] = useState<NumberFormat>({ ...(initial.number ?? {}) });
   const [leafOnly, setLeafOnly] = useState(initial.leafOnly ?? false);
   const [unique, setUnique] = useState(initial.unique ?? false);
+  const [freeze, setFreeze] = useState(initial.freezeOnComplete ?? false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -155,6 +156,7 @@ export function FieldConfigSheet({
       number: dataType === "number" && Object.values(number).some((v) => v !== undefined) ? number : null,
       leafOnly: cascade && leafOnly,
       unique: dataType === "text" && unique,
+      freezeOnComplete: dataType === "formula" && freeze,
       optionWhen: isOptions
         ? compact(Object.fromEntries(Object.entries(optionWhen).filter(([v]) => values.has(v))) as FieldRules)
         : null,
@@ -362,6 +364,9 @@ export function FieldConfigSheet({
           )}
           {dataType === "text" && (
             <CheckRow label="校验重复值（同类型下不能重复）" checked={unique} onChange={setUnique} />
+          )}
+          {dataType === "formula" && (
+            <CheckRow label="工作项完成后冻结结果（不再重算）" checked={freeze} onChange={setFreeze} />
           )}
         </Group>
 
