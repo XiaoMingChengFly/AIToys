@@ -138,12 +138,13 @@ async function crossScope(tx: Transaction, workItemId: string, children: SubItem
     fields: w.type?.fields ?? [],
   });
   const byDef = new Map<string, SubItem[]>();
-  const add = (def: { id: string; name: string } | undefined, w: Parameters<typeof toSub>[0] | undefined) => {
+  const add = (def: { id: string; name: string; reverseName?: string | null } | undefined, name: string | undefined, w: Parameters<typeof toSub>[0] | undefined) => {
     if (!def || !w) return;
-    for (const k of [def.id, def.name]) byDef.set(k, [...(byDef.get(k) ?? []), toSub(w)]);
+    for (const k of [def.id, name ?? def.name]) byDef.set(k, [...(byDef.get(k) ?? []), toSub(w)]);
   };
-  for (const r of outgoing) add(r.def, r.to);
-  for (const r of incoming) add(r.def, r.from);
+  for (const r of outgoing) add(r.def, r.def?.name, r.to);
+  // 互相关联的另一端用另一端的字段名；没有设另一端字段名的关联，两个方向都用关联名
+  for (const r of incoming) add(r.def, r.def?.reverseName ?? r.def?.name, r.from);
 
   const item = await tx.run(zql.workItem.where("id", workItemId).related("flowVersion").related("nodes").one());
   const definition = nodeFlowOf(item?.flowVersion?.definition);
