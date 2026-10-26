@@ -253,7 +253,10 @@ function TypesCard({ space, canManage }: { space: Space; canManage: boolean }) {
                     params={{ spaceId: space.id, typeKey: t.key }}
                     className="flex h-16 items-center gap-3 rounded-lg border border-line-subtle px-3 hover:border-brand-500 hover:bg-hover/50"
                   >
-                    <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-md bg-brand-500 text-sm font-medium text-white">
+                    <span
+                      aria-hidden
+                      className="flex size-8 shrink-0 items-center justify-center rounded-md bg-brand-500 text-sm font-medium text-white"
+                    >
                       {t.name.slice(0, 1)}
                     </span>
                     <span className="flex min-w-0 flex-col">

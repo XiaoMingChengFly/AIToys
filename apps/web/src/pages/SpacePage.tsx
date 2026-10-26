@@ -279,10 +279,12 @@ function WorkItems({
   const [display, setDisplayState] = useState<ListDisplay>(() => {
     if (initialView?.display) return initialView.display as ListDisplay;
     try {
-      return JSON.parse(localStorage.getItem(displayKey) ?? "{}") as ListDisplay;
+      const mine = localStorage.getItem(displayKey);
+      if (mine) return JSON.parse(mine) as ListDisplay;
     } catch {
-      return {};
+      // 本机读不了就用管理员配的默认
     }
+    return (type.defaultDisplay as ListDisplay | null) ?? {};
   });
   const setDisplay = (next: ListDisplay) => {
     setDisplayState(next);

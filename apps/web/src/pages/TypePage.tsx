@@ -13,6 +13,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { ArrowDown, ArrowUp, X } from "lucide-react";
 import { type FormEvent, Fragment, type ReactNode, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
+import { ColumnsEditor } from "@/components/ColumnsEditor";
 import { FieldConfigSheet, type FieldPatch } from "@/components/FieldConfigSheet";
 import { LayoutEditor } from "@/components/LayoutEditor";
 import { RoleConfigSheet } from "@/components/RoleConfigSheet";
@@ -21,6 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
 import { ErrorBanner, PageBody } from "@/components/ui/page";
 import { Tabs } from "@/components/ui/tabs";
+import type { ListDisplay } from "@/components/WorkItemList";
 import { withLineOptions } from "@/lib/fields";
 import { newId } from "@/lib/utils";
 
@@ -68,7 +70,7 @@ export function displayFormula(source: string, fields: readonly { key: string; n
 }
 
 /** 工作项配置的页签，和飞书项目一致：基本信息、字段、页面布局、流程、角色。 */
-export const TYPE_MENU_TABS = ["baseInfo", "field", "layout", "workflow", "role"] as const;
+export const TYPE_MENU_TABS = ["baseInfo", "field", "layout", "workflow", "role", "columns"] as const;
 export type TypeMenuTab = (typeof TYPE_MENU_TABS)[number];
 const TYPE_MENU_LABEL: Record<TypeMenuTab, string> = {
   baseInfo: "基本信息",
@@ -76,6 +78,7 @@ const TYPE_MENU_LABEL: Record<TypeMenuTab, string> = {
   layout: "页面布局",
   workflow: "流程",
   role: "角色",
+  columns: "列",
 };
 
 /** 空间配置 → 工作项 → 某个工作项：全屏的配置页。 */
@@ -95,7 +98,10 @@ export function TypePage() {
     <div className="flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center gap-4 border-b border-line-subtle bg-surface px-4">
         <span className="flex min-w-0 items-center gap-2 font-semibold">
-          <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded bg-brand-500 text-xs font-medium text-white">
+          <span
+            aria-hidden
+            className="flex size-5 shrink-0 items-center justify-center rounded bg-brand-500 text-xs font-medium text-white"
+          >
             {type.name.slice(0, 1)}
           </span>
           <span className="truncate">{type.name}</span>
@@ -504,6 +510,24 @@ function TypeConfig({ typeId, tab, embedded }: { typeId: string; tab: TypeMenuTa
           />
         ) : null;
       })()}
+
+      {tab === "columns" && (
+        <Section title="默认显示的列">
+          <ColumnsEditor
+            fields={fields}
+            value={(type.defaultDisplay as ListDisplay | null) ?? null}
+            canManage={isAdmin}
+            onSave={async (display) => {
+              setError(null);
+              const outcome = await zero.mutate(
+                mutators.workItemType.setDefaultDisplay({ id: typeId, display: display as never }),
+              ).client;
+              if (outcome.type === "error") setError(outcome.error.message);
+              return outcome.type !== "error";
+            }}
+          />
+        </Section>
+      )}
 
       {tab === "layout" && (
         <Section title="详情页布局">

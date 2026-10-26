@@ -84,6 +84,8 @@ import {
   setFieldAccessArgs,
   setFormula,
   setFormulaArgs,
+  setDefaultDisplay,
+  setDefaultDisplayArgs,
   setLayout,
   setLayoutArgs,
   updateField,
@@ -224,6 +226,9 @@ export const mutators = defineMutators({
   workItemType: {
     create: defineMutator(createTypeArgs, ({ tx, args, ctx }) => createType(tx, args, ctx.userID)),
     setLayout: defineMutator(setLayoutArgs, ({ tx, args, ctx }) => setLayout(tx, args, ctx.userID)),
+    setDefaultDisplay: defineMutator(setDefaultDisplayArgs, ({ tx, args, ctx }) =>
+      setDefaultDisplay(tx, args, ctx.userID),
+    ),
   },
   roleDef: {
     create: defineMutator(createRoleArgs, ({ tx, args, ctx }) => createRole(tx, args, ctx.userID)),

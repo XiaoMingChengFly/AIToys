@@ -80,6 +80,17 @@ export const setLayoutArgs = z.object({
   id: z.string(),
   layout: z.json().nullable(),
 });
+/** 列表的默认显示（列和顺序、排序、分组）；`display` 为空表示恢复默认。 */
+export const setDefaultDisplayArgs = z.object({
+  id: z.string(),
+  display: z
+    .object({
+      columns: z.array(z.object({ key: z.string(), width: z.number().optional() })).max(60).optional(),
+      sort: z.array(z.object({ key: z.string(), desc: z.boolean().optional() })).max(5).optional(),
+      groupBy: z.string().nullable().optional(),
+    })
+    .nullable(),
+});
 export const createTemplateArgs = z.object({ id: z.string(), typeId: z.string(), key, name: z.string().min(1) });
 
 export const condition: z.ZodType<Condition, Condition> = z.lazy(() =>
@@ -343,6 +354,15 @@ export async function setLayout(tx: Transaction, args: z.output<typeof setLayout
     if (error) throw new Error(error);
   }
   await tx.mutate.workItemType.update({ id: args.id, detailLayout: layout });
+}
+
+export async function setDefaultDisplay(
+  tx: Transaction,
+  args: z.output<typeof setDefaultDisplayArgs>,
+  userID: string,
+) {
+  await adminType(tx, args.id, userID);
+  await tx.mutate.workItemType.update({ id: args.id, defaultDisplay: args.display });
 }
 
 export async function createRole(tx: Transaction, args: z.output<typeof createRoleArgs>, userID: string) {

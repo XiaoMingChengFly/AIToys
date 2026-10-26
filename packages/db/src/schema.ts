@@ -178,6 +178,8 @@ export const workItemType = pgTable(
     flowMode: text("flow_mode").$type<FlowMode>().notNull().default("node"),
     /** 详情页布局：字段怎么分组、哪些不显示；为空时所有字段放在一组。 */
     detailLayout: jsonb("detail_layout").$type<DetailLayout>(),
+    /** 列表的默认显示（列和顺序、排序、分组、行着色）：管理员在「列」页签里配置，成员打开列表时的起点。 */
+    defaultDisplay: jsonb("default_display").$type<ViewDisplay>(),
     sort: integer("sort").notNull().default(0),
     createdAt: createdAt(),
   },

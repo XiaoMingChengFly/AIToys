@@ -109,8 +109,8 @@ export async function openTypeConfig(page: Page, typeName: string) {
   await expect(page.getByRole("tablist", { name: "工作项配置" })).toBeVisible();
 }
 
-/** 工作项配置页里切页签：基本信息、字段、页面布局、流程、角色。 */
-export async function typeTab(page: Page, tab: "基本信息" | "字段" | "页面布局" | "流程" | "角色") {
+/** 工作项配置页里切页签：基本信息、字段、页面布局、流程、角色、列。 */
+export async function typeTab(page: Page, tab: "基本信息" | "字段" | "页面布局" | "流程" | "角色" | "列") {
   await page.getByRole("tablist", { name: "工作项配置" }).getByRole("tab", { name: tab }).click();
 }
 

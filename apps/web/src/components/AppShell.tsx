@@ -144,7 +144,10 @@ function Sidebar({
                   activeOptions={{ includeSearch: false }}
                   className={navItem}
                 >
-                  <span aria-hidden className="flex size-4 shrink-0 items-center justify-center rounded bg-brand-500 text-[10px] font-medium text-white">
+                  <span
+                    aria-hidden
+                    className="flex size-4 shrink-0 items-center justify-center rounded bg-brand-500 text-[10px] font-medium text-white"
+                  >
                     {t.name.slice(0, 1)}
                   </span>
                   <span className="truncate">{t.name}</span>

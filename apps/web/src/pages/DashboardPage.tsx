@@ -7,9 +7,9 @@ import { useActiveSpace } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { EmptyState, ErrorBanner, PageBody, PageHeader } from "@/components/ui/page";
-import { ImportOem } from "@/pages/SpacePage";
 import { env } from "@/lib/env";
 import { cn } from "@/lib/utils";
+import { ImportOem } from "@/pages/SpacePage";
 
 /** 和 apps/api/src/dashboard.ts 的返回值一致。 */
 interface Dashboard {
