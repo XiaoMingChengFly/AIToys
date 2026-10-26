@@ -114,6 +114,26 @@ export async function typeTab(page: Page, tab: "基本信息" | "字段" | "页�
   await page.getByRole("tablist", { name: "工作项配置" }).getByRole("tab", { name: tab }).click();
 }
 
+/** 空间配置 → 工作项 → 高级设置 → 关系管理里新建一条关系，两端各有一个字段。 */
+export async function createRelation(
+  page: Page,
+  relation: { from: string; to: string; name: string; reverseName?: string; cardinality?: "one" | "many" },
+) {
+  await openSettings(page);
+  await page.getByRole("link", { name: "高级设置" }).click();
+  await page.getByRole("button", { name: "新建关系" }).click();
+  const dialog = page.locator("[role=dialog][aria-modal=true]");
+  await choose(dialog.getByRole("combobox", { name: "本端工作项", exact: true }), { label: relation.from });
+  await choose(dialog.getByRole("combobox", { name: "对端工作项", exact: true }), { label: relation.to });
+  await dialog.getByRole("textbox", { name: /^本端字段名称/ }).fill(relation.name);
+  if (relation.reverseName) await dialog.getByRole("textbox", { name: /^对端字段名称/ }).fill(relation.reverseName);
+  if (relation.cardinality === "one") await choose(dialog.getByRole("combobox", { name: "本端字段数量", exact: true }), "one");
+  await dialog.getByRole("button", { name: "确定" }).click();
+  await expect(page.getByRole("table", { name: "关系列表" })).toContainText(relation.name);
+  await page.getByRole("link", { name: "关闭" }).click();
+  await expect(page.getByRole("heading", { name: "空间配置" })).toBeVisible();
+}
+
 /** 工作项配置页右上角关闭（流程编辑器里点面包屑），回到空间配置。 */
 export async function closeTypeConfig(page: Page) {
   const close = page.getByRole("link", { name: "关闭" });

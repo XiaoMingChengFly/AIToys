@@ -18,7 +18,6 @@ import { env } from "@/lib/env";
 import { newId } from "@/lib/utils";
 import { AutomationsPanel } from "@/pages/AutomationsPage";
 import { ImportOem } from "@/pages/SpacePage";
-import { TypeRelations } from "@/pages/TypePage";
 
 const NO_CALENDAR = { holidays: [], extraWorkdays: [] };
 
@@ -29,7 +28,6 @@ const SETTING_TABS = [
   ["basicInfo", "空间信息"],
   ["workObjectSetting", "工作项"],
   ["permission", "权限"],
-  ["association", "关联"],
   ["automation", "自动化"],
 ] as const;
 type SettingTab = (typeof SETTING_TABS)[number][0];
@@ -80,17 +78,6 @@ export function SpaceSettingsPage() {
         )}
         {tab === "workObjectSetting" && <TypesCard space={space} canManage={isAdmin} />}
         {tab === "permission" && <MembersCard space={space} canManage={isAdmin} />}
-        {tab === "association" &&
-          (space.workItemTypes.length === 0 ? (
-            <p className="text-sm text-fg-muted">还没有工作项，先在「工作项」页签里新建。</p>
-          ) : (
-            space.workItemTypes.map((t) => (
-              <section key={t.id} aria-label={`${t.name}的关联`} className="flex flex-col gap-2">
-                <h2 className="text-sm font-medium text-fg-muted">{t.name}</h2>
-                <TypeRelations typeId={t.id} />
-              </section>
-            ))
-          ))}
         {tab === "automation" && (
           <>
             <AutomationsPanel spaceId={spaceId} />
@@ -238,8 +225,17 @@ function TypesCard({ space, canManage }: { space: Space; canManage: boolean }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>工作项</CardTitle>
-        <CardDescription>配置工作项的详情、表单、流程和角色。</CardDescription>
+        <div className="flex items-center gap-3">
+          <div className="flex-1">
+            <CardTitle>工作项</CardTitle>
+            <CardDescription>配置工作项的详情、表单、流程和角色。</CardDescription>
+          </div>
+          <Button variant="outline" asChild>
+            <Link to="/spaces/$spaceId/setting/advanced" params={{ spaceId: space.id }}>
+              高级设置
+            </Link>
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {space.workItemTypes.length > 0 ? (

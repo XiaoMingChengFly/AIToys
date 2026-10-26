@@ -345,7 +345,10 @@ export async function setLayout(tx: Transaction, args: z.output<typeof setLayout
   if (parsed && !parsed.success) throw new Error("布局格式不对。");
   const layout = parsed ? (parsed.data as DetailLayout) : null;
   if (layout) {
-    const relations = await tx.run(zql.relationDef.where("fromTypeId", args.id));
+    const relations = [
+      ...(await tx.run(zql.relationDef.where("fromTypeId", args.id))),
+      ...(await tx.run(zql.relationDef.where("toTypeId", args.id))).filter((r) => r.reverseName),
+    ];
     const error = checkLayout(
       layout,
       type.fields.map((f) => f.key),

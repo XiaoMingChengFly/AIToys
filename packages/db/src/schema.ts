@@ -248,6 +248,10 @@ export const relationDef = pgTable("relation_def", {
   fieldKey: text("field_key").notNull(),
   name: text("name").notNull(),
   cardinality: text("cardinality").$type<Cardinality>().notNull(),
+  /** 互相关联：另一端（to 类型）上这条关联的字段名，如「关联项目」；为空时另一端只显示只读的反向关联。 */
+  reverseName: text("reverse_name"),
+  /** 另一端的字段能选几个（一个 to 工作项最多被几个 from 工作项关联）。 */
+  reverseCardinality: text("reverse_cardinality").$type<Cardinality>(),
   createdAt: createdAt(),
 });
 

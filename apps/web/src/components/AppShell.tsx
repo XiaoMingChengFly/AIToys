@@ -32,7 +32,7 @@ export function useActiveSpace(spaceId: string | null | undefined) {
 export function AppShell({ user, children }: { user: { id: string; name: string }; children: ReactNode }) {
   const [spaceId, setSpaceId] = useState<string | undefined>();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const fullScreen = /\/setting\/workObject\/[^/]+/.test(pathname);
+  const fullScreen = /\/setting\/(workObject\/[^/]+|advanced)/.test(pathname);
   return (
     <ActiveSpace.Provider value={setSpaceId}>
       <div className="flex h-full">

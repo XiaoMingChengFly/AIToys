@@ -11,7 +11,7 @@ import { mutators, queries } from "@fp/sync";
 import { useQuery, useZero } from "@rocicorp/zero/react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
-import { type FormEvent, Fragment, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useState } from "react";
 import { useActiveSpace } from "@/components/AppShell";
 import { ColumnsEditor } from "@/components/ColumnsEditor";
 import { FieldConfigSheet, type FieldPatch } from "@/components/FieldConfigSheet";
@@ -129,13 +129,8 @@ export function TypePage() {
   );
 }
 
-/** 空间配置的「关联」页签里，每个工作项的关联配置。 */
-export function TypeRelations({ typeId }: { typeId: string }) {
-  return <TypeConfig typeId={typeId} tab="relation" embedded />;
-}
-
 /** 工作项配置的内容：按页签显示流程、角色、关联、字段、页面布局。只有空间管理员能改，成员只读。 */
-function TypeConfig({ typeId, tab, embedded }: { typeId: string; tab: TypeMenuTab | "relation"; embedded?: boolean }) {
+function TypeConfig({ typeId, tab }: { typeId: string; tab: TypeMenuTab }) {
   const zero = useZero();
   const [type, result] = useQuery(queries.types.byId({ id: typeId }));
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +141,6 @@ function TypeConfig({ typeId, tab, embedded }: { typeId: string; tab: TypeMenuTa
   const members = (space?.members ?? []).map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId }));
   const memberName = (id: string) => members.find((m) => m.userId === id)?.name ?? id;
   useActiveSpace(type?.spaceId);
-  const Body = embedded ? Fragment : PageBody;
 
   if (!type)
     return (
@@ -154,6 +148,10 @@ function TypeConfig({ typeId, tab, embedded }: { typeId: string; tab: TypeMenuTa
     );
   const isAdmin = type.space?.members.some((m) => m.role === "admin") ?? false;
   const fields = withLineOptions(type.fields, type.space?.businessLines);
+  // 别的工作项指向本工作项、并且在本端有字段名的互相关联
+  const reverseDefs = (space?.workItemTypes ?? [])
+    .flatMap((t) => t.relationDefs)
+    .filter((d) => d.toTypeId === type.id && d.reverseName);
   async function reorder(index: number, by: -1 | 1) {
     const keys = type ? type.roles.map((r) => r.key) : [];
     const [key] = keys.splice(index, 1);
@@ -179,7 +177,7 @@ function TypeConfig({ typeId, tab, embedded }: { typeId: string; tab: TypeMenuTa
   const text = (data: FormData, name: string) => String(data.get(name) ?? "").trim();
 
   return (
-    <Body {...(!embedded && { className: "max-w-4xl" })}>
+    <PageBody className="max-w-4xl">
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {tab === "baseInfo" && (
@@ -301,77 +299,6 @@ function TypeConfig({ typeId, tab, embedded }: { typeId: string; tab: TypeMenuTa
               </Label>
               <Button type="submit" variant="outline">
                 添加角色
-              </Button>
-            </form>
-          )}
-        </Section>
-      )}
-
-      {tab === "relation" && (
-        <Section title="关联">
-          <ul aria-label="关联列表" className="flex flex-col gap-1.5 text-sm">
-            {type.relationDefs.map((d) => (
-              <li key={d.id} className="flex items-center gap-3">
-                <span className="font-medium">{d.name}</span>
-                <span className="text-fg-muted">
-                  → {d.toType?.name ?? "?"}（{d.cardinality === "one" ? "单个" : "多个"}）
-                </span>
-                {isAdmin && (
-                  <button
-                    type="button"
-                    aria-label={`删除关联 ${d.name}`}
-                    className="text-fg-subtle hover:text-danger-600"
-                    onClick={async () => {
-                      setError(null);
-                      const outcome = await zero.mutate(mutators.relationDef.delete({ id: d.id })).client;
-                      if (outcome.type === "error") setError(outcome.error.message);
-                    }}
-                  >
-                    删除
-                  </button>
-                )}
-              </li>
-            ))}
-            {type.relationDefs.length === 0 && <li className="text-fg-muted">还没有关联。</li>}
-          </ul>
-          {isAdmin && (
-            <form
-              className="grid items-end gap-2 sm:grid-cols-[1fr_10rem_6rem_auto]"
-              onSubmit={submit((data) => {
-                const name = text(data, "name");
-                if (!name) return null;
-                return mutators.relationDef.create({
-                  id: newId(),
-                  fromTypeId: typeId,
-                  toTypeId: text(data, "toTypeId"),
-                  name,
-                  cardinality: text(data, "cardinality") === "one" ? "one" : "many",
-                });
-              })}
-            >
-              <Label className="flex flex-col gap-1.5">
-                新关联名称
-                <Input name="name" placeholder="如：关联 SKU" />
-              </Label>
-              <Label className="flex flex-col gap-1.5">
-                关联到
-                <Select name="toTypeId">
-                  {type.space?.workItemTypes.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </Select>
-              </Label>
-              <Label className="flex flex-col gap-1.5">
-                数量
-                <Select name="cardinality">
-                  <option value="many">多个</option>
-                  <option value="one">单个</option>
-                </Select>
-              </Label>
-              <Button type="submit" variant="outline">
-                添加关联
               </Button>
             </form>
           )}
@@ -539,7 +466,7 @@ function TypeConfig({ typeId, tab, embedded }: { typeId: string; tab: TypeMenuTa
               dataType: f.dataType,
               options: f.options?.map((o) => ({ value: o.value, label: o.label || o.value })) ?? null,
             }))}
-            relationDefs={type.relationDefs}
+            relationDefs={[...type.relationDefs, ...reverseDefs.map((d) => ({ ...d, name: d.reverseName ?? d.name }))]}
             layout={type.detailLayout ?? null}
             canManage={isAdmin}
             onSave={async (layout) => {
@@ -554,7 +481,7 @@ function TypeConfig({ typeId, tab, embedded }: { typeId: string; tab: TypeMenuTa
           />
         </Section>
       )}
-    </Body>
+    </PageBody>
   );
 }
 

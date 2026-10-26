@@ -318,12 +318,26 @@ export function WorkItemView({ itemId }: { itemId: string }) {
         const defs = (item.type?.relationDefs ?? []).filter(
           (d) => it.kind === "relations" || d.id === it.relationDefId,
         );
+        // 别的工作项指向本工作项、并且在本端有字段名的互相关联
+        const reverseDefs = (space?.workItemTypes ?? [])
+          .flatMap((t) => t.relationDefs)
+          .filter(
+            (d) =>
+              d.toTypeId === item.typeId && d.reverseName && (it.kind === "relations" || d.id === it.relationDefId),
+          )
+          .map((d) => ({
+            id: d.id,
+            name: d.reverseName ?? d.name,
+            fromTypeId: d.fromTypeId,
+            cardinality: d.reverseCardinality ?? ("many" as const),
+          }));
         return (
           <div key={`r-${index}`} className="col-span-full">
             <RelationsCard
               workItemId={item.id}
               spaceId={item.spaceId}
               defs={defs}
+              reverseDefs={reverseDefs}
               outgoing={item.outgoing
                 .filter((r) => it.kind === "relations" || r.relationDefId === it.relationDefId)
                 .map((r) => ({ ...r, item: r.to }))}

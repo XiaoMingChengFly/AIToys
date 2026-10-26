@@ -3,6 +3,7 @@ import { AppShell } from "@/components/AppShell";
 import { FlowDemo } from "@/flow-demo/FlowDemo";
 import { authClient } from "@/lib/auth";
 import { ZeroRoot } from "@/lib/zero";
+import { AdvancedConfigPage } from "@/pages/AdvancedConfigPage";
 import { ApiTokensPage } from "@/pages/ApiTokensPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -92,6 +93,11 @@ const settingRoute = createRoute({
   path: "/spaces/$spaceId/setting/$tab",
   component: SpaceSettingsPage,
 });
+const advancedRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/spaces/$spaceId/setting/advanced",
+  component: AdvancedConfigPage,
+});
 const typeSettingRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/spaces/$spaceId/setting/workObject/$typeKey",
@@ -121,6 +127,7 @@ const routeTree = rootRoute.addChildren([
     spaceIndexRoute,
     dashboardRoute,
     settingIndexRoute,
+    advancedRoute,
     settingRoute,
     typeSettingRoute,
     templateRoute,

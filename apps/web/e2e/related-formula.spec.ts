@@ -3,6 +3,7 @@ import {
   choose,
   closeTypeConfig,
   createItem,
+  createRelation,
   createSpace,
   openItems,
   openSettings,
@@ -21,15 +22,7 @@ test("a formula checks whether related work items exist", async ({ page }) => {
   await choose(page.getByLabel("流程方式"), "state");
   await page.getByRole("button", { name: "新建类型" }).click();
 
-  // 关联在空间配置的「关联」页签里定义
-  await page.getByRole("tablist", { name: "空间配置" }).getByRole("tab", { name: "关联" }).click();
-  const relations = page.getByRole("region", { name: "立项的关联" });
-  await relations.getByLabel("新关联名称").fill("关联风险");
-  await choose(relations.getByLabel("关联到"), { label: "立项" });
-  await relations.getByRole("button", { name: "添加关联" }).click();
-  await expect(relations.getByRole("list", { name: "关联列表" })).toContainText("关联风险");
-
-  await page.getByRole("tablist", { name: "空间配置" }).getByRole("tab", { name: "工作项" }).click();
+  await createRelation(page, { from: "立项", to: "立项", name: "关联风险" });
   await openTypeConfig(page, "立项");
   await typeTab(page, "字段");
   await page.getByLabel("新字段名称").fill("是否存在关联风险");
