@@ -85,6 +85,9 @@ type SubItem = {
   name: string;
   status: string | null;
   stage: string | null;
+  /** 流程类型（流程模板名）和流程节点，公式里的 .流程类型 .节点 用。 */
+  template?: string | null;
+  nodes?: { name: string; state: string; conclusion: string | null }[];
   values: Map<string, unknown>;
   fields: readonly { key: string; name: string }[];
 };
@@ -94,6 +97,8 @@ const asFormulaItem = (i: SubItem): FormulaItem => ({
   name: i.name,
   status: i.status,
   stage: i.stage,
+  template: i.template ?? null,
+  nodes: i.nodes ?? [],
   field: (ref) => {
     const key = fieldResolver(i.fields)(ref);
     return key === undefined ? null : i.values.get(key);
@@ -115,14 +120,26 @@ async function crossScope(tx: Transaction, workItemId: string, children: SubItem
       .where("fromId", workItemId)
       .where("relationDefId", "IS NOT", null)
       .related("def")
-      .related("to", (w) => w.related("fieldValues").related("type", (t) => t.related("fields"))),
+      .related("to", (w) =>
+        w
+          .related("fieldValues")
+          .related("type", (t) => t.related("fields"))
+          .related("nodes")
+          .related("flowVersion", (v) => v.related("template")),
+      ),
   );
   const incoming = await tx.run(
     zql.relation
       .where("toId", workItemId)
       .where("relationDefId", "IS NOT", null)
       .related("def")
-      .related("from", (w) => w.related("fieldValues").related("type", (t) => t.related("fields"))),
+      .related("from", (w) =>
+        w
+          .related("fieldValues")
+          .related("type", (t) => t.related("fields"))
+          .related("nodes")
+          .related("flowVersion", (v) => v.related("template")),
+      ),
   );
   const toSub = (w: {
     name: string;
@@ -130,15 +147,30 @@ async function crossScope(tx: Transaction, workItemId: string, children: SubItem
     stage: string | null;
     fieldValues: readonly { fieldKey: string; value: unknown }[];
     type?: { fields: readonly { key: string; name: string }[] } | undefined;
-  }): SubItem => ({
-    name: w.name,
-    status: w.status,
-    stage: w.stage,
-    values: new Map(w.fieldValues.map((v) => [v.fieldKey, v.value])),
-    fields: w.type?.fields ?? [],
-  });
+    flowVersion?: { definition: unknown; template?: { name: string } | undefined } | undefined;
+    nodes?: readonly { nodeKey: string; state: string | null; conclusion: string | null }[] | undefined;
+  }): SubItem => {
+    const flow = nodeFlowOf(w.flowVersion?.definition);
+    return {
+      name: w.name,
+      status: w.status,
+      stage: w.stage,
+      template: w.flowVersion?.template?.name ?? null,
+      nodes: (w.nodes ?? []).map((n) => ({
+        name: flow?.nodes.find((d) => d.key === n.nodeKey)?.name ?? n.nodeKey,
+        state: n.state ?? "notStarted",
+        conclusion: n.conclusion ?? null,
+      })),
+      values: new Map(w.fieldValues.map((v) => [v.fieldKey, v.value])),
+      fields: w.type?.fields ?? [],
+    };
+  };
   const byDef = new Map<string, SubItem[]>();
-  const add = (def: { id: string; name: string; reverseName?: string | null } | undefined, name: string | undefined, w: Parameters<typeof toSub>[0] | undefined) => {
+  const add = (
+    def: { id: string; name: string; reverseName?: string | null } | undefined,
+    name: string | undefined,
+    w: Parameters<typeof toSub>[0] | undefined,
+  ) => {
     if (!def || !w) return;
     for (const k of [def.id, name ?? def.name]) byDef.set(k, [...(byDef.get(k) ?? []), toSub(w)]);
   };

@@ -18,7 +18,11 @@
  *   NODE("需求评审").状态 = "completed"                      节点状态、结论（.结论）
  *
  * RELATED、CHILDREN 得到工作项列表；列表.{字段} 取每一项的字段；each 是 FILTER、MAP、COUNTIF、SUMIF、
- * ANYOF、ALLOF 里当前的那一项。工作项上除了字段，还有 名称、状态、阶段 三个属性。
+ * ANYOF、ALLOF 里当前的那一项。工作项上除了字段，还有 名称、状态、阶段、流程类型 四个属性，
+ * 以及 节点（这个工作项的流程节点列表，每个节点有 名称、状态、结论）：
+ *
+ *   COUNTIF(RELATED("关联评审管理"), each.流程类型 = "CDCP") > 0         关联的评审里有没有 CDCP 流程的
+ *   COUNTIF(FILTER(RELATED("关联产品资料").节点, each.名称 = "产品手册"), each.状态 = "completed") > 0
  */
 
 export type FormulaValue = number | string | boolean | null;
@@ -28,8 +32,19 @@ export interface FormulaItem {
   name: string;
   status: string | null;
   stage: string | null;
+  /** 流程类型（流程模板的名称）。 */
+  template?: string | null;
+  /** 这个工作项的流程节点；不提供时 .节点 得到空列表。 */
+  nodes?: readonly FormulaNodeItem[];
   /** 按字段名或字段键取值。 */
   field(ref: string): unknown;
+}
+
+/** 列表里的一个节点（取 .节点 得到的）：节点名、状态（notStarted/inProgress/completed/skipped）、结论。 */
+export interface FormulaNodeItem {
+  name: string;
+  state: string;
+  conclusion: string | null;
 }
 
 /** 公式里能拿到的节点。 */
@@ -336,7 +351,16 @@ function memberOf(v: unknown, prop: string, field: boolean): unknown {
     if (prop === "名称" || prop === "NAME") return v.name;
     if (prop === "状态" || prop === "STATUS") return v.status;
     if (prop === "阶段" || prop === "STAGE") return v.stage;
+    if (prop === "流程类型" || prop === "TEMPLATE") return v.template ?? null;
+    if (prop === "节点" || prop === "NODES") return v.nodes ?? [];
     return v.field(prop) ?? null;
+  }
+  // 列表里的节点：名称、状态、结论
+  if (typeof v === "object" && v !== null && "name" in v && "state" in v) {
+    const n = v as FormulaNodeItem;
+    if (prop === "名称" || prop === "NAME") return n.name;
+    if (prop === "状态" || prop === "STATE" || prop === "STATUS") return n.state;
+    if (prop === "结论" || prop === "CONCLUSION") return n.conclusion;
   }
   if (typeof v === "object" && v !== null && "state" in v) {
     const n = v as FormulaNode;

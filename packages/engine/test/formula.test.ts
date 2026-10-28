@@ -82,19 +82,39 @@ describe("formula", () => {
 });
 
 describe("formula across work items", () => {
-  const item = (name: string, status: string, fields: Record<string, unknown>) => ({
+  const item = (
+    name: string,
+    status: string,
+    fields: Record<string, unknown>,
+    extra: { template?: string; nodes?: { name: string; state: string; conclusion: string | null }[] } = {},
+  ) => ({
     name,
     status,
     stage: null,
     field: (ref: string) => fields[ref] ?? null,
+    ...extra,
   });
+  const reviews = [
+    item(
+      "评审 1",
+      "inProgress",
+      {},
+      { template: "CDCP", nodes: [{ name: "产品手册", state: "completed", conclusion: null }] },
+    ),
+    item(
+      "评审 2",
+      "inProgress",
+      {},
+      { template: "PDCP", nodes: [{ name: "产品手册", state: "inProgress", conclusion: null }] },
+    ),
+  ];
   const risks = [
     item("包材风险", "inProgress", { 等级: "高", 影响天数: 3 }),
     item("配方风险", "completed", { 等级: "低", 影响天数: 1 }),
   ];
   const scope = {
     field: (k: string) => values[k] ?? null,
-    related: (name: string) => (name === "关联风险" ? risks : []),
+    related: (name: string) => (name === "关联风险" ? risks : name === "关联评审" ? reviews : []),
     children: () => [item("SKU-1", "completed", { 工时: 3 }), item("SKU-2", "inProgress", { 工时: 4 })],
     node: (ref: string) => (ref === "需求评审" ? { state: "completed", conclusion: "pass" } : null),
     today: "2026-10-23",
@@ -109,6 +129,13 @@ describe("formula across work items", () => {
     expect(calc('SUMIF(RELATED("关联风险"), TRUE, each.{影响天数})')).toBe(4);
     expect(calc('ANYOF(RELATED("关联风险"), each.{等级} = "低")')).toBe(true);
     expect(calc('ALLOF(RELATED("关联风险"), each.状态 = "completed")')).toBe(false);
+  });
+
+  it("reads the flow type and the nodes of related items", () => {
+    expect(calc('COUNTIF(RELATED("关联评审"), each.流程类型 = "CDCP") > 0')).toBe(true);
+    expect(calc('COUNTIF(RELATED("关联评审"), each.流程类型 = "ADCP") > 0')).toBe(false);
+    expect(calc('COUNTIF(FILTER(RELATED("关联评审").节点, each.名称 = "产品手册"), each.状态 = "completed")')).toBe(1);
+    expect(calc('COUNT(RELATED("关联风险").节点)')).toBe(0);
   });
 
   it("sums sub-items, reads nodes and today", () => {
