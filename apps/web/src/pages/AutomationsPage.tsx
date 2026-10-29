@@ -52,6 +52,8 @@ function describeCondition(
   switch (condition.kind) {
     case "equal":
       return `「${fieldName(condition.field)}」为 ${show(condition.field, condition.value)}`;
+    case "notEqual":
+      return `「${fieldName(condition.field)}」不为 ${show(condition.field, condition.value)}`;
     case "notEmpty":
       return `「${fieldName(condition.field)}」不为空`;
     case "compare":

@@ -10,8 +10,9 @@ export interface ConditionField {
   dataType?: string;
 }
 
-type Simple = Extract<Condition, { kind: "equal" | "notEmpty" | "compare" }>;
-const isSimple = (c: Condition): c is Simple => c.kind === "equal" || c.kind === "notEmpty" || c.kind === "compare";
+type Simple = Extract<Condition, { kind: "equal" | "notEqual" | "notEmpty" | "compare" }>;
+const isSimple = (c: Condition): c is Simple =>
+  c.kind === "equal" || c.kind === "notEqual" || c.kind === "notEmpty" || c.kind === "compare";
 
 /** 判断方式：下拉里的值 → 条件。比较类只对数字、日期字段出现。 */
 const COMPARE_LABEL: Record<CompareOp, string> = { gt: "大于", gte: "大于等于", lt: "小于", lte: "小于等于" };
@@ -126,9 +127,9 @@ export function ConditionEditor({
                 if (op === "notEmpty") return update({ kind: "notEmpty", field: item.field });
                 const value =
                   item.kind === "notEmpty" ? (initial(field, item.field) as { value?: unknown }).value : item.value;
-                if (op === "equal")
+                if (op === "equal" || op === "notEqual")
                   return update({
-                    kind: "equal",
+                    kind: op,
                     field: item.field,
                     value: (value ?? "") as string | number | boolean,
                   });
@@ -141,6 +142,7 @@ export function ConditionEditor({
               }}
             >
               <option value="equal">{contains(field) ? "包含" : "等于"}</option>
+              <option value="notEqual">{contains(field) ? "不包含" : "不等于"}</option>
               {ordered(field) &&
                 Object.entries(COMPARE_LABEL).map(([op, text]) => (
                   <option key={op} value={op}>

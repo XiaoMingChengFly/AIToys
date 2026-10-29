@@ -96,6 +96,7 @@ export const createTemplateArgs = z.object({ id: z.string(), typeId: z.string(),
 export const condition: z.ZodType<Condition, Condition> = z.lazy(() =>
   z.union([
     z.object({ kind: z.literal("equal"), field: z.string(), value: z.union([z.string(), z.number(), z.boolean()]) }),
+    z.object({ kind: z.literal("notEqual"), field: z.string(), value: z.union([z.string(), z.number(), z.boolean()]) }),
     z.object({ kind: z.literal("notEmpty"), field: z.string() }),
     z.object({
       kind: z.literal("compare"),

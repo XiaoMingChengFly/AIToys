@@ -67,6 +67,13 @@ describe("conditions on typed values", () => {
     expect(evaluate(cond.equal("颜色", "green"), { 颜色: ["red", "blue"] })).toBe(false);
   });
 
+  it("treats notEqual as the opposite of equal, empty included", () => {
+    expect(evaluate(cond.notEqual("审核", "不通过"), { 审核: "通过" })).toBe(true);
+    expect(evaluate(cond.notEqual("审核", "不通过"), { 审核: "不通过" })).toBe(false);
+    expect(evaluate(cond.notEqual("审核", "不通过"), {})).toBe(true);
+    expect(evaluate(cond.notEqual("颜色", "red"), { 颜色: ["red", "blue"] })).toBe(false);
+  });
+
   it("compares numbers and dates", () => {
     expect(evaluate(cond.compare("数量", "gte", 10), { 数量: 10 })).toBe(true);
     expect(evaluate(cond.compare("数量", "gt", 10), { 数量: 10 })).toBe(false);
