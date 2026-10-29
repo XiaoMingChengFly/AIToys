@@ -12,6 +12,8 @@ import {
   OPTION_FIELD_TYPES,
   optionPath,
   SYSTEM_WRITTEN_FIELD_TYPES,
+  TEMPLATE_CONDITION_KEY,
+  TEMPLATE_CONDITION_NAME,
 } from "@fp/engine";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -74,12 +76,15 @@ export function FieldConfigSheet({
   field,
   fields,
   members,
+  templates = [],
   canManage,
   onClose,
   onSave,
 }: {
   field: ConfigurableField;
   fields: readonly ConfigurableField[];
+  /** 这个工作项的流程模板名：条件里可以按流程类型判断。 */
+  templates?: readonly string[];
   members: readonly FieldMember[];
   canManage: boolean;
   onClose: () => void;
@@ -129,6 +134,13 @@ export function FieldConfigSheet({
       dataType: f.dataType,
       options: f.options?.map((o) => ({ value: o.value, label: o.label || o.value })) ?? null,
     }));
+  if (templates.length > 1)
+    conditionFields.push({
+      key: TEMPLATE_CONDITION_KEY,
+      name: TEMPLATE_CONDITION_NAME,
+      dataType: "select",
+      options: templates.map((t) => ({ value: t, label: t })),
+    });
   // 默认值控件用的字段：选项用编辑中的选项
   const inputField = { key: field.key, name: field.name, dataType: field.dataType, options, config: null };
   const canDefault = !systemWritten && dataType !== "attachment";

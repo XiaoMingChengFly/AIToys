@@ -14,6 +14,7 @@ import {
   missingRequired,
   normalizeFieldValue,
   type RuleField,
+  TEMPLATE_CONDITION_KEY,
 } from "../src/index.ts";
 
 const regions = [
@@ -124,6 +125,24 @@ describe("field rules", () => {
     ];
     expect(applyDefaults(withDefaults, { line: "a" })).toEqual({ line: "a", owner: ["u1", "u2"], level: "L1" });
     expect(applyDefaults(withDefaults, { line: "b", level: "L2" })).toEqual({ line: "b", owner: ["u2"], level: "L2" });
+  });
+
+  it("defaults can depend on the flow type chosen at creation", () => {
+    const fields: RuleField[] = [
+      {
+        key: "needTrial",
+        name: "是否需要试用",
+        dataType: "bool",
+        config: {
+          defaultValue: {
+            mode: "conditional",
+            rules: [{ when: cond.equal(TEMPLATE_CONDITION_KEY, "GWP礼赠品"), value: true }],
+          },
+        },
+      },
+    ];
+    expect(applyDefaults(fields, { [TEMPLATE_CONDITION_KEY]: "GWP礼赠品" }).needTrial).toBe(true);
+    expect(applyDefaults(fields, { [TEMPLATE_CONDITION_KEY]: "OEM" }).needTrial).toBeUndefined();
   });
 
   it("filters options and keeps chosen ones", () => {

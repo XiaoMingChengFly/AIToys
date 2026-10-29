@@ -399,6 +399,7 @@ function TypeConfig({ typeId, tab }: { typeId: string; tab: TypeMenuTab }) {
         const field = fields.find((f) => f.id === configuring);
         return field ? (
           <FieldConfigSheet
+            templates={type.flowTemplates.map((t) => t.name)}
             key={field.id}
             field={field}
             fields={fields}

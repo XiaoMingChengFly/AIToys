@@ -11,6 +11,7 @@ import {
   resolveLayout,
   roleAppears,
   roleRemovable,
+  TEMPLATE_CONDITION_KEY,
 } from "@fp/engine";
 import { mutators, queries, type WorkItemFilterArgs } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
@@ -483,16 +484,19 @@ function CreateWorkItemForm({
   // 用户动过的字段；没动过的字段按默认值规则补上（条件默认值随别的字段变化）
   const [touched, setTouched] = useState<Record<string, FieldInputValue>>({});
   const [error, setError] = useState<string | null>(null);
-  const fields: Record<string, unknown> = {
-    ...applyDefaults(typeFields, Object.fromEntries(Object.entries(touched).filter(([, v]) => v !== null))),
-    ...touched,
-  };
-  const states = fieldStates(typeFields, fields);
+  // 选的流程类型（流程模板名）也能当条件用
+  const templateCondition = { [TEMPLATE_CONDITION_KEY]: flows.find((t) => t.id === templateId)?.name ?? "" };
+  const { [TEMPLATE_CONDITION_KEY]: _template, ...defaulted } = applyDefaults(typeFields, {
+    ...Object.fromEntries(Object.entries(touched).filter(([, v]) => v !== null)),
+    ...templateCondition,
+  });
+  const fields: Record<string, unknown> = { ...defaulted, ...touched };
+  const states = fieldStates(typeFields, { ...fields, ...templateCondition });
   // 角色：按出现规则和分配方式算默认成员（随字段变化），用户改过的角色以用户的为准
   const me = String(zero.userID);
   const [touchedRoles, setTouchedRoles] = useState<Record<string, string[]>>({});
   const [overrides, setOverrides] = useState<{ added: string[]; removed: string[] }>({ added: [], removed: [] });
-  const view = conditionView(typeFields, fields);
+  const view = conditionView(typeFields, { ...fields, ...templateCondition });
   const shownRoles = type.roles.filter((r) => roleAppears(r, view, overrides));
   const assigned = Object.fromEntries(
     shownRoles.map((r) => [r.key, touchedRoles[r.key] ?? defaultRoleMembers(r, view, me)]),

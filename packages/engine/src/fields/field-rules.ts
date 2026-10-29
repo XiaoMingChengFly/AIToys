@@ -23,6 +23,13 @@ import {
   OPTION_FIELD_TYPES,
 } from "./field-value.ts";
 
+/**
+ * 条件里的「流程类型」：新建工作项时选的流程模板名。它不是字段，条件和默认值里写成这个键，
+ * 求值时由新建的地方放进条件用的值里（对照飞书项目里「需求类型」当条件用）。
+ */
+export const TEMPLATE_CONDITION_KEY = "$template";
+export const TEMPLATE_CONDITION_NAME = "流程类型";
+
 export type DefaultValue =
   | { mode: "fixed"; value: unknown }
   | {

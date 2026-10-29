@@ -15,6 +15,7 @@ import {
   roleAppears,
   StatusFlow,
   statusFlowOf,
+  TEMPLATE_CONDITION_KEY,
   WorkCalendar,
 } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
@@ -98,22 +99,32 @@ export async function createWorkItem(
     const value = normalizeFieldValue(def, input);
     if (value !== null) given[fieldKey] = value;
   }
+  // 流程类型（流程模板名）当条件用：默认值、条件必填、角色出现规则里都能按它判断
+  const chosenTemplates = zql.flowTemplate.where("typeId", args.typeId);
+  const chosen = await tx.run(
+    (args.flowTemplateId
+      ? chosenTemplates.where("id", args.flowTemplateId)
+      : chosenTemplates.orderBy("createdAt", "asc")
+    ).one(),
+  );
+  const templateCondition = { [TEMPLATE_CONDITION_KEY]: chosen?.name ?? "" };
   // 没填的字段套默认值，再检查必填（有效且显示出来的必填字段）
   const fields: Record<string, unknown> = {};
-  for (const [fieldKey, value] of Object.entries(applyDefaults(defs, given))) {
+  for (const [fieldKey, value] of Object.entries(applyDefaults(defs, { ...given, ...templateCondition }))) {
+    if (fieldKey === TEMPLATE_CONDITION_KEY) continue;
     const def = defs.find((f) => f.key === fieldKey);
     const normalized = def && !(fieldKey in given) ? normalizeFieldValue(def, value) : value;
     if (normalized !== null) fields[fieldKey] = normalized;
   }
   const missing = missingRequired(
     defs.filter((f) => f.dataType !== "attachment" && f.dataType !== "formula"),
-    fields,
+    { ...fields, ...templateCondition },
   );
   if (missing.length > 0) throw new Error(`请填写必填字段：${missing.map((f) => f.name).join("、")}。`);
 
   // 角色：按出现规则决定有哪些角色，没给成员的角色按分配方式带上默认成员
   const roleDefs = await tx.run(zql.roleDef.where("typeId", args.typeId).orderBy("sort", "asc"));
-  const view = conditionView(defs, fields);
+  const view = conditionView(defs, { ...fields, ...templateCondition });
   const overrides = cleanOverrides(args.roleOverrides, roleDefs);
   const roles: Record<string, string[]> = {};
   for (const role of roleDefs) {
