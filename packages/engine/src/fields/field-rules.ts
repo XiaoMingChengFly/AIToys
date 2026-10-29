@@ -145,13 +145,21 @@ export function exclusiveError(field: RuleField, value: unknown): string | null 
  */
 export function applyDefaults(fields: readonly RuleField[], values: Fields): Record<string, unknown> {
   const result: Record<string, unknown> = { ...values };
-  for (const field of fields) {
-    const rule = field.config?.defaultValue;
-    if (!rule || !isBlank(result[field.key])) continue;
-    const view = conditionView(fields, result);
-    if (!fieldState(field, view).valid) continue;
-    const value = defaultOf(field, rule, view);
-    if (!isBlank(value)) result[field.key] = value;
+  // 一个字段的默认值可以按另一个字段（包括同样靠默认值填上的字段）来定，所以多走几遍直到不再有新填上的
+  for (let pass = 0; pass < 5; pass++) {
+    let filled = false;
+    for (const field of fields) {
+      const rule = field.config?.defaultValue;
+      if (!rule || !isBlank(result[field.key])) continue;
+      const view = conditionView(fields, result);
+      if (!fieldState(field, view).valid) continue;
+      const value = defaultOf(field, rule, view);
+      if (!isBlank(value)) {
+        result[field.key] = value;
+        filled = true;
+      }
+    }
+    if (!filled) break;
   }
   return result;
 }

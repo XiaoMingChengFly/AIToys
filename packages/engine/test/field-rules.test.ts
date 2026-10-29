@@ -145,6 +145,25 @@ describe("field rules", () => {
     expect(applyDefaults(fields, { [TEMPLATE_CONDITION_KEY]: "OEM" }).needTrial).toBeUndefined();
   });
 
+  it("fills defaults that depend on other defaults, whatever the field order", () => {
+    const fields: RuleField[] = [
+      {
+        key: "division",
+        name: "事业部",
+        dataType: "select",
+        config: { defaultValue: { mode: "conditional", rules: [{ when: cond.equal("brand", "B1"), value: "D1" }] } },
+      },
+      {
+        key: "brand",
+        name: "品牌",
+        dataType: "select",
+        config: { defaultValue: { mode: "conditional", rules: [{ when: cond.equal("line", "L1"), value: "B1" }] } },
+      },
+      { key: "line", name: "业务线", dataType: "select" },
+    ];
+    expect(applyDefaults(fields, { line: "L1" })).toEqual({ line: "L1", brand: "B1", division: "D1" });
+  });
+
   it("filters options and keeps chosen ones", () => {
     const field: RuleField = {
       key: "pack",
