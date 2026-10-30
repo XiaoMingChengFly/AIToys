@@ -424,6 +424,10 @@ export const workItem = pgTable(
     /** 状态流的当前状态键。节点流为空。 */
     flowStatus: text("flow_status"),
     status: text("status").$type<WorkItemStatus | "terminated">().notNull().default("inProgress"),
+    /** 终止原因（终止时填，恢复后清空）。 */
+    terminateReason: text("terminate_reason"),
+    /** 冻结：字段、节点、状态都不能再改，直到解冻。 */
+    frozen: boolean("frozen").notNull().default(false),
     /** 用户手动加上、删掉的角色（之后不再跟着角色的出现规则变）。 */
     roleOverrides: jsonb("role_overrides").$type<RoleOverrides>(),
     createdBy: text("created_by")

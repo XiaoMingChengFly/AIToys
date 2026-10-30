@@ -4,6 +4,7 @@ import {
   closeTypeConfig,
   createItem,
   createSpace,
+  importOem,
   openItems,
   openSettings,
   openTypeConfig,
@@ -108,4 +109,31 @@ test("guests only read and comment, and restricted fields stay hidden from peopl
   await lin.getByRole("region", { name: "当前状态" }).getByRole("button", { name: "处理中" }).click();
   await expect(lin.getByRole("region", { name: "当前状态" })).toContainText("处理中");
   await linContext.close();
+});
+
+test("an admin terminates, restores, freezes and unfreezes a work item", async ({ page }) => {
+  const suffix = `${Date.now()}`;
+  await signUp(page, "Pascal", `terminate-${suffix}@example.com`);
+  await createSpace(page, `终止冻结 ${suffix}`);
+  await importOem(page);
+  await openItems(page);
+  await createItem(page, "面霜立项");
+
+  // 终止：填原因，顶部显示原因，动态里有记录
+  await page.getByRole("button", { name: "终止", exact: true }).click();
+  const dialog = page.locator("[role=dialog][aria-modal=true]");
+  await dialog.getByLabel("补充终止原因").fill("预算砍了");
+  await dialog.getByRole("button", { name: "确认终止" }).click();
+  await expect(page.getByRole("note").filter({ hasText: "工作项已终止" })).toContainText("预算砍了");
+  await expect(page.getByRole("main").getByText("已终止").first()).toBeVisible();
+
+  // 恢复后回到进行中
+  await page.getByRole("button", { name: "恢复", exact: true }).click();
+  await expect(page.getByRole("note").filter({ hasText: "工作项已终止" })).toHaveCount(0);
+
+  // 冻结后字段改不了，解冻后可以
+  await page.getByRole("button", { name: "冻结", exact: true }).click();
+  await expect(page.getByRole("note").filter({ hasText: "工作项已冻结" })).toBeVisible();
+  await page.getByRole("button", { name: "解冻", exact: true }).click();
+  await expect(page.getByRole("note").filter({ hasText: "工作项已冻结" })).toHaveCount(0);
 });

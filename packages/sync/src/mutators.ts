@@ -40,6 +40,15 @@ import {
   upgradeWorkItem,
 } from "./flow.ts";
 import { recomputeFormulas, recomputeParentFormulas } from "./formulas.ts";
+import {
+  assertNotFrozen,
+  restoreWorkItem,
+  setFrozenArgs,
+  setWorkItemFrozen,
+  terminateArgs,
+  terminateWorkItem,
+  workItemIdArgs,
+} from "./lifecycle.ts";
 import { markArgs, recordVisit, setMark, visitArgs } from "./marks.ts";
 import {
   addRelation,
@@ -80,12 +89,12 @@ import {
   reorderRolesArgs,
   saveDraft,
   saveDraftArgs,
+  setDefaultDisplay,
+  setDefaultDisplayArgs,
   setFieldAccess,
   setFieldAccessArgs,
   setFormula,
   setFormulaArgs,
-  setDefaultDisplay,
-  setDefaultDisplayArgs,
   setLayout,
   setLayoutArgs,
   updateField,
@@ -136,6 +145,7 @@ export async function setFieldValue(tx: Transaction, args: z.output<typeof setFi
   const item = await visibleWorkItem(tx, args.workItemId, userID);
   if (!item) throw new Error("工作项不存在或没有权限。");
   const { isAdmin } = await requireWriter(tx, item.spaceId, userID);
+  assertNotFrozen(item);
   const field = await fieldDefOf(tx, item.typeId, args.fieldKey);
   if (!isAdmin && field.editRoles?.length && !hasAnyRole(field.editRoles, await myRoles(tx, item.id, userID)))
     throw new Error(`你没有权限修改「${field.name}」。`);
@@ -257,6 +267,15 @@ export const mutators = defineMutators({
     }),
     transition: defineMutator(transitionArgs, async ({ tx, args, ctx }) => {
       await transitionStatus(tx, args, ctx.userID);
+    }),
+    terminate: defineMutator(terminateArgs, async ({ tx, args, ctx }) => {
+      await terminateWorkItem(tx, args, ctx.userID);
+    }),
+    restore: defineMutator(workItemIdArgs, async ({ tx, args, ctx }) => {
+      await restoreWorkItem(tx, args, ctx.userID);
+    }),
+    setFrozen: defineMutator(setFrozenArgs, async ({ tx, args, ctx }) => {
+      await setWorkItemFrozen(tx, args, ctx.userID);
     }),
   },
   node: {

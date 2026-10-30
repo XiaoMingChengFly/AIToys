@@ -23,10 +23,12 @@ import {
   pressButtonArgs,
   removeRelation,
   removeRelationArgs,
+  restoreWorkItem,
   rollbackNode,
   setCalendarArgs,
   setFieldArgs,
   setFieldValue,
+  setFrozenArgs,
   setNodePlan,
   setPlanArgs,
   setRoleArgs,
@@ -34,12 +36,16 @@ import {
   setSpaceCalendar,
   setTaskDone,
   setTaskDoneArgs,
+  setWorkItemFrozen,
+  terminateArgs,
+  terminateWorkItem,
   transitionArgs,
   transitionStatus,
   updateTask,
   updateTaskArgs,
   upgradeArgs,
   upgradeWorkItem,
+  workItemIdArgs,
 } from "@fp/sync";
 import { defineMutator, defineMutators } from "@rocicorp/zero";
 import type { DrizzleTransaction } from "@rocicorp/zero/server/adapters/drizzle";
@@ -61,13 +67,15 @@ function append(tx: Parameters<typeof drizzleTx>[0], ctx: ZeroContext, events: N
 /** 引擎事件转成 event_log 记录。由人触发的事件（确认、回滚、状态流转）带 by，其余是流程自己推进的，actor 为空。 */
 function flowEvents(spaceId: string, workItemId: string, events: (FlowEvent | StatusEvent)[]): NewEvent[] {
   // 节点事件改字段的要求由共享逻辑写进字段，字段改动另外记，这里不重复
-  return events.filter((e) => e.type !== "fieldAssigned").map(({ type, ...payload }) => ({
-    spaceId,
-    workItemId,
-    kind: type,
-    payload,
-    actor: "by" in payload && typeof payload.by === "string" ? payload.by : null,
-  }));
+  return events
+    .filter((e) => e.type !== "fieldAssigned")
+    .map(({ type, ...payload }) => ({
+      spaceId,
+      workItemId,
+      kind: type,
+      payload,
+      actor: "by" in payload && typeof payload.by === "string" ? payload.by : null,
+    }));
 }
 
 /**
@@ -154,6 +162,31 @@ export const serverMutators = defineMutators(mutators, {
           workItemId: args.parentId,
           kind: "subItemCreated",
           payload: { node: args.nodeKey, subItemId: args.id, name: args.name },
+          actor: ctx.userID,
+        },
+      ]);
+    }),
+    terminate: defineMutator(terminateArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, reason } = await terminateWorkItem(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        { spaceId, workItemId: args.workItemId, kind: "workItemTerminated", payload: { reason }, actor: ctx.userID },
+      ]);
+    }),
+    restore: defineMutator(workItemIdArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, events } = await restoreWorkItem(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        { spaceId, workItemId: args.workItemId, kind: "workItemRestored", payload: {}, actor: ctx.userID },
+        ...flowEvents(spaceId, args.workItemId, events),
+      ]);
+    }),
+    setFrozen: defineMutator(setFrozenArgs, async ({ tx, args, ctx }) => {
+      const { spaceId } = await setWorkItemFrozen(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        {
+          spaceId,
+          workItemId: args.workItemId,
+          kind: args.frozen ? "workItemFrozen" : "workItemUnfrozen",
+          payload: {},
           actor: ctx.userID,
         },
       ]);

@@ -74,6 +74,7 @@ interface LoadedFlow {
   /** 当前用户在这个工作项上担任的角色。 */
   roles: string[];
   terminated: boolean;
+  frozen: boolean;
 }
 
 /** 读出工作项的节点流程状态。不是空间成员时抛错；状态流工作项返回 null。 */
@@ -138,6 +139,7 @@ async function loadFlow(tx: Transaction, workItemId: string, userID: string): Pr
     isAdmin,
     roles: item.roleMembers.map((m) => m.roleKey),
     terminated: item.status === "terminated",
+    frozen: item.frozen ?? false,
   };
 }
 
@@ -247,6 +249,7 @@ async function loadForAction(tx: Transaction, workItemId: string, userID: string
   const flow = await loadFlow(tx, workItemId, userID);
   if (!flow) throw new Error("这个工作项没有节点流程。");
   if (flow.terminated) throw new Error("工作项已终止。");
+  if (flow.frozen) throw new Error("工作项已冻结，解冻后才能修改。");
   return flow;
 }
 

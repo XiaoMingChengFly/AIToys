@@ -45,6 +45,7 @@ import { CATEGORY_LABEL, StatusDiagram } from "@/components/StatusDiagram";
 import { SubItems } from "@/components/SubItems";
 import { UserChip } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogClose, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner, Panel } from "@/components/ui/page";
 import { Tabs } from "@/components/ui/tabs";
@@ -118,6 +119,10 @@ export function WorkItemView({ itemId }: { itemId: string }) {
   const [completing, setCompleting] = useState<string | null>(null);
   /** 当前打开的详情页签。 */
   const [tab, setTab] = useState<string | null>(null);
+  /** 终止弹窗：选的原因和补充说明。 */
+  const [terminating, setTerminating] = useState(false);
+  const [abortReason, setAbortReason] = useState("取消，现在先不做了");
+  const [abortDetail, setAbortDetail] = useState("");
   useActiveSpace(item?.spaceId);
   // 打开就记一次浏览（列表的「最近浏览」页签用）
   const loaded = !!item;
@@ -195,6 +200,10 @@ export function WorkItemView({ itemId }: { itemId: string }) {
     .find((t) => t.id === item.flowVersion?.templateId);
   const canUpgrade = !!graph && !!template?.currentVersionId && template.currentVersionId !== item.flowVersionId;
   const rollback = (nodeKey: string) => run(mutators.node.rollback({ workItemId: item.id, nodeKey }));
+  // 终止、冻结：工作项负责人（担任「是负责人」的角色）和空间管理员
+  const ownerRoleKeys = (item.type?.roles ?? []).filter((r) => r.config?.isOwner).map((r) => r.key);
+  const canManageItem = canWrite && (isAdmin || ownerRoleKeys.some((r) => myRoles.includes(r)));
+  const frozen = !!item.frozen;
 
   const members = space?.members.map((m) => ({ userId: m.userId, name: m.user?.name ?? m.userId })) ?? [];
   // 访客不能担任角色
@@ -676,6 +685,33 @@ export function WorkItemView({ itemId }: { itemId: string }) {
               </span>
             );
           })()}
+          {canManageItem && (
+            <span className="flex items-center gap-1">
+              {item.status === "terminated" ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => run(mutators.workItem.restore({ workItemId: item.id }))}
+                >
+                  恢复
+                </Button>
+              ) : (
+                item.status !== "completed" && (
+                  <Button size="sm" variant="ghost" onClick={() => setTerminating(true)}>
+                    终止
+                  </Button>
+                )
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-pressed={frozen}
+                onClick={() => run(mutators.workItem.setFrozen({ workItemId: item.id, frozen: !frozen }))}
+              >
+                {frozen ? "解冻" : "冻结"}
+              </Button>
+            </span>
+          )}
           {canUpgrade && canWrite && (
             <Button size="sm" variant="outline" onClick={() => run(mutators.node.upgrade({ workItemId: item.id }))}>
               升级到模板最新版本
@@ -693,6 +729,56 @@ export function WorkItemView({ itemId }: { itemId: string }) {
           <ErrorBanner>{error}</ErrorBanner>
         </div>
       )}
+      {item.status === "terminated" && (
+        <p role="note" className="mx-6 mt-4 rounded-md bg-surface px-3 py-2 text-sm text-fg-muted">
+          工作项已终止{item.terminateReason ? `，原因：${item.terminateReason}` : ""}。
+        </p>
+      )}
+      {frozen && (
+        <p role="note" className="mx-6 mt-4 rounded-md bg-warning-50 px-3 py-2 text-sm text-warning-600">
+          工作项已冻结，字段、节点和状态都不能修改，解冻后恢复。
+        </p>
+      )}
+      <Dialog open={terminating} onOpenChange={setTerminating}>
+        <DialogContent title="终止工作项" description="终止后工作项不再推进，可以随时恢复。">
+          <div className="flex flex-col gap-3 text-sm">
+            <label className="flex flex-col gap-1">
+              <span className="text-fg-muted">终止原因</span>
+              <select
+                aria-label="终止原因"
+                className="h-8 rounded border border-line bg-surface px-2"
+                value={abortReason}
+                onChange={(e) => setAbortReason(e.target.value)}
+              >
+                {["取消，现在先不做了", "重复/合并，与其他在做工作项一同推进", "其他"].map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-fg-muted">补充说明</span>
+              <Input aria-label="补充终止原因" value={abortDetail} onChange={(e) => setAbortDetail(e.target.value)} />
+            </label>
+            <div className="flex justify-end gap-2">
+              <DialogClose asChild>
+                <Button variant="outline">取消</Button>
+              </DialogClose>
+              <Button
+                variant="danger"
+                onClick={async () => {
+                  setTerminating(false);
+                  const reason = [abortReason, abortDetail.trim()].filter(Boolean).join("：");
+                  await run(mutators.workItem.terminate({ workItemId: item.id, reason }));
+                }}
+              >
+                确认终止
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       {!canWrite && (
         <p role="note" className="mx-6 mt-4 rounded-md bg-surface px-3 py-2 text-sm text-fg-muted">
           你是这个空间的访客，只能查看和评论。
@@ -736,7 +822,7 @@ export function WorkItemView({ itemId }: { itemId: string }) {
       </section>
 
       {/* 节点卡片：当前进行中的节点和点选的节点（状态流是当前状态和可以流转到的状态） */}
-      <fieldset disabled={!canWrite} className="contents">
+      <fieldset disabled={!canWrite || frozen} className="contents">
         <div className="grid items-start gap-4 px-6 py-4 lg:grid-cols-2">
           {statusDefinition && (
             <Card>
@@ -928,7 +1014,7 @@ export function WorkItemView({ itemId }: { itemId: string }) {
           items={tabs.map((t) => [t.key, tabLabel(t)] as const)}
         />
         {currentTab && !currentTab.system && (
-          <fieldset disabled={!canWrite} className="contents">
+          <fieldset disabled={!canWrite || frozen} className="contents">
             {(currentTab.sections ?? []).map((section) => {
               // 只放了一个自带标题的控件（关联、附件）的分组，直接显示控件，不再套一层分组标题
               const only = section.items.length === 1 ? section.items[0] : undefined;
