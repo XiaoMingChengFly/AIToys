@@ -284,6 +284,28 @@ export function WorkItemView({ itemId }: { itemId: string }) {
     </div>
   ) : null;
 
+  type Linked = NonNullable<(typeof item.outgoing)[number]["to"]>;
+  /** 对端工作项上一个字段的显示文字；「名称」是工作项自己的名称。 */
+  const linkedTexts = (others: readonly (Linked | undefined)[], field: string) =>
+    others.flatMap((w) => {
+      if (!w) return [];
+      if (field === "名称") return [w.name];
+      const def = w.type?.fields.find((f) => f.key === field || f.name === field);
+      const value = def && w.fieldValues.find((v) => v.fieldKey === def.key)?.value;
+      if (!def || value === null || value === undefined) return [];
+      const text = formatFieldValue(
+        { name: def.name, dataType: def.dataType as FieldDataType, options: def.options, config: def.config },
+        value,
+        (id: string) => members.find((m) => m.userId === id)?.name ?? id,
+      );
+      return text ? [text] : [];
+    });
+  /** 按本端看到的关联名找关联的工作项（本端建的用关联名，对端建的用对端字段名）。 */
+  const linkedByName = (relation: string) => [
+    ...item.outgoing.filter((r) => r.def?.name === relation).map((r) => r.to),
+    ...item.incoming.filter((r) => (r.def?.reverseName ?? r.def?.name) === relation).map((r) => r.from),
+  ];
+
   /** 布局里的一项：字段、提示文字或控件。 */
   const renderItem = (it: LayoutItem, index: number) => {
     switch (it.kind) {
@@ -357,19 +379,7 @@ export function WorkItemView({ itemId }: { itemId: string }) {
           ...item.outgoing.filter((r) => r.relationDefId === it.relationDefId).map((r) => r.to),
           ...item.incoming.filter((r) => r.relationDefId === it.relationDefId).map((r) => r.from),
         ].filter((w) => !!w);
-        const values = others.flatMap((w) => {
-          // 「名称」是工作项自己的名称，不是字段
-          if (it.field === "名称") return [w.name];
-          const def = w.type?.fields.find((f) => f.key === it.field || f.name === it.field);
-          const value = def && w.fieldValues.find((v) => v.fieldKey === def.key)?.value;
-          if (!def || value === null || value === undefined) return [];
-          const text = formatFieldValue(
-            { name: def.name, dataType: def.dataType as FieldDataType, options: def.options, config: def.config },
-            value,
-            (id: string) => members.find((m) => m.userId === id)?.name ?? id,
-          );
-          return text ? [text] : [];
-        });
+        const values = linkedTexts(others, it.field);
         const label = it.label || others[0]?.type?.fields.find((f) => f.key === it.field)?.name || it.field;
         return (
           <div
@@ -570,6 +580,29 @@ export function WorkItemView({ itemId }: { itemId: string }) {
                             </span>
                           ))}
                         </div>
+                        {node.relatedInfo?.length ? (
+                          <dl
+                            aria-label={`${node.name}的关联信息`}
+                            className="flex flex-col gap-1 rounded bg-surface px-2.5 py-2"
+                          >
+                            {node.relatedInfo.map((info) => {
+                              const text = linkedTexts(linkedByName(info.relation), info.field).join("、");
+                              return (
+                                <div key={`${info.relation}-${info.field}`} className="flex gap-2">
+                                  <dt className="w-28 shrink-0 truncate text-fg-muted" title={info.field}>
+                                    {info.field}
+                                  </dt>
+                                  <dd
+                                    aria-label={info.field}
+                                    className="min-w-0 flex-1 whitespace-pre-wrap break-words"
+                                  >
+                                    {text || <span className="text-fg-subtle">—</span>}
+                                  </dd>
+                                </div>
+                              );
+                            })}
+                          </dl>
+                        ) : null}
                         {bySubItems && (
                           <SubItems
                             workItemId={item.id}

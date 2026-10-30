@@ -248,6 +248,10 @@ export const flowDefinitionSchema = z.object({
       stageOnArrival: z.string().min(1).optional(),
       form: z.array(z.object({ field: z.string(), required: z.boolean().optional() })).optional(),
       tasks: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+      relatedInfo: z
+        .array(z.object({ relation: z.string().min(1).max(100), field: z.string().min(1).max(200) }))
+        .max(30)
+        .optional(),
       duration: z.number().int().min(0).max(999).optional(),
       position: z.object({ x: z.number(), y: z.number() }).optional(),
       milestone: z.boolean().optional(),

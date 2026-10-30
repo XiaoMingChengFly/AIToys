@@ -93,6 +93,11 @@ export interface NodeDefinition {
   form?: NodeFormField[];
   /** 预置子任务的名称，新建工作项时为节点建好。 */
   tasks?: string[];
+  /**
+   * 节点上只读显示的关联信息：沿关联（本端看到的关联名）取对端工作项的一个字段，
+   * 给负责人确认时参考（对照飞书节点表单里的「关联信息」）。
+   */
+  relatedInfo?: { relation: string; field: string }[];
   /** 节点到达时把工作项阶段改成这个值。 */
   stageOnArrival?: string;
   /** 预估工期（工作日）。不填时需要人确认的节点按 1 天，自动节点按 0 天（里程碑）。 */

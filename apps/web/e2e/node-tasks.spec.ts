@@ -3,6 +3,7 @@ import {
   choose,
   closeTypeConfig,
   createItem,
+  createRelation,
   createSpace,
   openItems,
   openSettings,
@@ -89,4 +90,49 @@ test("a node's tasks and completion form gate its confirm", async ({ page }) => 
   // 完成的节点上，子任务只读
   await node("开发").click();
   await expect(page.getByLabel("完成子任务：自测")).toBeDisabled();
+});
+
+test("a node shows related info from the linked work item", async ({ page }) => {
+  const suffix = `${Date.now()}`;
+  await signUp(page, "Pascal", `node-info-${suffix}@example.com`);
+  await createSpace(page, `节点关联信息 ${suffix}`);
+  await openSettings(page);
+  await page.getByLabel("新类型名称").fill("评审");
+  await page.getByRole("button", { name: "新建类型" }).click();
+  await createRelation(page, { from: "评审", to: "评审", name: "关联项目" });
+  await openTypeConfig(page, "评审");
+  await typeTab(page, "字段");
+  await page.getByLabel("新字段名称").fill("品牌");
+  await choose(selectByName(page, "dataType"), "text");
+  await page.getByRole("button", { name: "添加字段" }).click();
+  await expect(page.getByRole("cell", { name: "品牌", exact: true })).toBeVisible();
+  await typeTab(page, "流程");
+  await page.getByLabel("新模板名称").fill("默认流程");
+  await page.getByRole("button", { name: "新建模板" }).click();
+  await page.getByRole("link", { name: "默认流程" }).click();
+
+  const node = (name: string) => page.locator(".react-flow__node", { hasText: name });
+  const editor = page.getByRole("main");
+  await node("开始").click();
+  await page.getByRole("button", { name: "添加节点" }).click();
+  await editor.getByLabel("节点名称").fill("预审");
+  await editor.getByLabel("关联名").fill("关联项目");
+  await editor.getByLabel("对端字段").fill("品牌");
+  await editor.getByRole("button", { name: "添加关联信息" }).click();
+  await page.getByRole("button", { name: "发布" }).click();
+  await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
+  await closeTypeConfig(page);
+
+  await openItems(page);
+  await createItem(page, "面霜项目", { label: "评审名称" });
+  const fields = page.getByRole("region", { name: "字段" });
+  await fields.getByLabel("品牌", { exact: true }).fill("ddg");
+  await fields.getByLabel("品牌", { exact: true }).blur();
+  await openItems(page);
+  await createItem(page, "面霜需求评审", { label: "评审名称" });
+  const info = page.getByRole("main").getByRole("region", { name: "预审" }).getByLabel("预审的关联信息");
+  await expect(info.getByLabel("品牌")).toHaveText("—");
+  const group = page.getByRole("main").getByRole("region", { name: "关联项目" });
+  await choose(group.getByLabel("添加关联项目"), { label: "面霜项目" });
+  await expect(info.getByLabel("品牌")).toHaveText("ddg");
 });

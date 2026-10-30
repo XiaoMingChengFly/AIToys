@@ -507,6 +507,7 @@ function NodePanel({
           />
           <FormEditor value={data.form ?? []} fields={type.fields} onChange={(form) => onChange({ form })} />
           <TasksEditor value={data.tasks ?? []} onChange={(tasks) => onChange({ tasks })} />
+          <RelatedInfoEditor value={data.relatedInfo ?? []} onChange={(relatedInfo) => onChange({ relatedInfo })} />
           <NodeAdvancedEditor data={data} fields={type.fields} roles={type.roles} onChange={onChange} />
           <div className="flex items-center justify-between">
             <span className="text-xs text-fg-subtle">键：{data.key}</span>
@@ -581,6 +582,65 @@ function FormEditor({
 }
 
 /** 预置子任务：新建工作项时为节点建好的待办。 */
+/** 节点上的关联信息：负责人确认时参考的、关联工作项上的字段（关联名 + 对端字段名）。 */
+function RelatedInfoEditor({
+  value,
+  onChange,
+}: {
+  value: { relation: string; field: string }[];
+  onChange: (info: { relation: string; field: string }[] | undefined) => void;
+}) {
+  const [relation, setRelation] = useState("");
+  const [field, setField] = useState("");
+  const set = (next: typeof value) => onChange(next.length > 0 ? next : undefined);
+  return (
+    <fieldset className="flex flex-col gap-1.5">
+      <legend className="text-sm font-medium text-fg">关联信息（确认时参考）</legend>
+      {value.map((info, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: 同一关联可能取多个字段，按位置编辑
+        <div key={i} className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate">
+            {info.relation} · {info.field}
+          </span>
+          <button
+            type="button"
+            aria-label={`删除关联信息${info.relation} ${info.field}`}
+            className="px-1 text-fg-subtle hover:text-danger-600"
+            onClick={() => set(value.filter((_, j) => j !== i))}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <form
+        className="flex gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!relation.trim() || !field.trim()) return;
+          set([...value, { relation: relation.trim(), field: field.trim() }]);
+          setField("");
+        }}
+      >
+        <Input
+          aria-label="关联名"
+          placeholder="关联名"
+          value={relation}
+          onChange={(e) => setRelation(e.target.value)}
+        />
+        <Input
+          aria-label="对端字段"
+          placeholder="对端字段名"
+          value={field}
+          onChange={(e) => setField(e.target.value)}
+        />
+        <Button type="submit" variant="outline" size="sm" className="h-8">
+          添加关联信息
+        </Button>
+      </form>
+    </fieldset>
+  );
+}
+
 function TasksEditor({ value, onChange }: { value: string[]; onChange: (tasks: string[] | undefined) => void }) {
   const [draft, setDraft] = useState("");
   const set = (next: string[]) => onChange(next.length > 0 ? next : undefined);
