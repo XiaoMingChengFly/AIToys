@@ -466,6 +466,97 @@ export function WorkItemView({ itemId }: { itemId: string }) {
       }
       case "nodeInfo":
         return nodeInfoView(it.node, it.info, it.label, `ni-${index}`);
+      case "relationTable": {
+        const rows = [
+          ...item.outgoing.filter((r) => r.relationDefId === it.relationDefId).map((r) => r.to),
+          ...item.incoming.filter((r) => r.relationDefId === it.relationDefId).map((r) => r.from),
+        ].filter((w): w is Linked => !!w);
+        const def =
+          (item.type?.relationDefs ?? []).find((d) => d.id === it.relationDefId) ??
+          (space?.workItemTypes ?? []).flatMap((t) => t.relationDefs).find((d) => d.id === it.relationDefId);
+        const title =
+          it.title ||
+          (def && "reverseName" in def && def.toTypeId === item.typeId ? def.reverseName : def?.name) ||
+          "关联工作项";
+        // 对端类型的字段（同一种关联的对端都是一个类型）
+        const otherFields = rows[0]?.type?.fields ?? [];
+        return (
+          <div key={`rt-${index}`} className="col-span-full overflow-x-auto">
+            <table aria-label={title} className="w-full min-w-max text-sm">
+              <thead>
+                <tr className="border-b border-line-subtle text-left text-xs text-fg-muted">
+                  {it.columns.map((c) => (
+                    <th key={c} className="h-8 px-1.5 font-normal">
+                      {otherFields.find((f) => f.key === c)?.name ?? c}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((w) => (
+                  <tr key={w.id} className="border-b border-line-subtle last:border-0">
+                    {it.columns.map((c) => {
+                      if (c === "名称")
+                        return (
+                          <td key={c} className="h-9 px-1.5">
+                            <Link
+                              to="/items/$itemId"
+                              params={{ itemId: w.id }}
+                              className="text-brand-500 hover:underline"
+                            >
+                              {w.name}
+                            </Link>
+                          </td>
+                        );
+                      if (c === "状态")
+                        return (
+                          <td key={c} className="px-1.5">
+                            <StatusTag status={w.status} />
+                          </td>
+                        );
+                      const f = w.type?.fields.find((x) => x.key === c || x.name === c);
+                      if (!f)
+                        return (
+                          <td key={c} className="px-1.5 text-fg-subtle">
+                            —
+                          </td>
+                        );
+                      const value = w.fieldValues.find((v) => v.fieldKey === f.key)?.value ?? null;
+                      return (
+                        <td key={c} className="min-w-32 px-1 py-1 align-top">
+                          <FieldInput
+                            field={{
+                              key: f.key,
+                              name: f.name,
+                              dataType: f.dataType,
+                              options: f.options,
+                              config: f.config,
+                            }}
+                            value={value}
+                            label={`${w.name} ${f.name}`}
+                            members={members}
+                            readOnly={!canWrite || f.dataType === "formula" || f.dataType === "relation"}
+                            onChange={(v) =>
+                              run(mutators.fieldValue.set({ workItemId: w.id, fieldKey: f.key, value: v }))
+                            }
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={it.columns.length} className="h-9 px-1.5 text-fg-subtle">
+                      还没有关联的工作项。
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
       case "subItems":
         return (
           <div key={`s-${index}`} className="col-span-full">

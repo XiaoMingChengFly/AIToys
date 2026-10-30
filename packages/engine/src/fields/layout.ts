@@ -53,6 +53,11 @@ export type LayoutItem =
    * node 是节点键或节点名；工作项的流程里没有这个节点时不显示。
    */
   | { kind: "nodeInfo"; node: string; info?: NodeInfoPart[]; label?: string }
+  /**
+   * 关联工作项视图：一种关联的工作项排成表格，列是对端的字段（字段名或键，「名称」「状态」是工作项自带的），
+   * 字段单元格可以直接改（对照飞书项目的「关联工作项视图」控件）。
+   */
+  | { kind: "relationTable"; relationDefId: string; columns: string[]; title?: string }
   /** 所有关联（含上级、子工作项）。 */
   | { kind: "relations" }
   | { kind: "roles" }
@@ -268,6 +273,10 @@ export function checkLayout(
       if (item.kind === "text" && !item.text.trim()) return "提示文字不能为空。";
       if (item.kind === "relation" && !relationDefIds.includes(item.relationDefId))
         return "关联工作项控件引用的关联不存在。";
+      if (item.kind === "relationTable") {
+        if (!relationDefIds.includes(item.relationDefId)) return "关联工作项视图引用的关联不存在。";
+        if (item.columns.length === 0) return "关联工作项视图至少要有一列。";
+      }
       if (item.kind === "relatedField") {
         if (!relationDefIds.includes(item.relationDefId)) return "关联信息控件引用的关联不存在。";
         if (!item.field.trim()) return "关联信息控件要选一个字段。";

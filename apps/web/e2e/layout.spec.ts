@@ -170,3 +170,50 @@ test("a node-info control shows a node's owners and lets you plan it", async ({ 
     "2026-11-06",
   );
 });
+
+test("a related-items view lists linked work items and edits their fields in place", async ({ page }) => {
+  const suffix = `${Date.now()}`;
+  await signUp(page, "Pascal", `relation-table-${suffix}@example.com`);
+  await createSpace(page, `关联视图 ${suffix}`);
+  await openSettings(page);
+  await page.getByLabel("新类型名称").fill("项目");
+  await choose(page.getByLabel("流程方式"), "state");
+  await page.getByRole("button", { name: "新建类型" }).click();
+  await createRelation(page, { from: "项目", to: "项目", name: "关联SKU" });
+  await openTypeConfig(page, "项目");
+  await typeTab(page, "字段");
+  await page.getByLabel("新字段名称").fill("首月销量");
+  await choose(selectByName(page, "dataType"), "number");
+  await page.getByRole("button", { name: "添加字段" }).click();
+  await expect(page.getByRole("cell", { name: "首月销量", exact: true })).toBeVisible();
+  await typeTab(page, "流程");
+  await page.getByLabel("新模板名称").fill("默认");
+  await page.getByRole("button", { name: "新建模板" }).click();
+  await page.getByRole("link", { name: "默认" }).click();
+  await page.getByRole("button", { name: "发布" }).click();
+  await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
+  await page.goBack();
+
+  await typeTab(page, "页面布局");
+  const editor = page.getByRole("group").filter({ has: page.getByRole("button", { name: "保存布局" }) });
+  const section = editor.getByRole("region", { name: "分组 字段" });
+  await choose(section.getByLabel("添加字段或控件"), { label: "关联工作项视图：关联SKU" });
+  await section.getByLabel("列（对端字段名，逗号分隔）").fill("名称, 首月销量");
+  await section.getByLabel("标题").fill("SKU 销量预估");
+  await editor.getByRole("button", { name: "保存布局" }).click();
+  await expect(editor.getByRole("button", { name: "保存布局" })).toBeDisabled();
+  await closeTypeConfig(page);
+
+  await openItems(page);
+  await createItem(page, "50ml 装", { label: "项目名称" });
+  await openItems(page);
+  await createItem(page, "面霜项目", { label: "项目名称" });
+  const group = page.getByRole("main").getByRole("region", { name: "关联SKU" });
+  await choose(group.getByLabel("添加关联SKU"), { label: "50ml 装" });
+  const table = page.getByRole("table", { name: "SKU 销量预估" });
+  await expect(table.getByRole("link", { name: "50ml 装" })).toBeVisible();
+  await table.getByLabel("50ml 装 首月销量").fill("1200");
+  await table.getByLabel("50ml 装 首月销量").blur();
+  await page.reload();
+  await expect(page.getByRole("table", { name: "SKU 销量预估" }).getByLabel("50ml 装 首月销量")).toHaveValue("1200");
+});
