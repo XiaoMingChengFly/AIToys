@@ -27,7 +27,7 @@ import {
 import { fieldViewRoles, hasAnyRole, mutators, queries } from "@fp/sync";
 import type { QueryResultType } from "@rocicorp/zero";
 import { useQuery, useZero } from "@rocicorp/zero/react";
-import { Link, Navigate, useParams } from "@tanstack/react-router";
+import { Link, Navigate, useNavigate, useParams } from "@tanstack/react-router";
 import { Background, Controls, type Edge, MarkerType, type Node, Position, ReactFlow } from "@xyflow/react";
 import { Check, ChevronRight, CircleCheck, CircleDashed, CircleDot, Diamond, Eye, Star, Undo2 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -53,7 +53,7 @@ import { StageTag, StatusTag, Tag } from "@/components/ui/tag";
 import { layoutByDepth } from "@/flow-demo/layout";
 import { withLineOptions } from "@/lib/fields";
 import { nodeGanttRows } from "@/lib/gantt";
-import { cn } from "@/lib/utils";
+import { cn, newId } from "@/lib/utils";
 
 /** 流程图节点的样式：进行中蓝色描边，已完成绿色，未开始灰色，被裁剪的虚线。 */
 const STATE_STYLE: Record<NodeState, string> = {
@@ -123,6 +123,9 @@ export function WorkItemView({ itemId }: { itemId: string }) {
   const [terminating, setTerminating] = useState(false);
   const [abortReason, setAbortReason] = useState("取消，现在先不做了");
   const [abortDetail, setAbortDetail] = useState("");
+  /** 复制弹窗：新工作项的名称。 */
+  const [copyName, setCopyName] = useState<string | null>(null);
+  const navigate = useNavigate();
   useActiveSpace(item?.spaceId);
   // 打开就记一次浏览（列表的「最近浏览」页签用）
   const loaded = !!item;
@@ -685,6 +688,11 @@ export function WorkItemView({ itemId }: { itemId: string }) {
               </span>
             );
           })()}
+          {canWrite && (
+            <Button size="sm" variant="ghost" onClick={() => setCopyName(`${item.name} 副本`)}>
+              复制
+            </Button>
+          )}
           {canManageItem && (
             <span className="flex items-center gap-1">
               {item.status === "terminated" ? (
@@ -739,6 +747,36 @@ export function WorkItemView({ itemId }: { itemId: string }) {
           工作项已冻结，字段、节点和状态都不能修改，解冻后恢复。
         </p>
       )}
+      <Dialog open={copyName !== null} onOpenChange={(open) => !open && setCopyName(null)}>
+        <DialogContent title="复制工作项" description="同一类型、同一流程，字段、角色和关联按类型的复制配置带过去。">
+          <div className="flex flex-col gap-3 text-sm">
+            <label className="flex flex-col gap-1">
+              <span className="text-fg-muted">新工作项名称</span>
+              <Input aria-label="新工作项名称" value={copyName ?? ""} onChange={(e) => setCopyName(e.target.value)} />
+            </label>
+            <div className="flex justify-end gap-2">
+              <DialogClose asChild>
+                <Button variant="outline">取消</Button>
+              </DialogClose>
+              <Button
+                disabled={!copyName?.trim()}
+                onClick={async () => {
+                  const id = newId();
+                  const name = copyName?.trim() ?? "";
+                  setCopyName(null);
+                  setError(null);
+                  const { client, server } = zero.mutate(mutators.workItem.copy({ sourceId: item.id, id, name }));
+                  for (const outcome of [await client, await server])
+                    if (outcome.type === "error") return setError(outcome.error.message);
+                  navigate({ to: "/items/$itemId", params: { itemId: id } });
+                }}
+              >
+                复制
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={terminating} onOpenChange={setTerminating}>
         <DialogContent title="终止工作项" description="终止后工作项不再推进，可以随时恢复。">
           <div className="flex flex-col gap-3 text-sm">

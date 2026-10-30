@@ -97,6 +97,8 @@ import {
   setFormulaArgs,
   setLayout,
   setLayoutArgs,
+  setTypeSettings,
+  setTypeSettingsArgs,
   updateField,
   updateFieldArgs,
   updateRole,
@@ -111,7 +113,7 @@ import {
   updateWebhook,
   updateWebhookArgs,
 } from "./webhooks.ts";
-import { createWorkItem, createWorkItemArgs } from "./work-items.ts";
+import { copyWorkItem, copyWorkItemArgs, createWorkItem, createWorkItemArgs } from "./work-items.ts";
 
 /*
  * 前端的所有写操作都走这里的 mutator：浏览器里先乐观执行，再由服务端（apps/api）权威执行一遍。
@@ -239,6 +241,7 @@ export const mutators = defineMutators({
     setDefaultDisplay: defineMutator(setDefaultDisplayArgs, ({ tx, args, ctx }) =>
       setDefaultDisplay(tx, args, ctx.userID),
     ),
+    setSettings: defineMutator(setTypeSettingsArgs, ({ tx, args, ctx }) => setTypeSettings(tx, args, ctx.userID)),
   },
   roleDef: {
     create: defineMutator(createRoleArgs, ({ tx, args, ctx }) => createRole(tx, args, ctx.userID)),
@@ -270,6 +273,9 @@ export const mutators = defineMutators({
     }),
     terminate: defineMutator(terminateArgs, async ({ tx, args, ctx }) => {
       await terminateWorkItem(tx, args, ctx.userID);
+    }),
+    copy: defineMutator(copyWorkItemArgs, async ({ tx, args, ctx }) => {
+      await copyWorkItem(tx, args, ctx.userID);
     }),
     restore: defineMutator(workItemIdArgs, async ({ tx, args, ctx }) => {
       await restoreWorkItem(tx, args, ctx.userID);

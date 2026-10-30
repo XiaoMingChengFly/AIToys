@@ -7,6 +7,8 @@ import {
   completeBySubItems,
   confirmNode,
   confirmNodeArgs,
+  copyWorkItem,
+  copyWorkItemArgs,
   createComment,
   createCommentArgs,
   createSubItem,
@@ -164,6 +166,19 @@ export const serverMutators = defineMutators(mutators, {
           payload: { node: args.nodeKey, subItemId: args.id, name: args.name },
           actor: ctx.userID,
         },
+      ]);
+    }),
+    copy: defineMutator(copyWorkItemArgs, async ({ tx, args, ctx }) => {
+      const { spaceId, typeId, flowVersionId, events } = await copyWorkItem(tx, args, ctx.userID);
+      await append(tx, ctx, [
+        {
+          spaceId,
+          workItemId: args.id,
+          kind: "workItemCreated",
+          payload: { typeId, flowVersionId, name: args.name, copiedFrom: args.sourceId },
+          actor: ctx.userID,
+        },
+        ...flowEvents(spaceId, args.id, events),
       ]);
     }),
     terminate: defineMutator(terminateArgs, async ({ tx, args, ctx }) => {

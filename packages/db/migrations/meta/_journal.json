@@ -169,6 +169,13 @@
       "when": 1793355571517,
       "tag": "0023_terminate_freeze",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793357661461,
+      "tag": "0024_type_settings",
+      "breakpoints": true
     }
   ]
 }

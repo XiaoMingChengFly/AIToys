@@ -248,3 +248,94 @@ function cleanOverrides(
   const removed = [...new Set(overrides?.removed ?? [])].filter((k) => keys.has(k) && !added.includes(k));
   return added.length || removed.length ? { added, removed } : null;
 }
+
+export const copyWorkItemArgs = z.object({ sourceId: z.string(), id: z.string(), name: z.string().trim().min(1) });
+
+/**
+ * 复制工作项（对照飞书项目的「复制」）：同一类型、同一流程模板，字段值、角色成员、自定义关联带过去，
+ * 类型设置里「复制时排除」的字段（字段键或关联名）和角色不带；公式字段重新算。新工作项从流程开头开始。
+ */
+export async function copyWorkItem(
+  tx: Transaction,
+  args: z.output<typeof copyWorkItemArgs>,
+  userID: string,
+): Promise<{ spaceId: string; typeId: string; flowVersionId: string | null; events: FlowEvent[] }> {
+  const source = await tx.run(
+    zql.workItem
+      .where("id", args.sourceId)
+      .whereExists("space", (s) => s.whereExists("members", (m) => m.where("userId", userID)))
+      .related("type", (t) => t.related("fields"))
+      .related("flowVersion")
+      .related("fieldValues")
+      .related("roleMembers")
+      .related("outgoing", (r) => r.where("relationDefId", "IS NOT", null).related("def"))
+      .related("incoming", (r) => r.where("relationDefId", "IS NOT", null).related("def"))
+      .one(),
+  );
+  if (!source?.type) throw new Error("工作项不存在或没有权限。");
+  const settings = source.type.settings ?? {};
+  const excluded = new Set(settings.copyExcludeFields ?? []);
+  const fieldByKey = new Map(source.type.fields.map((f) => [f.key, f]));
+  const skipField = (key: string) => {
+    const f = fieldByKey.get(key);
+    return !f || f.dataType === "formula" || excluded.has(key) || excluded.has(f.name);
+  };
+  const fields = Object.fromEntries(
+    source.fieldValues.filter((v) => !skipField(v.fieldKey)).map((v) => [v.fieldKey, v.value as never]),
+  );
+  const excludedRoles = new Set(settings.copyExcludeRoles ?? []);
+  const roles: Record<string, string[]> = {};
+  for (const m of source.roleMembers)
+    if (!excludedRoles.has(m.roleKey)) roles[m.roleKey] = [...(roles[m.roleKey] ?? []), m.userId];
+
+  const created = await createWorkItem(
+    tx,
+    {
+      id: args.id,
+      typeId: source.typeId,
+      name: args.name,
+      ...(source.flowVersion?.templateId && { flowTemplateId: source.flowVersion.templateId }),
+      fields,
+      roles,
+      ...(source.roleOverrides && {
+        roleOverrides: {
+          added: (source.roleOverrides.added ?? []).filter((r) => !excludedRoles.has(r)),
+          removed: source.roleOverrides.removed ?? [],
+        },
+      }),
+    },
+    userID,
+  );
+
+  // 自定义关联：本端的关联按关联名、对端的按对端字段名排除；会挤掉别人已有关联的（单选）不带
+  const now = Date.now();
+  for (const r of source.outgoing) {
+    if (!r.def || excluded.has(r.def.name) || (r.def.reverseName && r.def.reverseCardinality === "one")) continue;
+    await tx.mutate.relation.insert({
+      id: `${args.id}/copy/${r.id}`,
+      relationDefId: r.def.id,
+      parentNodeKey: null,
+      fromId: args.id,
+      toId: r.toId,
+      createdAt: now,
+    });
+  }
+  for (const r of source.incoming) {
+    if (!r.def?.reverseName || excluded.has(r.def.reverseName) || r.def.cardinality === "one") continue;
+    await tx.mutate.relation.insert({
+      id: `${args.id}/copy/${r.id}`,
+      relationDefId: r.def.id,
+      parentNodeKey: null,
+      fromId: r.fromId,
+      toId: args.id,
+      createdAt: now,
+    });
+  }
+  await recomputeFormulas(tx, args.id);
+  return {
+    spaceId: created.spaceId,
+    typeId: source.typeId,
+    flowVersionId: created.flowVersionId,
+    events: created.events,
+  };
+}

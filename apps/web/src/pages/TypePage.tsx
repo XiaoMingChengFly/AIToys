@@ -215,6 +215,21 @@ function TypeConfig({ typeId, tab }: { typeId: string; tab: TypeMenuTab }) {
           </dl>
         </Section>
       )}
+      {tab === "baseInfo" && (
+        <CopySettings
+          key={JSON.stringify(type.settings ?? null)}
+          fields={type.fields.filter((f) => f.dataType !== "formula")}
+          relations={[...type.relationDefs.map((d) => d.name), ...reverseDefs.map((d) => d.reverseName ?? d.name)]}
+          roles={type.roles}
+          initial={type.settings ?? null}
+          canManage={isAdmin}
+          onSave={async (settings) => {
+            setError(null);
+            const outcome = await zero.mutate(mutators.workItemType.setSettings({ id: type.id, settings })).client;
+            if (outcome.type === "error") setError(outcome.error.message);
+          }}
+        />
+      )}
 
       {tab === "workflow" && (
         <Section title="流程模板">
@@ -720,5 +735,76 @@ function FieldRow({
         </tr>
       )}
     </>
+  );
+}
+
+/** 复制工作项时不带过去的字段、关联和角色（对照飞书项目工作项类型的「复制配置」）。 */
+function CopySettings({
+  fields,
+  relations,
+  roles,
+  initial,
+  canManage,
+  onSave,
+}: {
+  fields: readonly { key: string; name: string }[];
+  relations: readonly string[];
+  roles: readonly { key: string; name: string }[];
+  initial: { copyExcludeFields?: string[]; copyExcludeRoles?: string[] } | null;
+  canManage: boolean;
+  onSave: (settings: { copyExcludeFields: string[]; copyExcludeRoles: string[] }) => Promise<void>;
+}) {
+  const [excludedFields, setExcludedFields] = useState(new Set(initial?.copyExcludeFields ?? []));
+  const [excludedRoles, setExcludedRoles] = useState(new Set(initial?.copyExcludeRoles ?? []));
+  const toggle = (set: Set<string>, value: string, on: boolean) => {
+    const next = new Set(set);
+    if (on) next.add(value);
+    else next.delete(value);
+    return next;
+  };
+  const items = [
+    ...fields.map((f) => ({ value: f.key, label: f.name })),
+    ...relations.map((r) => ({ value: r, label: `${r}（关联）` })),
+  ];
+  return (
+    <Section title="复制配置">
+      <fieldset disabled={!canManage} className="flex flex-col gap-3 text-sm">
+        <p className="text-fg-muted">复制工作项时，勾选的字段、关联和角色不带到新工作项上。</p>
+        <div role="group" aria-label="复制时不带的字段" className="grid max-h-64 grid-cols-3 gap-1 overflow-y-auto">
+          {items.map((it) => (
+            <Label key={it.value} className="flex items-center gap-1.5 font-normal">
+              <input
+                type="checkbox"
+                aria-label={`复制时不带${it.label}`}
+                checked={excludedFields.has(it.value)}
+                onChange={(e) => setExcludedFields(toggle(excludedFields, it.value, e.target.checked))}
+              />
+              <span className="truncate">{it.label}</span>
+            </Label>
+          ))}
+        </div>
+        <div role="group" aria-label="复制时不带的角色" className="grid grid-cols-3 gap-1">
+          {roles.map((r) => (
+            <Label key={r.key} className="flex items-center gap-1.5 font-normal">
+              <input
+                type="checkbox"
+                aria-label={`复制时不带角色${r.name}`}
+                checked={excludedRoles.has(r.key)}
+                onChange={(e) => setExcludedRoles(toggle(excludedRoles, r.key, e.target.checked))}
+              />
+              <span className="truncate">{r.name}</span>
+            </Label>
+          ))}
+        </div>
+        {canManage && (
+          <Button
+            className="w-fit"
+            onClick={() => onSave({ copyExcludeFields: [...excludedFields], copyExcludeRoles: [...excludedRoles] })}
+          >
+            保存复制配置
+          </Button>
+        )}
+      </fieldset>
+    </Section>
   );
 }

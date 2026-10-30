@@ -166,6 +166,14 @@ export const spaceMember = pgTable(
   (t) => [primaryKey({ columns: [t.spaceId, t.userId] })],
 );
 
+/** 工作项类型的设置（对照飞书项目工作项类型的「基础设置」）。 */
+export interface TypeSettings {
+  /** 复制工作项时不带过去的字段（字段键或关联名）。 */
+  copyExcludeFields?: string[];
+  /** 复制工作项时不带过去的角色。 */
+  copyExcludeRoles?: string[];
+}
+
 export const workItemType = pgTable(
   "work_item_type",
   {
@@ -180,6 +188,8 @@ export const workItemType = pgTable(
     detailLayout: jsonb("detail_layout").$type<DetailLayout>(),
     /** 列表的默认显示（列和顺序、排序、分组、行着色）：管理员在「列」页签里配置，成员打开列表时的起点。 */
     defaultDisplay: jsonb("default_display").$type<ViewDisplay>(),
+    /** 类型的其他设置：复制工作项时不带过去的字段和角色等。 */
+    settings: jsonb("settings").$type<TypeSettings>(),
     sort: integer("sort").notNull().default(0),
     createdAt: createdAt(),
   },
