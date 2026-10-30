@@ -176,6 +176,12 @@ const layoutItem = z.union([
   z.object({ kind: z.literal("text"), text: z.string().max(1000), tone: z.enum(["info", "warning"]).optional() }),
   z.object({ kind: z.literal("relation"), relationDefId: z.string(), title: z.string().max(60).optional() }),
   z.object({
+    kind: z.literal("nodeInfo"),
+    node: z.string().min(1),
+    info: z.array(z.enum(["owner", "schedule", "conclusion"])).optional(),
+    label: z.string().max(60).optional(),
+  }),
+  z.object({
     kind: z.literal("relatedField"),
     relationDefId: z.string(),
     field: z.string().min(1).max(200),
@@ -251,6 +257,10 @@ export const flowDefinitionSchema = z.object({
       relatedInfo: z
         .array(z.object({ relation: z.string().min(1).max(100), field: z.string().min(1).max(200) }))
         .max(30)
+        .optional(),
+      nodeInfo: z
+        .array(z.object({ node: z.string().min(1), info: z.array(z.enum(["owner", "schedule", "conclusion"])).optional() }))
+        .max(50)
         .optional(),
       duration: z.number().int().min(0).max(999).optional(),
       position: z.object({ x: z.number(), y: z.number() }).optional(),

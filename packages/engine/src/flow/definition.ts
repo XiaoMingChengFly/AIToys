@@ -98,6 +98,8 @@ export interface NodeDefinition {
    * 给负责人确认时参考（对照飞书节点表单里的「关联信息」）。
    */
   relatedInfo?: { relation: string; field: string }[];
+  /** 节点上显示的别的节点的信息（负责人、排期、结论），如立项时先给后面的节点排期。 */
+  nodeInfo?: { node: string; info?: ("owner" | "schedule" | "conclusion")[] }[];
   /** 节点到达时把工作项阶段改成这个值。 */
   stageOnArrival?: string;
   /** 预估工期（工作日）。不填时需要人确认的节点按 1 天，自动节点按 0 天（里程碑）。 */

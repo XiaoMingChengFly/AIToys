@@ -48,11 +48,19 @@ export type LayoutItem =
    * field 是对端类型的字段名或字段键；关联了多个时值用「、」连起来。
    */
   | { kind: "relatedField"; relationDefId: string; field: string; label?: string }
+  /**
+   * 节点信息：显示某个节点的负责人、排期（可改）、完成结论（对照飞书项目的「节点信息」控件）。
+   * node 是节点键或节点名；工作项的流程里没有这个节点时不显示。
+   */
+  | { kind: "nodeInfo"; node: string; info?: NodeInfoPart[]; label?: string }
   /** 所有关联（含上级、子工作项）。 */
   | { kind: "relations" }
   | { kind: "roles" }
   | { kind: "subItems" }
   | { kind: "attachments" };
+
+/** 节点信息里显示哪些：负责人、排期、完成结论和意见。 */
+export type NodeInfoPart = "owner" | "schedule" | "conclusion";
 
 export interface LayoutSection {
   name: string;

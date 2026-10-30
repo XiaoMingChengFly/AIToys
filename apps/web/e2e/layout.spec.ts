@@ -127,3 +127,46 @@ test("a related-info control shows a field of the linked work item", async ({ pa
   await choose(group.getByLabel("添加关联项目"), { label: "面霜项目" });
   await expect(page.getByLabel("项目品牌")).toHaveText("ddg");
 });
+
+test("a node-info control shows a node's owners and lets you plan it", async ({ page }) => {
+  const suffix = `${Date.now()}`;
+  await signUp(page, "Pascal", `node-info-ctl-${suffix}@example.com`);
+  await createSpace(page, `节点信息 ${suffix}`);
+  await openSettings(page);
+  await page.getByLabel("新类型名称").fill("素材");
+  await page.getByRole("button", { name: "新建类型" }).click();
+  await openTypeConfig(page, "素材");
+  await typeTab(page, "流程");
+  await page.getByLabel("新模板名称").fill("默认流程");
+  await page.getByRole("button", { name: "新建模板" }).click();
+  await page.getByRole("link", { name: "默认流程" }).click();
+  const node = (name: string) => page.locator(".react-flow__node", { hasText: name });
+  await node("开始").click();
+  await page.getByRole("button", { name: "添加节点" }).click();
+  await page.getByRole("main").getByLabel("节点名称").fill("提交初稿");
+  await page.getByRole("button", { name: "发布" }).click();
+  await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
+  await page.goBack();
+
+  await typeTab(page, "页面布局");
+  const editor = page.getByRole("group").filter({ has: page.getByRole("button", { name: "保存布局" }) });
+  // 没有字段的类型，默认布局里第一组是「角色」
+  const section = editor.getByRole("region", { name: "分组 角色" });
+  await choose(section.getByLabel("添加字段或控件"), "nodeInfo:");
+  await section.getByLabel("节点（节点名或键）").fill("提交初稿");
+  await editor.getByRole("button", { name: "保存布局" }).click();
+  await expect(editor.getByRole("button", { name: "保存布局" })).toBeDisabled();
+  await closeTypeConfig(page);
+
+  await openItems(page);
+  await createItem(page, "618 海报", { label: "素材名称" });
+  const info = page.getByRole("group", { name: "节点信息 提交初稿" });
+  await expect(info).toContainText("负责人");
+  await info.getByLabel("提交初稿计划开始").fill("2026-11-02");
+  await info.getByLabel("提交初稿计划结束").fill("2026-11-06");
+  await expect(info.getByLabel("提交初稿计划结束")).toHaveValue("2026-11-06");
+  await page.reload();
+  await expect(page.getByRole("group", { name: "节点信息 提交初稿" }).getByLabel("提交初稿计划结束")).toHaveValue(
+    "2026-11-06",
+  );
+});

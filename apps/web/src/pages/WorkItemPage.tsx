@@ -306,6 +306,72 @@ export function WorkItemView({ itemId }: { itemId: string }) {
     ...item.incoming.filter((r) => (r.def?.reverseName ?? r.def?.name) === relation).map((r) => r.from),
   ];
 
+  const timeZone = item.space?.timezone ?? "Asia/Shanghai";
+  /** 节点信息：某个节点的负责人、排期（能排期的人可以改）、结论。流程里没有这个节点时不显示。 */
+  const nodeInfoView = (ref: string, info: readonly string[] | undefined, label: string | undefined, key: string) => {
+    const def = graph?.nodes.find((n) => n.key === ref || n.name === ref);
+    if (!def) return null;
+    const runtime = states.get(def.key);
+    const parts = info?.length ? info : ["owner", "schedule"];
+    const day = (ms: number | null | undefined) => (ms == null ? "" : dayToIso(dayInTimeZone(ms, timeZone)));
+    const start = day(runtime?.plannedStart);
+    const end = day(runtime?.plannedEnd);
+    const editable = canPlan(def.key);
+    const name = label || def.name;
+    return (
+      <div
+        key={key}
+        role="group"
+        aria-label={`节点信息 ${name}`}
+        className="flex flex-col gap-1 rounded border border-line px-2.5 py-2 text-sm"
+      >
+        <span className="font-medium">{name}</span>
+        {parts.includes("owner") && (
+          <span className="flex flex-wrap items-center gap-1">
+            <span className="text-fg-muted">负责人：</span>
+            {(runtime?.owners ?? []).length === 0 && <span className="text-fg-subtle">未设置</span>}
+            {(runtime?.owners ?? []).map((u) => (
+              <UserChip key={u} id={u} name={nameOf(u)} />
+            ))}
+          </span>
+        )}
+        {parts.includes("schedule") && (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <span className="text-fg-muted">排期：</span>
+            <Input
+              type="date"
+              aria-label={`${name}计划开始`}
+              className="h-7 w-36"
+              value={start}
+              readOnly={!editable}
+              onChange={(e) =>
+                e.target.value && setPlan(def.key, dayFromIso(e.target.value), dayFromIso(end || e.target.value))
+              }
+            />
+            <span>~</span>
+            <Input
+              type="date"
+              aria-label={`${name}计划结束`}
+              className="h-7 w-36"
+              value={end}
+              readOnly={!editable}
+              onChange={(e) =>
+                e.target.value && setPlan(def.key, dayFromIso(start || e.target.value), dayFromIso(e.target.value))
+              }
+            />
+          </span>
+        )}
+        {parts.includes("conclusion") && (
+          <span>
+            <span className="text-fg-muted">结论：</span>
+            {conclusionLabel(def.key) ?? <span className="text-fg-subtle">—</span>}
+            {runtime?.comment && <span className="text-fg-muted">（{runtime.comment}）</span>}
+          </span>
+        )}
+      </div>
+    );
+  };
+
   /** 布局里的一项：字段、提示文字或控件。 */
   const renderItem = (it: LayoutItem, index: number) => {
     switch (it.kind) {
@@ -398,6 +464,8 @@ export function WorkItemView({ itemId }: { itemId: string }) {
           </div>
         );
       }
+      case "nodeInfo":
+        return nodeInfoView(it.node, it.info, it.label, `ni-${index}`);
       case "subItems":
         return (
           <div key={`s-${index}`} className="col-span-full">
@@ -602,6 +670,13 @@ export function WorkItemView({ itemId }: { itemId: string }) {
                               );
                             })}
                           </dl>
+                        ) : null}
+                        {node.nodeInfo?.length ? (
+                          <div className="flex flex-col gap-1.5">
+                            {node.nodeInfo.map((n, i) =>
+                              nodeInfoView(n.node, n.info, undefined, `${node.key}-ni-${i}`),
+                            )}
+                          </div>
                         ) : null}
                         {bySubItems && (
                           <SubItems
