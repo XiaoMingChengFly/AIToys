@@ -217,3 +217,41 @@ test("a related-items view lists linked work items and edits their fields in pla
   await page.reload();
   await expect(page.getByRole("table", { name: "SKU 销量预估" }).getByLabel("50ml 装 首月销量")).toHaveValue("1200");
 });
+
+test("a multi-node view lists chosen nodes with their state and owners", async ({ page }) => {
+  const suffix = `${Date.now()}`;
+  await signUp(page, "Pascal", `node-table-${suffix}@example.com`);
+  await createSpace(page, `多节点视图 ${suffix}`);
+  await openSettings(page);
+  await page.getByLabel("新类型名称").fill("评审");
+  await page.getByRole("button", { name: "新建类型" }).click();
+  await openTypeConfig(page, "评审");
+  await typeTab(page, "流程");
+  await page.getByLabel("新模板名称").fill("需求评审");
+  await page.getByRole("button", { name: "新建模板" }).click();
+  await page.getByRole("link", { name: "需求评审" }).click();
+  const node = (name: string) => page.locator(".react-flow__node", { hasText: name });
+  await node("开始").click();
+  await page.getByRole("button", { name: "添加节点" }).click();
+  await page.getByRole("main").getByLabel("节点名称").fill("NPD资料预审");
+  await page.getByRole("button", { name: "发布" }).click();
+  await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
+  await page.goBack();
+
+  await typeTab(page, "页面布局");
+  const editor = page.getByRole("group").filter({ has: page.getByRole("button", { name: "保存布局" }) });
+  const section = editor.getByRole("region", { name: "分组 角色" });
+  await choose(section.getByLabel("添加字段或控件"), "nodeTable:");
+  await section.getByLabel("节点（节点名，逗号分隔）").fill("开始, NPD资料预审");
+  await section.getByLabel("只在这个流程类型上显示").fill("需求评审");
+  await section.getByLabel("标题").fill("预审结果");
+  await editor.getByRole("button", { name: "保存布局" }).click();
+  await expect(editor.getByRole("button", { name: "保存布局" })).toBeDisabled();
+  await closeTypeConfig(page);
+
+  await openItems(page);
+  await createItem(page, "面霜需求评审", { label: "评审名称" });
+  const table = page.getByRole("table", { name: "预审结果" });
+  await expect(table.getByRole("row")).toHaveCount(3);
+  await expect(table.getByRole("row", { name: /NPD资料预审/ })).toContainText("进行中");
+});

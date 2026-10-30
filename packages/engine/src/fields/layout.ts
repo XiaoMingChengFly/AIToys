@@ -58,6 +58,11 @@ export type LayoutItem =
    * 字段单元格可以直接改（对照飞书项目的「关联工作项视图」控件）。
    */
   | { kind: "relationTable"; relationDefId: string; columns: string[]; title?: string }
+  /**
+   * 多节点视图：几个节点排成表格，看各自的负责人、状态、结论和意见（对照飞书项目的「多节点视图」）。
+   * nodes 是节点键或名；template 填了时只在用这个流程类型的工作项上显示。
+   */
+  | { kind: "nodeTable"; nodes: string[]; template?: string; title?: string }
   /** 所有关联（含上级、子工作项）。 */
   | { kind: "relations" }
   | { kind: "roles" }

@@ -176,6 +176,12 @@ const layoutItem = z.union([
   z.object({ kind: z.literal("text"), text: z.string().max(1000), tone: z.enum(["info", "warning"]).optional() }),
   z.object({ kind: z.literal("relation"), relationDefId: z.string(), title: z.string().max(60).optional() }),
   z.object({
+    kind: z.literal("nodeTable"),
+    nodes: z.array(z.string().min(1)).min(1).max(60),
+    template: z.string().max(100).optional(),
+    title: z.string().max(60).optional(),
+  }),
+  z.object({
     kind: z.literal("relationTable"),
     relationDefId: z.string(),
     columns: z.array(z.string().min(1).max(200)).min(1).max(40),

@@ -466,6 +466,50 @@ export function WorkItemView({ itemId }: { itemId: string }) {
       }
       case "nodeInfo":
         return nodeInfoView(it.node, it.info, it.label, `ni-${index}`);
+      case "nodeTable": {
+        // 指定了流程类型的，只在这个流程类型的工作项上显示
+        if (it.template && template?.name !== it.template) return null;
+        const defs = it.nodes.flatMap((ref) => graph?.nodes.filter((n) => n.key === ref || n.name === ref) ?? []);
+        if (defs.length === 0) return null;
+        const title = it.title || "节点";
+        return (
+          <div key={`nt-${index}`} className="col-span-full overflow-x-auto">
+            <table aria-label={title} className="w-full min-w-max text-sm">
+              <thead>
+                <tr className="border-b border-line-subtle text-left text-xs text-fg-muted">
+                  <th className="h-8 px-1.5 font-normal">节点</th>
+                  <th className="px-1.5 font-normal">状态</th>
+                  <th className="px-1.5 font-normal">负责人</th>
+                  <th className="px-1.5 font-normal">结论</th>
+                  <th className="px-1.5 font-normal">意见</th>
+                </tr>
+              </thead>
+              <tbody>
+                {defs.map((n) => {
+                  const runtime = states.get(n.key);
+                  return (
+                    <tr key={n.key} className="border-b border-line-subtle last:border-0">
+                      <td className="h-9 px-1.5">{n.name}</td>
+                      <td className="px-1.5">
+                        <NodeStateTag state={runtime?.state ?? "notStarted"} />
+                      </td>
+                      <td className="px-1.5">
+                        {(runtime?.owners ?? []).map((u) => nameOf(u)).join("、") || (
+                          <span className="text-fg-subtle">—</span>
+                        )}
+                      </td>
+                      <td className="px-1.5">{conclusionLabel(n.key) ?? <span className="text-fg-subtle">—</span>}</td>
+                      <td className="px-1.5 whitespace-pre-wrap">
+                        {runtime?.comment || <span className="text-fg-subtle">—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
       case "relationTable": {
         const rows = [
           ...item.outgoing.filter((r) => r.relationDefId === it.relationDefId).map((r) => r.to),

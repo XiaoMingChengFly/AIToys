@@ -44,7 +44,7 @@ function move<T>(list: readonly T[], index: number, by: number): T[] {
 }
 
 const CONTROL_LABEL: Record<
-  Exclude<LayoutItem["kind"], "field" | "relation" | "relatedField" | "nodeInfo" | "relationTable">,
+  Exclude<LayoutItem["kind"], "field" | "relation" | "relatedField" | "nodeInfo" | "relationTable" | "nodeTable">,
   string
 > = {
   text: "提示文字",
@@ -91,15 +91,17 @@ export function LayoutEditor({
         : nameOf(item.field)
       : item.kind === "relation"
         ? `关联：${relationDefs.find((d) => d.id === item.relationDefId)?.name ?? "（已删除）"}`
-        : item.kind === "relationTable"
-          ? `关联工作项视图：${relationDefs.find((d) => d.id === item.relationDefId)?.name ?? "（已删除）"}`
-          : item.kind === "nodeInfo"
-            ? `节点信息：${item.label || item.node || "（未选节点）"}`
-            : item.kind === "relatedField"
-              ? `关联信息：${relationDefs.find((d) => d.id === item.relationDefId)?.name ?? "（已删除）"} · ${item.label || item.field || "（未选字段）"}`
-              : item.kind === "text"
-                ? `提示文字：${item.text.slice(0, 20) || "（空）"}`
-                : CONTROL_LABEL[item.kind];
+        : item.kind === "nodeTable"
+          ? `多节点视图：${item.title || item.nodes.join("、") || "（未选节点）"}`
+          : item.kind === "relationTable"
+            ? `关联工作项视图：${relationDefs.find((d) => d.id === item.relationDefId)?.name ?? "（已删除）"}`
+            : item.kind === "nodeInfo"
+              ? `节点信息：${item.label || item.node || "（未选节点）"}`
+              : item.kind === "relatedField"
+                ? `关联信息：${relationDefs.find((d) => d.id === item.relationDefId)?.name ?? "（已删除）"} · ${item.label || item.field || "（未选字段）"}`
+                : item.kind === "text"
+                  ? `提示文字：${item.text.slice(0, 20) || "（空）"}`
+                  : CONTROL_LABEL[item.kind];
 
   const tab = draft.tabs.find((t) => t.key === tabKey) ?? draft.tabs[0];
   const setTabs = (tabs: LayoutTab[]) => update({ ...draft, tabs });
@@ -641,6 +643,36 @@ function ItemsEditor({
                     </Select>
                   </>
                 )}
+                {item.kind === "nodeTable" && (
+                  <>
+                    <Field label="节点（节点名，逗号分隔）">
+                      <Input
+                        value={item.nodes.join(", ")}
+                        onChange={(e) =>
+                          patch(i, {
+                            ...item,
+                            nodes: e.target.value
+                              .split(/[,，、]/)
+                              .map((c) => c.trim())
+                              .filter(Boolean),
+                          })
+                        }
+                      />
+                    </Field>
+                    <Field label="只在这个流程类型上显示">
+                      <Input
+                        value={item.template ?? ""}
+                        onChange={(e) => patch(i, { ...item, template: e.target.value || undefined })}
+                      />
+                    </Field>
+                    <Field label="标题">
+                      <Input
+                        value={item.title ?? ""}
+                        onChange={(e) => patch(i, { ...item, title: e.target.value || undefined })}
+                      />
+                    </Field>
+                  </>
+                )}
                 {item.kind === "relationTable" && (
                   <>
                     <Field label="列（对端字段名，逗号分隔）">
@@ -721,14 +753,15 @@ function ItemsEditor({
                   ? { kind: "relatedField", relationDefId: id, field: "" }
                   : kind === "nodeInfo"
                     ? { kind: "nodeInfo", node: "" }
-                    : kind === "relationTable"
-                      ? { kind: "relationTable", relationDefId: id, columns: ["名称", "状态"] }
-                      : kind === "text"
-                        ? { kind: "text", text: "提示文字" }
-                        : { kind: kind as "relations" | "roles" | "subItems" | "attachments" };
+                    : kind === "nodeTable"
+                      ? { kind: "nodeTable", nodes: [] }
+                      : kind === "relationTable"
+                        ? { kind: "relationTable", relationDefId: id, columns: ["名称", "状态"] }
+                        : kind === "text"
+                          ? { kind: "text", text: "提示文字" }
+                          : { kind: kind as "relations" | "roles" | "subItems" | "attachments" };
           onChange([...items, item]);
-          if (kind === "text" || kind === "relatedField" || kind === "nodeInfo" || kind === "relationTable")
-            setOpen(items.length);
+          if (["text", "relatedField", "nodeInfo", "relationTable", "nodeTable"].includes(kind)) setOpen(items.length);
         }}
       >
         <option value="">添加字段或控件…</option>
@@ -760,6 +793,7 @@ function ItemsEditor({
                 </option>
               ))}
               <option value="nodeInfo:">节点信息</option>
+              <option value="nodeTable:">多节点视图</option>
               <option value="subItems:">子工作项</option>
               <option value="roles:">角色与人员</option>
               <option value="attachments:">附件</option>
