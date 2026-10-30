@@ -32,7 +32,22 @@ const TYPE_GROUPS = [
   ["选项", ["select", "multiSelect", "cascadeSelect", "cascadeMulti", "radio", "businessLine"]],
   ["人员", ["singleUser", "user"]],
   ["日期", ["date", "dateRange", "datetime"]],
-  ["其他", ["number", "bool", "link", "docLink", "attachment", "phone", "email", "signal", "multiSignal", "formula"]],
+  [
+    "其他",
+    [
+      "number",
+      "bool",
+      "link",
+      "docLink",
+      "attachment",
+      "phone",
+      "email",
+      "signal",
+      "multiSignal",
+      "fieldGroup",
+      "formula",
+    ],
+  ],
 ] as const satisfies readonly (readonly [string, readonly FieldDataType[]])[];
 type NewFieldType = (typeof TYPE_GROUPS)[number][1][number];
 

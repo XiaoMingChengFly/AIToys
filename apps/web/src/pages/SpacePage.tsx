@@ -589,7 +589,10 @@ function CreateWorkItemForm({
                 }
                 hint={item.kind === "field" ? item.hint : undefined}
                 className={
-                  f.dataType === "richText" || f.dataType === "textarea" || (item.kind === "field" && item.wide)
+                  f.dataType === "richText" ||
+                  f.dataType === "textarea" ||
+                  f.dataType === "fieldGroup" ||
+                  (item.kind === "field" && item.wide)
                     ? "sm:col-span-2"
                     : undefined
                 }

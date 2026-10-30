@@ -363,7 +363,8 @@ function RuleForm({
                             value={action.value}
                             members={[...members].map(([userId, name]) => ({ userId, name }))}
                             live
-                            onChange={(value) => updateAction(i, { ...action, value })}
+                            // 自动化里不能设字段组，值总是简单值
+                            onChange={(value) => updateAction(i, { ...action, value: value as typeof action.value })}
                           />
                         ) : null;
                       })()}

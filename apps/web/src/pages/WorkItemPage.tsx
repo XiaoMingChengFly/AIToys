@@ -939,7 +939,8 @@ function LayoutField({
   if (state?.visible === false) return null;
   if (item.showWhen && !evaluate(item.showWhen, conditionView(fields, record))) return null;
   const value = record[field.key] ?? null;
-  const wide = item.wide || field.dataType === "richText" || field.dataType === "textarea";
+  const wide =
+    item.wide || field.dataType === "richText" || field.dataType === "textarea" || field.dataType === "fieldGroup";
   const top = labelPosition === "top" || wide;
   const name = item.label || field.name;
   return (

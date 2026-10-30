@@ -82,3 +82,34 @@ describe("conditions on typed values", () => {
     expect(evaluate(cond.compare("上市", "gt", "2026-03-01"), { 上市: "2026-02-28" })).toBe(false);
   });
 });
+
+describe("field groups", () => {
+  const group = {
+    name: "成本率维护",
+    dataType: "fieldGroup" as const,
+    config: {
+      columns: [
+        { key: "品牌", name: "品牌", dataType: "select" as const, options },
+        { key: "成本率", name: "成本率", dataType: "number" as const },
+      ],
+    },
+  };
+
+  it("normalizes each row by its columns and drops empty rows", () => {
+    expect(
+      normalizeFieldValue(group, [
+        { 品牌: "red", 成本率: "0.3", 多余: 1 },
+        { 品牌: "", 成本率: null },
+        { 成本率: 0.4 },
+      ]),
+    ).toEqual([{ 品牌: "red", 成本率: 0.3 }, { 成本率: 0.4 }]);
+    expect(normalizeFieldValue(group, [{ 品牌: "" }])).toBeNull();
+    expect(() => normalizeFieldValue(group, [{ 品牌: "red" }, { 品牌: "pink" }])).toThrow("第 2 行");
+  });
+
+  it("shows the row count and indexes every cell", () => {
+    const rows = [{ 品牌: "red", 成本率: 0.3 }, { 品牌: "blue" }];
+    expect(formatFieldValue(group, rows)).toBe("2 行");
+    expect(fieldIndex(group, rows).str).toBe("红 0.3 蓝");
+  });
+});

@@ -3,8 +3,10 @@ import {
   CASCADE_FIELD_TYPES,
   type Condition,
   type DefaultValue,
+  FIELD_GROUP_COLUMN_TYPES,
   FIELD_TYPE_LABEL,
   type FieldDataType,
+  type FieldGroupColumn,
   type FieldOption,
   type FieldConfig as FieldRules,
   MULTI_VALUE_FIELD_TYPES,
@@ -122,12 +124,16 @@ export function FieldConfigSheet({
   const [leafOnly, setLeafOnly] = useState(initial.leafOnly ?? false);
   const [unique, setUnique] = useState(initial.unique ?? false);
   const [freeze, setFreeze] = useState(initial.freezeOnComplete ?? false);
+  const [columns, setColumns] = useState<FieldGroupColumn[]>([...(initial.columns ?? [])]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // 条件只能引用别的字段；可以用来判断的字段和选项
   const conditionFields: ConditionField[] = fields
-    .filter((f) => f.key !== field.key && f.dataType !== "richText" && f.dataType !== "attachment")
+    .filter(
+      (f) =>
+        f.key !== field.key && f.dataType !== "richText" && f.dataType !== "attachment" && f.dataType !== "fieldGroup",
+    )
     .map((f) => ({
       key: f.key,
       name: f.name,
@@ -143,7 +149,7 @@ export function FieldConfigSheet({
     });
   // 默认值控件用的字段：选项用编辑中的选项
   const inputField = { key: field.key, name: field.name, dataType: field.dataType, options, config: null };
-  const canDefault = !systemWritten && dataType !== "attachment";
+  const canDefault = !systemWritten && dataType !== "attachment" && dataType !== "fieldGroup";
 
   function buildDefault(): DefaultValue | null {
     if (defaultMode === "fixed")
@@ -174,6 +180,14 @@ export function FieldConfigSheet({
         ? compact(Object.fromEntries(Object.entries(optionWhen).filter(([v]) => values.has(v))) as FieldRules)
         : null,
       exclusiveOptions: dataType === "multiSelect" ? exclusive.filter((v) => values.has(v)) : null,
+      columns:
+        dataType === "fieldGroup"
+          ? columns.map((c) => ({
+              ...c,
+              name: c.name.trim(),
+              options: OPTION_FIELD_TYPES.includes(c.dataType) ? (c.options ?? []) : null,
+            }))
+          : null,
     } as FieldRules);
     const outcome = await onSave({
       name: name.trim(),
@@ -232,6 +246,12 @@ export function FieldConfigSheet({
               onOptionWhen={setOptionWhen}
             />
             {cascade && <CheckRow label="必须选到最后一级" checked={leafOnly} onChange={setLeafOnly} />}
+          </Group>
+        )}
+
+        {dataType === "fieldGroup" && (
+          <Group title="列">
+            <ColumnsEditor columns={columns} onChange={setColumns} />
           </Group>
         )}
 
@@ -457,6 +477,84 @@ function RuleBlock({
 }
 
 /** 选项列表：改名、调顺序、禁用、排他、按条件展示；级联选项选上级。 */
+/** 字段组的列：名称、类型，选项列在下面编辑选项。列的键建好后不变，改名不影响已填的数据。 */
+function ColumnsEditor({
+  columns,
+  onChange,
+}: {
+  columns: FieldGroupColumn[];
+  onChange: (columns: FieldGroupColumn[]) => void;
+}) {
+  const update = (i: number, patch: Partial<FieldGroupColumn>) =>
+    onChange(columns.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  const nextKey = () => {
+    let n = columns.length + 1;
+    while (columns.some((c) => c.key === `列${n}`)) n++;
+    return `列${n}`;
+  };
+  return (
+    <div className="flex flex-col gap-3">
+      {columns.map((c, i) => (
+        <div key={c.key} className="flex flex-col gap-2 rounded border border-line p-2">
+          <div className="flex items-center gap-2">
+            <Input
+              aria-label={`第 ${i + 1} 列名称`}
+              value={c.name}
+              onChange={(e) => update(i, { name: e.target.value })}
+            />
+            <Select
+              aria-label={`第 ${i + 1} 列类型`}
+              value={c.dataType}
+              onChange={(e) => update(i, { dataType: e.target.value as FieldGroupColumn["dataType"] })}
+            >
+              {FIELD_GROUP_COLUMN_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {FIELD_TYPE_LABEL[t]}
+                </option>
+              ))}
+            </Select>
+            <button
+              type="button"
+              aria-label={`删除第 ${i + 1} 列`}
+              disabled={columns.length <= 1}
+              className="rounded p-1.5 text-fg-subtle hover:bg-canvas hover:text-danger-500 disabled:opacity-40"
+              onClick={() => onChange(columns.filter((_, j) => j !== i))}
+            >
+              <Trash2 className="size-4" />
+            </button>
+          </div>
+          {OPTION_FIELD_TYPES.includes(c.dataType) && (
+            <OptionsEditor
+              options={[...(c.options ?? [])]}
+              cascade={CASCADE_FIELD_TYPES.includes(c.dataType)}
+              multi={c.dataType === "multiSelect"}
+              exclusive={[]}
+              optionWhen={{}}
+              conditionFields={[]}
+              onChange={(options) => update(i, { options })}
+              onExclusive={() => {}}
+              onOptionWhen={() => {}}
+            />
+          )}
+        </div>
+      ))}
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-fit"
+        disabled={columns.length >= 30}
+        onClick={() => {
+          const key = nextKey();
+          onChange([...columns, { key, name: key, dataType: "text" }]);
+        }}
+      >
+        <Plus />
+        添加列
+      </Button>
+    </div>
+  );
+}
+
 function OptionsEditor({
   options,
   cascade,

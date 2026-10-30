@@ -112,9 +112,20 @@ describe("formula across work items", () => {
     item("包材风险", "inProgress", { 等级: "高", 影响天数: 3 }),
     item("配方风险", "completed", { 等级: "低", 影响天数: 1 }),
   ];
+  // 字段组「成本率维护」：每行是 品牌、类型、成本率
+  const costs = [
+    item("成本率配置", "completed", {
+      成本率维护: [
+        { 品牌: "B2214", 类型: "BRAND_DEFAULT", 成本率: 0.3 },
+        { 品牌: "B2214", 类型: "SUBCLASS_SPECIFIC", 成本率: 0.25 },
+        { 品牌: "B02330", 类型: "BRAND_DEFAULT", 成本率: 0.4 },
+      ],
+    }),
+  ];
   const scope = {
     field: (k: string) => values[k] ?? null,
-    related: (name: string) => (name === "关联风险" ? risks : name === "关联评审" ? reviews : []),
+    related: (name: string) =>
+      name === "关联风险" ? risks : name === "关联评审" ? reviews : name === "关联成本率" ? costs : [],
     children: () => [item("SKU-1", "completed", { 工时: 3 }), item("SKU-2", "inProgress", { 工时: 4 })],
     node: (ref: string) => (ref === "需求评审" ? { state: "completed", conclusion: "pass" } : null),
     today: "2026-10-23",
@@ -129,6 +140,13 @@ describe("formula across work items", () => {
     expect(calc('SUMIF(RELATED("关联风险"), TRUE, each.{影响天数})')).toBe(4);
     expect(calc('ANYOF(RELATED("关联风险"), each.{等级} = "低")')).toBe(true);
     expect(calc('ALLOF(RELATED("关联风险"), each.状态 = "completed")')).toBe(false);
+  });
+
+  it("reads the rows of a field group on related items", () => {
+    const rows = (cond: string) => `FILTER(RELATED("关联成本率").{成本率维护}, ${cond})`;
+    expect(calc(`COUNT(${rows('each.{品牌} = "B2214"')})`)).toBe(2);
+    expect(calc(`FIRST(${rows('AND(each.{品牌} = "B2214", each.{类型} = "BRAND_DEFAULT")')}).{成本率}`)).toBe(0.3);
+    expect(calc(`SUM(MAP(${rows('each.{品牌} = "B02330"')}, each.{成本率}))`)).toBe(0.4);
   });
 
   it("reads the flow type and the nodes of related items", () => {

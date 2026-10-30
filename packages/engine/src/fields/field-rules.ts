@@ -15,7 +15,9 @@ import { type Condition, conditionFields, evaluate, type Fields } from "../flow/
 import {
   CASCADE_FIELD_TYPES,
   conditionValue,
+  FIELD_GROUP_COLUMN_TYPES,
   type FieldDataType,
+  type FieldGroupColumn,
   type FieldOption,
   type FieldSpec,
   MULTI_VALUE_FIELD_TYPES,
@@ -64,6 +66,8 @@ export interface FieldConfig {
   exclusiveOptions?: string[] | null;
   /** 公式字段：工作项完成后不再重算，保留完成时的结果。 */
   freezeOnComplete?: boolean | null;
+  /** 字段组的列。 */
+  columns?: FieldGroupColumn[] | null;
 }
 
 /** 规则求值需要的字段定义。 */
@@ -220,11 +224,37 @@ export function checkFieldConfig(
     if (!isOptions || !options.has(value)) return `「${field.name}」没有选项「${value}」。`;
   if (config.exclusiveOptions?.length && field.dataType !== "multiSelect") return "只有多选字段能设排他选项。";
   if (config.unique && field.dataType !== "text") return "只有单行文本能校验重复值。";
+  if (config.columns) {
+    if (field.dataType !== "fieldGroup") return "只有字段组能设列。";
+    const columnError = checkColumns(config.columns);
+    if (columnError) return `「${field.name}」${columnError}`;
+  }
   if (config.number && field.dataType !== "number") return "只有数字字段能设数字格式。";
   if (config.number?.precision !== undefined && (config.number.precision < 0 || config.number.precision > 10))
     return "小数位数要在 0 到 10 之间。";
   if (config.alias !== undefined && config.alias !== null && !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(config.alias))
     return "对接标识只能用英文字母、数字和下划线，不能以数字开头。";
+  return null;
+}
+
+/** 检查字段组的列：至少一列，键和名称不重复，类型能用，选项列有选项。 */
+export function checkColumns(columns: readonly FieldGroupColumn[]): string | null {
+  if (columns.length === 0) return "至少要有一列。";
+  if (columns.length > 30) return "最多 30 列。";
+  const keys = new Set<string>();
+  const names = new Set<string>();
+  for (const c of columns) {
+    if (!c.key || !c.name.trim()) return "的列要有名称。";
+    if (keys.has(c.key) || names.has(c.name)) return `的列「${c.name}」重复了。`;
+    keys.add(c.key);
+    names.add(c.name);
+    if (!(FIELD_GROUP_COLUMN_TYPES as readonly string[]).includes(c.dataType)) return `的列「${c.name}」类型不能用。`;
+    if (OPTION_FIELD_TYPES.includes(c.dataType)) {
+      if (!c.options?.length) return `的列「${c.name}」至少要有一个选项。`;
+      const error = checkOptions(c.dataType, c.options);
+      if (error) return `的列「${c.name}」${error}`;
+    }
+  }
   return null;
 }
 

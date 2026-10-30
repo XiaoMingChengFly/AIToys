@@ -13,6 +13,7 @@ import {
   FormulaError,
   isStatusFlow,
   OPTION_FIELD_TYPES,
+  FIELD_GROUP_COLUMN_TYPES,
   type RoleConfig,
   roleConditions,
   type StatusFlowDefinition,
@@ -140,6 +141,17 @@ export const fieldConfigSchema = z.object({
   optionWhen: z.record(z.string(), condition).nullish(),
   exclusiveOptions: z.array(z.string()).nullish(),
   freezeOnComplete: z.boolean().nullish(),
+  columns: z
+    .array(
+      z.object({
+        key: z.string().min(1).max(64),
+        name: z.string().trim().min(1).max(60),
+        dataType: z.enum(FIELD_GROUP_COLUMN_TYPES),
+        options: fieldOptions.nullish(),
+      }),
+    )
+    .max(30)
+    .nullish(),
 });
 
 /** 改字段：名称、选项、必填和配置。字段类型和键建好后不能改。 */
@@ -500,7 +512,8 @@ export async function createField(tx: Transaction, args: z.output<typeof createF
     options: isOptions ? (args.options ?? []) : null,
     formula,
     required: false,
-    config: null,
+    // 字段组先带一列，列在字段配置里改
+    config: args.dataType === "fieldGroup" ? { columns: [{ key: "列1", name: "列1", dataType: "text" }] } : null,
     viewRoles: null,
     editRoles: null,
     sort: type.fields.length,

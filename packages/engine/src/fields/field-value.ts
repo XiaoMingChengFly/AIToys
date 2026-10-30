@@ -11,6 +11,7 @@
  * - user：用户 id 数组（去重）；singleUser：用户 id
  * - attachment：附件 id 数组
  * - signal：{ state, text?, url? }；multiSignal：它的数组（只由开放接口写入）
+ * - fieldGroup：多行表格，每行是「列键 → 该列的规范值」，空行去掉（列定义在 config.columns）
  *
  * 空值（空字符串、空数组）统一成 null。
  */
@@ -39,6 +40,7 @@ export type FieldDataType =
   | "attachment"
   | "signal"
   | "multiSignal"
+  | "fieldGroup"
   | "relation"
   | "formula";
 
@@ -67,6 +69,7 @@ export const EDITABLE_FIELD_TYPES = [
   "email",
   "signal",
   "multiSignal",
+  "fieldGroup",
 ] as const;
 
 export const FIELD_TYPE_LABEL: Record<FieldDataType, string> = {
@@ -93,6 +96,7 @@ export const FIELD_TYPE_LABEL: Record<FieldDataType, string> = {
   attachment: "附件",
   signal: "系统外信号",
   multiSignal: "多值系统外信号",
+  fieldGroup: "字段组",
   relation: "关联工作项",
   formula: "公式",
 };
@@ -145,9 +149,45 @@ export interface FieldSpec {
   name: string;
   dataType: FieldDataType;
   options?: readonly FieldOption[] | null;
-  /** 数字格式、级联层级等类型相关的设置（见 field-rules 的 FieldConfig）。 */
-  config?: { number?: NumberFormat | null; leafOnly?: boolean | null } | null;
+  /** 数字格式、级联层级、字段组的列等类型相关的设置（见 field-rules 的 FieldConfig）。 */
+  config?: {
+    number?: NumberFormat | null;
+    leafOnly?: boolean | null;
+    columns?: readonly FieldGroupColumn[] | null;
+  } | null;
 }
+
+/** 字段组的一列：一个小字段（对照飞书项目的字段组 / 复合字段）。 */
+export interface FieldGroupColumn {
+  key: string;
+  name: string;
+  dataType: FieldGroupColumnType;
+  options?: readonly FieldOption[] | null;
+}
+
+/** 字段组里能用的列类型。 */
+export const FIELD_GROUP_COLUMN_TYPES = [
+  "text",
+  "number",
+  "select",
+  "multiSelect",
+  "cascadeSelect",
+  "date",
+  "bool",
+  "singleUser",
+  "user",
+  "link",
+] as const;
+export type FieldGroupColumnType = (typeof FIELD_GROUP_COLUMN_TYPES)[number];
+
+/** 字段组的一行。 */
+export type FieldGroupRow = Record<string, unknown>;
+
+const columnSpec = (column: FieldGroupColumn): FieldSpec => ({
+  name: column.name,
+  dataType: column.dataType,
+  options: column.options ?? null,
+});
 
 /** 系统外信号的状态。 */
 export const SIGNAL_STATES = ["none", "pending", "passed", "failed"] as const;
@@ -329,6 +369,24 @@ export function normalizeFieldValue(field: FieldSpec, value: unknown): unknown {
       return normalizeSignal(value, fail);
     case "multiSignal":
       return asList(value).map((v) => normalizeSignal(v, fail));
+    case "fieldGroup": {
+      const columns = field.config?.columns ?? [];
+      const rows: FieldGroupRow[] = [];
+      for (const [i, raw] of asList(value).entries()) {
+        if (!isObject(raw)) fail(`第 ${i + 1} 行不是一行数据。`);
+        const row: FieldGroupRow = {};
+        for (const column of columns) {
+          try {
+            const v = normalizeFieldValue(columnSpec(column), (raw as Record<string, unknown>)[column.key]);
+            if (v !== null) row[column.key] = v;
+          } catch (e) {
+            fail(`第 ${i + 1} 行${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+        if (Object.keys(row).length > 0) rows.push(row);
+      }
+      return rows.length > 0 ? rows : null;
+    }
     case "relation":
       return fail("是关联字段，要在关联里设置。");
     case "formula":
@@ -419,6 +477,8 @@ export function formatFieldValue(
       return signal(value);
     case "multiSignal":
       return asList(value).map(signal).join("、");
+    case "fieldGroup":
+      return `${asList(value).length} 行`;
     case "formula":
       if (typeof value === "number") return String(Math.round(value * 10_000) / 10_000);
       if (typeof value === "boolean") return value ? "是" : "否";
@@ -487,6 +547,14 @@ export function fieldIndex(
         ...empty,
         items: [...new Set(asList(value).map((v) => (isObject(v) ? String(v.state) : String(v))))],
       };
+    case "fieldGroup": {
+      // 每个单元格的文字都能搜到
+      const columns = field.config?.columns ?? [];
+      const cells = asList(value).flatMap((row) =>
+        isObject(row) ? columns.map((c) => formatFieldValue(columnSpec(c), row[c.key] ?? null)).filter(Boolean) : [],
+      );
+      return { ...empty, str: cells.join(" ") || null };
+    }
     case "formula":
       // 公式的结果类型看值：数字、日期可以按范围筛，文本按包含筛，是否按属于筛
       if (typeof value === "number") return fieldIndex({ ...field, dataType: "number" }, value);

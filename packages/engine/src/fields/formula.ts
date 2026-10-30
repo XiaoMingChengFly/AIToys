@@ -17,6 +17,8 @@
  *   FILTER(RELATED("关联SKU"), each.{是否上市}).名称         符合条件的关联 SKU 名称
  *   NODE("需求评审").状态 = "completed"                      节点状态、结论（.结论）
  *
+ * 字段组的值是行的列表，each.{列名} 取这一行的列。
+ *
  * RELATED、CHILDREN 得到工作项列表；列表.{字段} 取每一项的字段；each 是 FILTER、MAP、COUNTIF、SUMIF、
  * ANYOF、ALLOF 里当前的那一项。工作项上除了字段，还有 名称、状态、阶段、流程类型 四个属性，
  * 以及 节点（这个工作项的流程节点列表，每个节点有 名称、状态、结论）：
@@ -367,6 +369,8 @@ function memberOf(v: unknown, prop: string, field: boolean): unknown {
     if (prop === "状态" || prop === "STATE" || prop === "STATUS") return n.state;
     if (prop === "结论" || prop === "CONCLUSION") return n.conclusion;
   }
+  // 字段组的一行：按列取值
+  if (typeof v === "object" && v !== null) return (v as Record<string, unknown>)[prop] ?? null;
   return null;
 }
 const finite = (n: number): number | null => (Number.isFinite(n) ? n : null);

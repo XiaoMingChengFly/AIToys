@@ -79,7 +79,7 @@ export function LayoutEditor({
   };
   const nameOf = (key: string) => fields.find((f) => f.key === key)?.name ?? key;
   const conditionFields: ConditionField[] = fields
-    .filter((f) => !["richText", "attachment", "formula"].includes(f.dataType ?? ""))
+    .filter((f) => !["richText", "attachment", "formula", "fieldGroup"].includes(f.dataType ?? ""))
     .map((f) => ({ key: f.key, name: f.name, dataType: f.dataType ?? "text", options: f.options ?? null }));
   const itemLabel = (item: LayoutItem) =>
     item.kind === "field"

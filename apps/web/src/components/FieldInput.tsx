@@ -8,7 +8,19 @@ import {
   SIGNAL_STATE_LABEL,
   type SignalState,
 } from "@fp/engine";
-import { Check, ChevronDown, CircleHelp, ExternalLink, Mail, Paperclip, Phone, Upload, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  CircleHelp,
+  ExternalLink,
+  Mail,
+  Paperclip,
+  Phone,
+  Plus,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import { useRef, useState } from "react";
 import { RichTextEditor } from "@/components/RichText";
 import { Input, Select, Textarea } from "@/components/ui/input";
@@ -27,7 +39,17 @@ export interface FieldConfig {
 }
 
 /** 控件交给 mutator 的值（JSON 可序列化），由 mutator 按字段类型整理。 */
-export type FieldInputValue = string | number | boolean | string[] | { start: string; end: string } | null;
+export type FieldInputValue =
+  | string
+  | number
+  | boolean
+  | string[]
+  | { start: string; end: string }
+  | FieldGroupRow[]
+  | null;
+
+/** 字段组的一行：列键 → 单元格的值。 */
+export type FieldGroupRow = { [column: string]: string | number | boolean | string[] | null };
 
 export interface FieldMember {
   userId: string;
@@ -417,9 +439,122 @@ export function FieldInput({
           onChange={(ids) => onChange(ids.length > 0 ? ids : null)}
         />
       );
+    case "fieldGroup":
+      return (
+        <FieldGroupInput
+          field={field}
+          value={value}
+          onChange={onChange}
+          members={members}
+          readOnly={readOnly}
+          live={live}
+          label={label}
+        />
+      );
     default:
       return textInput("text", "未填写");
   }
+}
+
+/**
+ * 字段组：一张小表，每行按列填（对照飞书项目的字段组）。每改一格就把整张表交出去，
+ * 空行由 mutator 去掉；还没填的新行先留在本地。
+ */
+function FieldGroupInput({
+  field,
+  value,
+  onChange,
+  members,
+  readOnly,
+  live,
+  label,
+}: {
+  field: FieldConfig;
+  value: unknown;
+  onChange: (value: FieldInputValue) => void;
+  members: readonly FieldMember[];
+  readOnly: boolean;
+  live: boolean;
+  label: string;
+}) {
+  const columns = field.config?.columns ?? [];
+  const saved = Array.isArray(value) ? (value as FieldGroupRow[]) : [];
+  const [extra, setExtra] = useState(0);
+  const rows: FieldGroupRow[] = [...saved, ...Array.from({ length: extra }, () => ({}))];
+  const commit = (next: FieldGroupRow[]) => {
+    const filled = next.filter((r) => Object.values(r).some((v) => v !== null && v !== undefined && v !== ""));
+    setExtra(next.length - filled.length);
+    onChange(filled.length > 0 ? filled : null);
+  };
+  // 列类型都是简单值（没有日期区间、字段组），按单元格的类型收下
+  const setCell = (index: number, key: string, cell: FieldInputValue) =>
+    commit(rows.map((r, i) => (i === index ? { ...r, [key]: cell as FieldGroupRow[string] } : r)));
+
+  return (
+    <div className="overflow-x-auto rounded border border-line">
+      <table aria-label={label} className="w-full min-w-max text-sm">
+        <thead className="bg-canvas text-fg-muted">
+          <tr>
+            {columns.map((c) => (
+              <th key={c.key} className="px-2 py-1.5 text-left font-normal">
+                {c.name}
+              </th>
+            ))}
+            {!readOnly && <th className="w-8" />}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={columns.length + 1} className="px-2 py-2 text-fg-subtle">
+                还没有数据
+              </td>
+            </tr>
+          )}
+          {rows.map((row, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 行没有自己的 id，按位置编辑
+            <tr key={index} className="border-t border-line">
+              {columns.map((c) => (
+                <td key={c.key} className="min-w-32 px-1 py-1 align-top">
+                  <FieldInput
+                    field={{ key: c.key, name: c.name, dataType: c.dataType, options: c.options ?? null }}
+                    value={row[c.key] ?? null}
+                    label={`${label}第 ${index + 1} 行${c.name}`}
+                    members={members}
+                    readOnly={readOnly}
+                    live={live}
+                    onChange={(cell) => setCell(index, c.key, cell)}
+                  />
+                </td>
+              ))}
+              {!readOnly && (
+                <td className="px-1 py-1 align-top">
+                  <button
+                    type="button"
+                    aria-label={`删除${label}第 ${index + 1} 行`}
+                    className="rounded p-1.5 text-fg-subtle hover:bg-canvas hover:text-danger-500"
+                    onClick={() => commit(rows.filter((_, i) => i !== index))}
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!readOnly && (
+        <button
+          type="button"
+          className="flex w-full items-center gap-1 border-t border-line px-2 py-1.5 text-left text-brand-500 text-sm hover:bg-canvas"
+          onClick={() => setExtra((n) => n + 1)}
+        >
+          <Plus className="size-4" />
+          添加一行
+        </button>
+      )}
+    </div>
+  );
 }
 
 const SIGNAL_TONE: Record<SignalState, TagTone> = {
