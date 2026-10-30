@@ -264,8 +264,21 @@ export const queries = defineQueries({
         .related("tasks", (t) => t.orderBy("createdAt", "asc").orderBy("id", "asc"))
         .related("marks", (m) => m.where("userId", ctx.userID))
         // 子工作项、上级工作项和自定义关联（两个方向）
-        .related("outgoing", (r) => r.related("to").related("def"))
-        .related("incoming", (r) => r.related("from").related("def"))
+        // 关联工作项带上字段值和字段定义：布局里的「关联信息」要显示它们的字段
+        .related("outgoing", (r) =>
+          r
+            .related("to", (w) =>
+              w.related("fieldValues", visibleFieldValues(ctx.userID)).related("type", (t) => t.related("fields")),
+            )
+            .related("def"),
+        )
+        .related("incoming", (r) =>
+          r
+            .related("from", (w) =>
+              w.related("fieldValues", visibleFieldValues(ctx.userID)).related("type", (t) => t.related("fields")),
+            )
+            .related("def"),
+        )
         .one(),
     ),
     /**

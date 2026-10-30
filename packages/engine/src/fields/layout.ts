@@ -43,6 +43,11 @@ export type LayoutItem =
   | { kind: "text"; text: string; tone?: "info" | "warning" }
   /** 一种关联的关联工作项列表。 */
   | { kind: "relation"; relationDefId: string; title?: string }
+  /**
+   * 关联信息：沿一种关联，只读显示关联工作项上的一个字段（对照飞书项目的「关联信息」控件）。
+   * field 是对端类型的字段名或字段键；关联了多个时值用「、」连起来。
+   */
+  | { kind: "relatedField"; relationDefId: string; field: string; label?: string }
   /** 所有关联（含上级、子工作项）。 */
   | { kind: "relations" }
   | { kind: "roles" }
@@ -255,6 +260,10 @@ export function checkLayout(
       if (item.kind === "text" && !item.text.trim()) return "提示文字不能为空。";
       if (item.kind === "relation" && !relationDefIds.includes(item.relationDefId))
         return "关联工作项控件引用的关联不存在。";
+      if (item.kind === "relatedField") {
+        if (!relationDefIds.includes(item.relationDefId)) return "关联信息控件引用的关联不存在。";
+        if (!item.field.trim()) return "关联信息控件要选一个字段。";
+      }
     }
     return null;
   };

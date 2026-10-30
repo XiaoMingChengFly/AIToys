@@ -7,8 +7,10 @@ import {
   dayInTimeZone,
   dayToIso,
   evaluate,
+  type FieldDataType,
   FlowGraph,
   fieldStates,
+  formatFieldValue,
   type LayoutItem,
   type LayoutSection,
   type NodeState,
@@ -346,6 +348,43 @@ export function WorkItemView({ itemId }: { itemId: string }) {
                 .map((r) => ({ ...r, item: r.from }))}
               {...(it.kind === "relation" && it.title && { title: it.title })}
             />
+          </div>
+        );
+      }
+      case "relatedField": {
+        // 关联信息：沿这个关联取对端工作项的字段，只读
+        const others = [
+          ...item.outgoing.filter((r) => r.relationDefId === it.relationDefId).map((r) => r.to),
+          ...item.incoming.filter((r) => r.relationDefId === it.relationDefId).map((r) => r.from),
+        ].filter((w) => !!w);
+        const values = others.flatMap((w) => {
+          // 「名称」是工作项自己的名称，不是字段
+          if (it.field === "名称") return [w.name];
+          const def = w.type?.fields.find((f) => f.key === it.field || f.name === it.field);
+          const value = def && w.fieldValues.find((v) => v.fieldKey === def.key)?.value;
+          if (!def || value === null || value === undefined) return [];
+          const text = formatFieldValue(
+            { name: def.name, dataType: def.dataType as FieldDataType, options: def.options, config: def.config },
+            value,
+            (id: string) => members.find((m) => m.userId === id)?.name ?? id,
+          );
+          return text ? [text] : [];
+        });
+        const label = it.label || others[0]?.type?.fields.find((f) => f.key === it.field)?.name || it.field;
+        return (
+          <div
+            key={`rf-${index}`}
+            className={cn(
+              "flex min-w-0 gap-2 text-sm",
+              layout.labelPosition === "top" ? "flex-col gap-1" : "items-start",
+            )}
+          >
+            <span className="w-28 shrink-0 truncate pt-1.5 text-fg-muted" title={label}>
+              {label}
+            </span>
+            <span aria-label={label} className="min-w-0 flex-1 whitespace-pre-wrap break-words pt-1.5">
+              {values.join("、") || <span className="text-fg-subtle">—</span>}
+            </span>
           </div>
         );
       }

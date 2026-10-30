@@ -3,6 +3,7 @@ import {
   choose,
   closeTypeConfig,
   createItem,
+  createRelation,
   createSpace,
   openItems,
   openSettings,
@@ -78,4 +79,51 @@ test("admins lay out the detail page in tabs and sections, with hints and a sepa
   await expect(page.getByLabel("预计工时")).toHaveCount(0);
   await page.getByRole("tablist", { name: "详情页签" }).getByRole("tab", { name: "排期" }).click();
   await expect(page.getByLabel("预计工时")).toBeVisible();
+});
+
+test("a related-info control shows a field of the linked work item", async ({ page }) => {
+  const suffix = `${Date.now()}`;
+  await signUp(page, "Pascal", `related-info-${suffix}@example.com`);
+  await createSpace(page, `关联信息 ${suffix}`);
+  await openSettings(page);
+  await page.getByLabel("新类型名称").fill("评审");
+  await choose(page.getByLabel("流程方式"), "state");
+  await page.getByRole("button", { name: "新建类型" }).click();
+  await createRelation(page, { from: "评审", to: "评审", name: "关联项目" });
+  await openTypeConfig(page, "评审");
+  await typeTab(page, "字段");
+  await page.getByLabel("新字段名称").fill("品牌");
+  await choose(selectByName(page, "dataType"), "text");
+  await page.getByRole("button", { name: "添加字段" }).click();
+  await expect(page.getByRole("cell", { name: "品牌", exact: true })).toBeVisible();
+  await typeTab(page, "流程");
+  await page.getByLabel("新模板名称").fill("默认");
+  await page.getByRole("button", { name: "新建模板" }).click();
+  await page.getByRole("link", { name: "默认" }).click();
+  await page.getByRole("button", { name: "发布" }).click();
+  await expect(page.getByText("v1 已发布（当前版本）")).toBeVisible();
+  await page.goBack();
+
+  // 布局里加一个关联信息：关联项目的品牌
+  await typeTab(page, "页面布局");
+  const editor = page.getByRole("group").filter({ has: page.getByRole("button", { name: "保存布局" }) });
+  const section = editor.getByRole("region", { name: "分组 字段" });
+  await choose(section.getByLabel("添加字段或控件"), { label: "关联信息：关联项目" });
+  await section.getByLabel("对端字段（字段名）").fill("品牌");
+  await section.getByLabel("显示名").fill("项目品牌");
+  await editor.getByRole("button", { name: "保存布局" }).click();
+  await expect(editor.getByRole("button", { name: "保存布局" })).toBeDisabled();
+  await closeTypeConfig(page);
+
+  await openItems(page);
+  await createItem(page, "面霜项目", { label: "评审名称" });
+  const fields = page.getByRole("region", { name: "字段" });
+  await fields.getByLabel("品牌", { exact: true }).fill("ddg");
+  await fields.getByLabel("品牌", { exact: true }).blur();
+  await openItems(page);
+  await createItem(page, "面霜需求评审", { label: "评审名称" });
+  await expect(page.getByLabel("项目品牌")).toHaveText("—");
+  const group = page.getByRole("main").getByRole("region", { name: "关联项目" });
+  await choose(group.getByLabel("添加关联项目"), { label: "面霜项目" });
+  await expect(page.getByLabel("项目品牌")).toHaveText("ddg");
 });

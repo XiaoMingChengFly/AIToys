@@ -175,6 +175,12 @@ const layoutItem = z.union([
   }),
   z.object({ kind: z.literal("text"), text: z.string().max(1000), tone: z.enum(["info", "warning"]).optional() }),
   z.object({ kind: z.literal("relation"), relationDefId: z.string(), title: z.string().max(60).optional() }),
+  z.object({
+    kind: z.literal("relatedField"),
+    relationDefId: z.string(),
+    field: z.string().min(1).max(200),
+    label: z.string().max(60).optional(),
+  }),
   z.object({ kind: z.enum(["relations", "roles", "subItems", "attachments"]) }),
 ]);
 /** 详情页布局的结构（早期的分组布局和页签布局都认）。 */

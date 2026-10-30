@@ -43,7 +43,7 @@ function move<T>(list: readonly T[], index: number, by: number): T[] {
   return next;
 }
 
-const CONTROL_LABEL: Record<Exclude<LayoutItem["kind"], "field" | "relation">, string> = {
+const CONTROL_LABEL: Record<Exclude<LayoutItem["kind"], "field" | "relation" | "relatedField">, string> = {
   text: "提示文字",
   relations: "全部关联工作项",
   roles: "角色与人员",
@@ -88,9 +88,11 @@ export function LayoutEditor({
         : nameOf(item.field)
       : item.kind === "relation"
         ? `关联：${relationDefs.find((d) => d.id === item.relationDefId)?.name ?? "（已删除）"}`
-        : item.kind === "text"
-          ? `提示文字：${item.text.slice(0, 20) || "（空）"}`
-          : CONTROL_LABEL[item.kind];
+        : item.kind === "relatedField"
+          ? `关联信息：${relationDefs.find((d) => d.id === item.relationDefId)?.name ?? "（已删除）"} · ${item.label || item.field || "（未选字段）"}`
+          : item.kind === "text"
+            ? `提示文字：${item.text.slice(0, 20) || "（空）"}`
+            : CONTROL_LABEL[item.kind];
 
   const tab = draft.tabs.find((t) => t.key === tabKey) ?? draft.tabs[0];
   const setTabs = (tabs: LayoutTab[]) => update({ ...draft, tabs });
@@ -632,6 +634,19 @@ function ItemsEditor({
                     </Select>
                   </>
                 )}
+                {item.kind === "relatedField" && (
+                  <>
+                    <Field label="对端字段（字段名）">
+                      <Input value={item.field} onChange={(e) => patch(i, { ...item, field: e.target.value })} />
+                    </Field>
+                    <Field label="显示名">
+                      <Input
+                        value={item.label ?? ""}
+                        onChange={(e) => patch(i, { ...item, label: e.target.value || undefined })}
+                      />
+                    </Field>
+                  </>
+                )}
                 {item.kind === "relation" && (
                   <Field label="标题">
                     <Input
@@ -658,11 +673,13 @@ function ItemsEditor({
               ? { kind: "field", field: id }
               : kind === "relation"
                 ? { kind: "relation", relationDefId: id }
-                : kind === "text"
-                  ? { kind: "text", text: "提示文字" }
-                  : { kind: kind as "relations" | "roles" | "subItems" | "attachments" };
+                : kind === "relatedField"
+                  ? { kind: "relatedField", relationDefId: id, field: "" }
+                  : kind === "text"
+                    ? { kind: "text", text: "提示文字" }
+                    : { kind: kind as "relations" | "roles" | "subItems" | "attachments" };
           onChange([...items, item]);
-          if (kind === "text") setOpen(items.length);
+          if (kind === "text" || kind === "relatedField") setOpen(items.length);
         }}
       >
         <option value="">添加字段或控件…</option>
@@ -681,6 +698,11 @@ function ItemsEditor({
               {relationDefs.map((d) => (
                 <option key={d.id} value={`relation:${d.id}`}>
                   关联：{d.name}
+                </option>
+              ))}
+              {relationDefs.map((d) => (
+                <option key={`info-${d.id}`} value={`relatedField:${d.id}`}>
+                  关联信息：{d.name}
                 </option>
               ))}
               <option value="subItems:">子工作项</option>
