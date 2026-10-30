@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { compileFormula, FormulaError, fieldIndex, formatFieldValue, orderFormulas } from "../src/index.ts";
+import {
+  compileFormula,
+  FormulaError,
+  type FormulaNodeItem,
+  fieldIndex,
+  formatFieldValue,
+  orderFormulas,
+} from "../src/index.ts";
 
 const FIELDS: Record<string, string> = { 工时: "hours", 单价: "price", 开始: "start", 结束: "end", 标签: "tags" };
 const resolve = (ref: string) => FIELDS[ref] ?? (Object.values(FIELDS).includes(ref) ? ref : undefined);
@@ -86,7 +93,7 @@ describe("formula across work items", () => {
     name: string,
     status: string,
     fields: Record<string, unknown>,
-    extra: { template?: string; nodes?: { name: string; state: string; conclusion: string | null }[] } = {},
+    extra: { template?: string; nodes?: FormulaNodeItem[] } = {},
   ) => ({
     name,
     status,
@@ -108,6 +115,7 @@ describe("formula across work items", () => {
             conclusion: null,
             plannedStart: "2026-11-02",
             plannedEnd: "2026-11-06",
+            actualEnd: "2026-11-05",
           },
         ],
       },
@@ -141,6 +149,8 @@ describe("formula across work items", () => {
     children: () => [item("SKU-1", "completed", { 工时: 3 }), item("SKU-2", "inProgress", { 工时: 4 })],
     node: (ref: string) => (ref === "需求评审" ? { state: "completed", conclusion: "pass" } : null),
     today: "2026-10-23",
+    template: "OEM",
+    typeName: "项目",
     // 级联选项：卸妆油在 面部洗护 / 卸妆 下面
     optionPath: (v: string) => (v === "卸妆油" ? ["面部洗护", "卸妆", "卸妆油"] : [v]),
   };
@@ -172,6 +182,14 @@ describe("formula across work items", () => {
     expect(calc(`EMPTY(RELATED("关联CDCP"))`)).toBe(true);
     expect(calc(`DATE("1970-01-01")`)).toBe("1970-01-01");
     expect(calc(`FIND(RELATED("关联评审").节点, each.名称 = "产品手册").计划结束`)).toBe("2026-11-06");
+  });
+
+  it("lists values and reads its own flow type and type", () => {
+    expect(calc(`JOIN(LIST(TYPE(), TEMPLATE(), ""), " ")`)).toBe("项目 OEM");
+    expect(calc(`JOIN(LIST(JOIN(RELATED("关联风险").名称, "、"), "风险提报"), " ")`)).toBe(
+      "包材风险、配方风险 风险提报",
+    );
+    expect(calc(`FIND(RELATED("关联评审").节点, each.名称 = "产品手册").实际结束`)).toBe("2026-11-05");
   });
 
   it("reads the flow type and the nodes of related items", () => {

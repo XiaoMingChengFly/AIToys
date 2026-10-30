@@ -77,9 +77,11 @@ export async function recomputeFormulas(
       .where("id", workItemId)
       .related("type", (t) => t.related("fields"))
       .related("fieldValues")
+      .related("flowVersion", (v) => v.related("template"))
       .one(),
   );
   if (!item?.type) return [];
+  const self = { template: item.flowVersion?.template?.name ?? null, typeName: item.type.name };
   // 配了「完成后冻结」的公式字段，工作项完成后不再变
   const frozen = item.status === "completed";
   const formulas = compileTypeFormulas(item.type.fields).filter((f) => !(frozen && f.config?.freezeOnComplete));
@@ -93,7 +95,7 @@ export async function recomputeFormulas(
   const changes: { fieldKey: string; from: unknown; to: unknown }[] = [];
   let created = false;
   for (const f of formulas) {
-    const value = evaluate(f.compiled, values, children, cross, item.type.fields);
+    const value = evaluate(f.compiled, values, children, cross, item.type.fields, self);
     if (same(values.get(f.key), value)) continue;
     const result = await storeFieldValue(tx, workItemId, f, value);
     created ||= result.created;
@@ -208,6 +210,7 @@ async function crossScope(tx: Transaction, workItemId: string, children: SubItem
           conclusion: string | null;
           plannedStart?: number | null;
           plannedEnd?: number | null;
+          actualEnd?: number | null;
         }[]
       | undefined;
   }): SubItem => {
@@ -223,6 +226,7 @@ async function crossScope(tx: Transaction, workItemId: string, children: SubItem
         conclusion: n.conclusion ?? null,
         plannedStart: day(n.plannedStart),
         plannedEnd: day(n.plannedEnd),
+        actualEnd: day(n.actualEnd),
       })),
       values: new Map(w.fieldValues.map((v) => [v.fieldKey, v.value])),
       fields: w.type?.fields ?? [],
@@ -267,6 +271,7 @@ async function crossScope(tx: Transaction, workItemId: string, children: SubItem
             conclusion: n.conclusion ?? null,
             plannedStart: day(n.plannedStart),
             plannedEnd: day(n.plannedEnd),
+            actualEnd: day(n.actualEnd),
           }
         : null;
     },
@@ -301,8 +306,10 @@ function evaluate(
   children: SubItem[] | null,
   cross: CrossScope | null,
   fields: readonly ColumnsField[],
+  self: { template: string | null; typeName: string },
 ) {
   return formula.evaluate({
+    ...self,
     field: (key) =>
       formulaValue(
         fields.find((f) => f.key === key),
