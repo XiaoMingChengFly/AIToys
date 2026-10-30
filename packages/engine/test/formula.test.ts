@@ -99,7 +99,18 @@ describe("formula across work items", () => {
       "评审 1",
       "inProgress",
       {},
-      { template: "CDCP", nodes: [{ name: "产品手册", state: "completed", conclusion: null }] },
+      {
+        template: "CDCP",
+        nodes: [
+          {
+            name: "产品手册",
+            state: "completed",
+            conclusion: null,
+            plannedStart: "2026-11-02",
+            plannedEnd: "2026-11-06",
+          },
+        ],
+      },
     ),
     item(
       "评审 2",
@@ -117,6 +128,7 @@ describe("formula across work items", () => {
     item("成本率配置", "completed", {
       成本率维护: [
         { 品牌: "B2214", 类型: "BRAND_DEFAULT", 成本率: 0.3 },
+        { 品牌: "B2214", 类型: "SUBCLASS_SPECIFIC", 分类: "卸妆油", 成本率: 0.2 },
         { 品牌: "B2214", 类型: "SUBCLASS_SPECIFIC", 成本率: 0.25 },
         { 品牌: "B02330", 类型: "BRAND_DEFAULT", 成本率: 0.4 },
       ],
@@ -129,6 +141,8 @@ describe("formula across work items", () => {
     children: () => [item("SKU-1", "completed", { 工时: 3 }), item("SKU-2", "inProgress", { 工时: 4 })],
     node: (ref: string) => (ref === "需求评审" ? { state: "completed", conclusion: "pass" } : null),
     today: "2026-10-23",
+    // 级联选项：卸妆油在 面部洗护 / 卸妆 下面
+    optionPath: (v: string) => (v === "卸妆油" ? ["面部洗护", "卸妆", "卸妆油"] : [v]),
   };
   const calc = (source: string) => compileFormula(source, resolve).evaluate(scope);
 
@@ -144,9 +158,20 @@ describe("formula across work items", () => {
 
   it("reads the rows of a field group on related items", () => {
     const rows = (cond: string) => `FILTER(RELATED("关联成本率").{成本率维护}, ${cond})`;
-    expect(calc(`COUNT(${rows('each.{品牌} = "B2214"')})`)).toBe(2);
+    expect(calc(`COUNT(${rows('each.{品牌} = "B2214"')})`)).toBe(3);
     expect(calc(`FIRST(${rows('AND(each.{品牌} = "B2214", each.{类型} = "BRAND_DEFAULT")')}).{成本率}`)).toBe(0.3);
     expect(calc(`SUM(MAP(${rows('each.{品牌} = "B02330"')}, each.{成本率}))`)).toBe(0.4);
+  });
+
+  it("finds the first match, converts values and reads cascade levels and node schedules", () => {
+    expect(calc(`FIND(RELATED("关联成本率").{成本率维护}, LEVEL(each.{分类}, 3) = "卸妆油").{成本率}`)).toBe(0.2);
+    expect(calc(`LEVEL("卸妆油", 2)`)).toBe("卸妆");
+    expect(calc(`LEVEL("卸妆油", 4)`)).toBeNull();
+    expect(calc(`FIND(RELATED("关联风险"), each.{等级} = "中")`)).toBeNull();
+    expect(calc(`STRING(12) = "12"`)).toBe(true);
+    expect(calc(`EMPTY(RELATED("关联CDCP"))`)).toBe(true);
+    expect(calc(`DATE("1970-01-01")`)).toBe("1970-01-01");
+    expect(calc(`FIND(RELATED("关联评审").节点, each.名称 = "产品手册").计划结束`)).toBe("2026-11-06");
   });
 
   it("reads the flow type and the nodes of related items", () => {

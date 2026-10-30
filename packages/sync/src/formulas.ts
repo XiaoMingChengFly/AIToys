@@ -1,11 +1,16 @@
 import {
+  CASCADE_FIELD_TYPES,
   type CompiledFormula,
   compileFormula,
+  dayFromDate,
+  dayToIso,
   type FieldConfig,
   type FieldDataType,
   type FormulaItem,
   type FormulaNode,
+  type FormulaNodeItem,
   nodeFlowOf,
+  optionPath,
   orderFormulas,
 } from "@fp/engine";
 import type { Transaction } from "@rocicorp/zero";
@@ -20,6 +25,24 @@ type FieldRow = {
   formula: string | null;
   config?: FieldConfig | null;
 };
+
+type ColumnsField = {
+  key: string;
+  name: string;
+  dataType?: string;
+  config?: { columns?: readonly { key: string; name: string }[] | null } | null;
+};
+
+/** 字段组的行存的是列键；公式里按列名取（each.{品牌}），所以行里再按列名放一份。 */
+function formulaValue(field: ColumnsField | undefined, value: unknown): unknown {
+  const columns = field?.dataType === "fieldGroup" ? field.config?.columns : null;
+  if (!columns || !Array.isArray(value)) return value;
+  return value.map((row) =>
+    row && typeof row === "object"
+      ? { ...row, ...Object.fromEntries(columns.map((c) => [c.name, (row as Record<string, unknown>)[c.key] ?? null])) }
+      : row,
+  );
+}
 
 /** 公式里写的字段名或字段键换成字段键。 */
 export function fieldResolver(fields: readonly { key: string; name: string }[]) {
@@ -70,7 +93,7 @@ export async function recomputeFormulas(
   const changes: { fieldKey: string; from: unknown; to: unknown }[] = [];
   let created = false;
   for (const f of formulas) {
-    const value = evaluate(f.compiled, values, children, cross);
+    const value = evaluate(f.compiled, values, children, cross, item.type.fields);
     if (same(values.get(f.key), value)) continue;
     const result = await storeFieldValue(tx, workItemId, f, value);
     created ||= result.created;
@@ -87,9 +110,9 @@ type SubItem = {
   stage: string | null;
   /** 流程类型（流程模板名）和流程节点，公式里的 .流程类型 .节点 用。 */
   template?: string | null;
-  nodes?: { name: string; state: string; conclusion: string | null }[];
+  nodes?: FormulaNodeItem[];
   values: Map<string, unknown>;
-  fields: readonly { key: string; name: string }[];
+  fields: readonly ColumnsField[];
 };
 
 /** 公式里的别的工作项：字段按名称或键取。 */
@@ -101,7 +124,12 @@ const asFormulaItem = (i: SubItem): FormulaItem => ({
   nodes: i.nodes ?? [],
   field: (ref) => {
     const key = fieldResolver(i.fields)(ref);
-    return key === undefined ? null : i.values.get(key);
+    return key === undefined
+      ? null
+      : formulaValue(
+          i.fields.find((f) => f.key === key),
+          i.values.get(key),
+        );
   },
 });
 
@@ -109,7 +137,32 @@ type CrossScope = {
   related(name: string): FormulaItem[];
   children(): FormulaItem[];
   node(ref: string): FormulaNode | null;
+  optionPath(value: string): string[];
 };
+
+type OptionField = {
+  dataType: string;
+  options?: readonly { value: string; parent?: string }[] | null;
+  config?: {
+    columns?: readonly { dataType: string; options?: readonly { value: string; parent?: string }[] | null }[] | null;
+  } | null;
+};
+
+/** 级联选项的路径：从这些字段（含字段组的列）的级联选项里找，LEVEL 用。 */
+function cascadePaths(fields: readonly OptionField[]) {
+  const options = fields.flatMap((f) => [
+    ...(CASCADE_FIELD_TYPES.includes(f.dataType as FieldDataType) ? (f.options ?? []) : []),
+    ...(f.config?.columns ?? []).flatMap((c) =>
+      CASCADE_FIELD_TYPES.includes(c.dataType as FieldDataType) ? (c.options ?? []) : [],
+    ),
+  ]);
+  return (value: string) => {
+    const path = optionPath(options, value);
+    return path.length > 0 ? path : [value];
+  };
+}
+
+const day = (ms: number | null | undefined) => (ms == null ? null : dayToIso(dayFromDate(ms)));
 
 /**
  * 公式里 RELATED、CHILDREN、NODE 要的数据：按关联名（或关联键）分好的关联工作项（两个方向）、子工作项、节点。
@@ -146,9 +199,17 @@ async function crossScope(tx: Transaction, workItemId: string, children: SubItem
     status: string | null;
     stage: string | null;
     fieldValues: readonly { fieldKey: string; value: unknown }[];
-    type?: { fields: readonly { key: string; name: string }[] } | undefined;
+    type?: { fields: readonly ColumnsField[] } | undefined;
     flowVersion?: { definition: unknown; template?: { name: string } | undefined } | undefined;
-    nodes?: readonly { nodeKey: string; state: string | null; conclusion: string | null }[] | undefined;
+    nodes?:
+      | readonly {
+          nodeKey: string;
+          state: string | null;
+          conclusion: string | null;
+          plannedStart?: number | null;
+          plannedEnd?: number | null;
+        }[]
+      | undefined;
   }): SubItem => {
     const flow = nodeFlowOf(w.flowVersion?.definition);
     return {
@@ -160,6 +221,8 @@ async function crossScope(tx: Transaction, workItemId: string, children: SubItem
         name: flow?.nodes.find((d) => d.key === n.nodeKey)?.name ?? n.nodeKey,
         state: n.state ?? "notStarted",
         conclusion: n.conclusion ?? null,
+        plannedStart: day(n.plannedStart),
+        plannedEnd: day(n.plannedEnd),
       })),
       values: new Map(w.fieldValues.map((v) => [v.fieldKey, v.value])),
       fields: w.type?.fields ?? [],
@@ -178,15 +241,34 @@ async function crossScope(tx: Transaction, workItemId: string, children: SubItem
   // 互相关联的另一端用另一端的字段名；没有设另一端字段名的关联，两个方向都用关联名
   for (const r of incoming) add(r.def, r.def?.reverseName ?? r.def?.name, r.from);
 
-  const item = await tx.run(zql.workItem.where("id", workItemId).related("flowVersion").related("nodes").one());
+  const item = await tx.run(
+    zql.workItem
+      .where("id", workItemId)
+      .related("flowVersion")
+      .related("nodes")
+      .related("type", (t) => t.related("fields"))
+      .one(),
+  );
   const definition = nodeFlowOf(item?.flowVersion?.definition);
+  const optionFields = [
+    ...(item?.type?.fields ?? []),
+    ...[...outgoing.map((r) => r.to), ...incoming.map((r) => r.from)].flatMap((w) => w?.type?.fields ?? []),
+  ] as OptionField[];
   return {
+    optionPath: cascadePaths(optionFields),
     related: (name) => (byDef.get(name) ?? []).map(asFormulaItem),
     children: () => children.map(asFormulaItem),
     node: (ref) => {
       const key = definition?.nodes.find((n) => n.key === ref || n.name === ref)?.key ?? ref;
       const n = item?.nodes.find((x) => x.nodeKey === key);
-      return n ? { state: n.state ?? "notStarted", conclusion: n.conclusion ?? null } : null;
+      return n
+        ? {
+            state: n.state ?? "notStarted",
+            conclusion: n.conclusion ?? null,
+            plannedStart: day(n.plannedStart),
+            plannedEnd: day(n.plannedEnd),
+          }
+        : null;
     },
   };
 }
@@ -218,10 +300,15 @@ function evaluate(
   values: Map<string, unknown>,
   children: SubItem[] | null,
   cross: CrossScope | null,
+  fields: readonly ColumnsField[],
 ) {
   return formula.evaluate({
-    field: (key) => values.get(key),
-    ...(cross && { related: cross.related, children: cross.children, node: cross.node }),
+    field: (key) =>
+      formulaValue(
+        fields.find((f) => f.key === key),
+        values.get(key),
+      ),
+    ...(cross && { related: cross.related, children: cross.children, node: cross.node, optionPath: cross.optionPath }),
     ...(children && {
       subItemCount: children.length,
       subItemsDone: children.filter((c) => c.status === "completed").length,

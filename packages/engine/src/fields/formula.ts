@@ -25,6 +25,12 @@
  *
  *   COUNTIF(RELATED("关联评审管理"), each.流程类型 = "CDCP") > 0         关联的评审里有没有 CDCP 流程的
  *   COUNTIF(FILTER(RELATED("关联产品资料").节点, each.名称 = "产品手册"), each.状态 = "completed") > 0
+ *
+ * 节点还有 计划开始、计划结束（YYYY-MM-DD）。FIND(列表, 条件) 取第一个满足的项；
+ * LEVEL(级联值, n) 取级联选项路径上的第 n 级（对照飞书的「级联字段第三级」）：
+ *
+ *   FIND(FILTER(RELATED("关联需求SKU流程").节点, TRUE), each.名称 = "成品到仓").计划结束
+ *   FIND(RELATED("关联成本率").{成本率维护}, LEVEL(each.{分类}, 3) = LEVEL({分类}, 3)).{成本率}
  */
 
 export type FormulaValue = number | string | boolean | null;
@@ -47,12 +53,17 @@ export interface FormulaNodeItem {
   name: string;
   state: string;
   conclusion: string | null;
+  /** 计划开始、计划结束（YYYY-MM-DD）。 */
+  plannedStart?: string | null;
+  plannedEnd?: string | null;
 }
 
 /** 公式里能拿到的节点。 */
 export interface FormulaNode {
   state: string;
   conclusion: string | null;
+  plannedStart?: string | null;
+  plannedEnd?: string | null;
 }
 
 export class FormulaError extends Error {
@@ -116,6 +127,11 @@ export const FORMULA_FUNCTIONS: Record<string, { args: [number, number]; doc: st
   CONTAINS: { args: [2, 2], doc: "CONTAINS(列表或文本, 值) 是否包含" },
   JOIN: { args: [1, 2], doc: "JOIN(列表, 分隔符) 连成文本，默认用「、」" },
   FIRST: { args: [1, 1], doc: "FIRST(列表) 第一项" },
+  FIND: { args: [2, 2], doc: "FIND(列表, each 的条件) 第一个满足条件的项" },
+  STRING: { args: [1, 1], doc: "STRING(值) 转成文本" },
+  EMPTY: { args: [1, 1], doc: "EMPTY(值) 是否为空（空列表也算）" },
+  DATE: { args: [1, 1], doc: 'DATE("2026-01-01") 日期' },
+  LEVEL: { args: [2, 2], doc: "LEVEL(级联值, n) 级联选项路径上的第 n 级" },
   TODAY: { args: [0, 0], doc: "TODAY() 今天（YYYY-MM-DD）" },
 };
 
@@ -306,6 +322,8 @@ export interface FormulaScope {
   node?(ref: string): FormulaNode | null;
   /** 今天（YYYY-MM-DD），不提供时按 UTC 当天。 */
   today?: string;
+  /** 级联选项值从第一级到它自己的路径；不提供时 LEVEL 只认第一级。 */
+  optionPath?(value: string): string[];
 }
 
 export interface CompiledFormula {
@@ -363,11 +381,15 @@ function memberOf(v: unknown, prop: string, field: boolean): unknown {
     if (prop === "名称" || prop === "NAME") return n.name;
     if (prop === "状态" || prop === "STATE" || prop === "STATUS") return n.state;
     if (prop === "结论" || prop === "CONCLUSION") return n.conclusion;
+    if (prop === "计划开始" || prop === "PLANNEDSTART") return n.plannedStart ?? null;
+    if (prop === "计划结束" || prop === "PLANNEDEND") return n.plannedEnd ?? null;
   }
   if (typeof v === "object" && v !== null && "state" in v) {
     const n = v as FormulaNode;
     if (prop === "状态" || prop === "STATE" || prop === "STATUS") return n.state;
     if (prop === "结论" || prop === "CONCLUSION") return n.conclusion;
+    if (prop === "计划开始" || prop === "PLANNEDSTART") return n.plannedStart ?? null;
+    if (prop === "计划结束" || prop === "PLANNEDEND") return n.plannedEnd ?? null;
   }
   // 字段组的一行：按列取值
   if (typeof v === "object" && v !== null) return (v as Record<string, unknown>)[prop] ?? null;
@@ -489,6 +511,23 @@ function call(node: Extract<Node, { kind: "call" }>, scope: FormulaScope, each: 
         .join(node.args.length > 1 ? text(arg(1)) : "、");
     case "FIRST":
       return list(arg(0))[0] ?? null;
+    case "FIND":
+      return list(arg(0)).find((x) => truthy(perItem(1)(x))) ?? null;
+    case "STRING":
+      return text(arg(0));
+    case "EMPTY":
+      return blank(arg(0));
+    case "DATE": {
+      const day = text(arg(0)).trim();
+      return dayOf(day) === null ? null : day;
+    }
+    case "LEVEL": {
+      const value = arg(0);
+      const n = Math.trunc(num(arg(1)));
+      if (blank(value) || n < 1) return null;
+      const path = scope.optionPath?.(text(value)) ?? [text(value)];
+      return path[n - 1] ?? null;
+    }
     case "TODAY":
       return scope.today ?? new Date().toISOString().slice(0, 10);
     case "IF":
